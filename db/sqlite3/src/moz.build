@@ -70,7 +70,13 @@ if CONFIG['MOZ_DEBUG']:
 if CONFIG['OS_ARCH'] == 'WINNT' and CONFIG['MOZ_MEMORY']:
     DEFINES['HAVE_MALLOC_USABLE_SIZE'] = True
     DEFINES['SQLITE_WITHOUT_MSIZE'] = True
-    CFLAGS += ['-wd4013']
+    # C4013 is an MSVC warning id; GCC/MinGW rejects -wdNNNN.
+    if CONFIG['_MSC_VER']:
+        CFLAGS += ['-wd4013']
+    elif CONFIG['GNU_CC']:
+        # SQLite relies on MSVC's implicit declaration of malloc_usable_size.
+        # GCC rejects that, so force-include the prototype.
+        CFLAGS += ['-include', TOPSRCDIR + '/db/sqlite3/src/mingw_malloc_usable_size.h']
 
 # Omit unused functions to save some library footprint.
 DEFINES['SQLITE_OMIT_DEPRECATED'] = True

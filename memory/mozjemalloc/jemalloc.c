@@ -189,6 +189,9 @@
 #include <io.h>
 #include <windows.h>
 #include <intrin.h>
+#ifdef __MINGW32__
+#include <stdint.h>
+#endif
 
 #pragma warning( disable: 4267 4996 4146 )
 
@@ -208,6 +211,11 @@ static unsigned long tlsIndex = 0xffffffff;
 #define	__thread
 #define	_pthread_self() __threadid()
 
+#ifdef __MINGW32__
+/* GCC has a builtin; __forceinline is MSVC-only (MinGW defines it as
+ * "extern __inline__", which conflicts with static). */
+#define ffs(x) __builtin_ffs(x)
+#else
 /* use MSVC intrinsics */
 #pragma intrinsic(_BitScanForward)
 static __forceinline int
@@ -220,6 +228,14 @@ ffs(int x)
 
 	return (0);
 }
+#endif
+
+#ifndef min
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#endif
+
+/* memory/build/jemalloc_config.cpp; abort() is redirected to it by moz.build. */
+void moz_abort(void);
 
 /* Implement getenv without using malloc */
 static char mozillaMallocOptionsBuf[64];
@@ -236,6 +252,7 @@ getenv(const char *name)
 	return (NULL);
 }
 
+#ifndef __MINGW32__
 typedef unsigned char uint8_t;
 typedef unsigned uint32_t;
 typedef unsigned long long uint64_t;
@@ -244,6 +261,7 @@ typedef unsigned long long uintmax_t;
 typedef long long ssize_t;
 #else
 typedef long ssize_t;
+#endif
 #endif
 
 #define	MALLOC_DECOMMIT

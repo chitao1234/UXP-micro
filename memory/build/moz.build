@@ -37,4 +37,9 @@ if CONFIG['MOZ_GLUE_IN_PROGRAM']:
 # Keep jemalloc separated when mozglue is statically linked
 if CONFIG['MOZ_MEMORY'] and CONFIG['OS_TARGET'] in ('WINNT', 'Darwin'):
     FINAL_LIBRARY = 'mozglue'
+    # These objects are part of mozglue, so MFBT symbols (notably
+    # gMozCrashReason, used by MOZ_CRASH in jemalloc_config.cpp) are local to
+    # the image. Without this they are declared dllimport and GNU ld cannot
+    # resolve the reference against a definition in the same DLL.
+    DEFINES['IMPL_MFBT'] = True
 
