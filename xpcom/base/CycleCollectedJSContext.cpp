@@ -1909,6 +1909,19 @@ CycleCollectedJSContext::NotifyUnhandledRejections::Run()
 
     // Step 5.1.2.
     bool raiseError = true;
+
+    // Step 5.1.4. (reordered)
+    // In contrast to the letter of the spec, this must be done before
+    // the event handler is called or the PromiseRejectionTrackerCallback
+    // will not see the correct state.
+    //
+    // This also has to happen when the promise has no EventTarget parent
+    // (for example a promise created in an xpcshell or JSM sandbox). Such
+    // promises still need to be visible to PromiseDebugging's
+    // uncaught-rejection observers; otherwise test harnesses that wait for
+    // them spin forever.
+    PromiseDebugging::AddUncaughtRejection(promiseObj);
+
     if (nsCOMPtr<EventTarget> target =
             do_QueryInterface(promise->GetParentObject())) {
       PromiseRejectionEventInit init;
@@ -1919,12 +1932,6 @@ CycleCollectedJSContext::NotifyUnhandledRejections::Run()
       RefPtr<PromiseRejectionEvent> event =
           PromiseRejectionEvent::Constructor(
               target, NS_LITERAL_STRING("unhandledrejection"), init);
-
-      // Step 5.1.4. (reordered)
-      // In contrast to the letter of the spec, this must be done before
-      // the event handler is called or the PromiseRejectionTrackerCallback
-      // will not see the correct state.
-      PromiseDebugging::AddUncaughtRejection(promiseObj);
       target->DispatchEvent(event, &raiseError);
     }
 
