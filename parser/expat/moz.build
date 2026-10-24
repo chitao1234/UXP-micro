@@ -19,3 +19,9 @@ SOURCES += [
 FINAL_LIBRARY = 'gkmedias'
 
 DEFINES['HAVE_EXPAT_CONFIG_H'] = True
+
+if CONFIG['OS_TARGET'] == 'WINNT':
+    # mingw-w64 declares rand_s() in <stdlib.h> only when _CRT_RAND_S is
+    # defined before the include. expat's fallback declaration covers
+    # mingw.org only, so without this the call is implicit.
+    DEFINES['_CRT_RAND_S'] = True

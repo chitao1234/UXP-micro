@@ -359,6 +359,18 @@ ifdef MOZ_USING_CCACHE
 ifdef CLANG_CXX
 export CCACHE_CPP2=1
 endif
+
+# Configure records the compiler wrapper for CPP/HOST_CC, but old-configure
+# restores CC/CXX from _SUBDIR_CC and drops it, so --with-ccache alone never
+# reached the compiler. Apply it here at make level: make invokes the command
+# directly, so the drive-colon path list is not mangled the way MSYS mangles
+# environment variables. The guard avoids double-wrapping.
+ifneq (,$(CCACHE))
+ifeq (,$(findstring $(CCACHE),$(CC)))
+CC := $(CCACHE) $(CC)
+CXX := $(CCACHE) $(CXX)
+endif
+endif
 endif
 
 # Set link flags according to whether we want a console.

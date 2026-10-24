@@ -31,6 +31,14 @@
 #include <pthread.h>
 #endif
 
+#ifdef __MINGW32__
+/* getpid(), used by the fake device's tid/pid logging. mingw-w64 only
+ * declares the POSIX name when the desktop WinAPI family macros are set,
+ * but _getpid() is always available. */
+#include <process.h>
+#define getpid _getpid
+#endif
+
 #ifdef _MSC_VER
 #include <io.h>
 #include <process.h>

@@ -860,11 +860,14 @@ case "$target" in
         WIN32_CONSOLE_EXE_LDFLAGS=-mconsole -municode
         WIN32_GUI_EXE_LDFLAGS=-mwindows -municode
 
-        # GCC/binutils can't link to a function if we try to include dllexport function
-        # in the same library as dllimport caller. To work around it, we build NSPR
-        # and NSS with -mnop-fun-dllimport flag. The drawback of this solution is that
-        # function thunks need to be generated for cross-DLL calls.
-        MOZ_FOLD_LIBS_FLAGS=-mnop-fun-dllimport
+        # Folded NSPR is linked statically. Its headers present NSPR_API as
+        # dllimport to consumers unless NSPR_STATIC is defined, which produces
+        # __imp__ references that GNU ld cannot resolve against a local
+        # definition (MSVC's link.exe does that fixup as LNK4217). Declare the
+        # folded library static instead of weakening dllimport semantics:
+        # -mnop-fun-dllimport also changes genuine DLL imports (mozjs.dll,
+        # nss3.dll) and turns function addresses into local thunks.
+        MOZ_FOLD_LIBS_FLAGS=-DNSPR_STATIC
     else
         TARGET_COMPILER_ABI=msvc
         HOST_LD='$(LD)'

@@ -48,7 +48,7 @@
 **
 **
 ***********************************************************************/
-#if defined(WIN32)
+#if defined(WIN32) && !defined(NSPR_STATIC)
 
 #define PR_EXPORT(__type) extern __declspec(dllexport) __type
 #define PR_EXPORT_DATA(__type) extern __declspec(dllexport) __type

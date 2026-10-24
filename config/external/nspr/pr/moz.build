@@ -13,6 +13,13 @@ else:
 ALLOW_COMPILER_WARNINGS = True
 
 DEFINES['_NSPR_BUILD_'] = True
+
+# The fold links these objects into nss3.dll/xul, and NSS tools resolve NSPR
+# through the folded DLL's import library (security/moz.build sets
+# nspr_libs='nss'). Their definitions must therefore keep the dllexport
+# declarations, so NSPR_STATIC applies to consumers only.
+CFLAGS += ['-UNSPR_STATIC']
+CXXFLAGS += ['-UNSPR_STATIC']
 if CONFIG['OS_ARCH'] == 'Linux':
     OS_LIBS += CONFIG['REALTIME_LIBS']
     DEFINES.update(
