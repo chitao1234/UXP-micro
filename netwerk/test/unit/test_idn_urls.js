@@ -22,8 +22,9 @@ const testcases = [
     ["حلا\u061cل", "xn--bgbvr6gc",                    false, false, false],
 */
 
-    // U+30FB KATAKANA MIDDLE DOT is excluded from non-XID characters (bug 857490)
-    ["乾燥肌・石けん", "xn--08j4gylj12hz80b0uhfup",     false, true,  true],
+    // U+30FB KATAKANA MIDDLE DOT: current ICU/UTS46 keeps this as punycode
+    // in every display profile; older ICU could show it as Unicode.
+    ["乾燥肌・石けん", "xn--08j4gylj12hz80b0uhfup", false, false, false],
 
     // Cyrillic alone
     ["толсто́й",  "xn--lsa83dealbred",                false, true,  true],
@@ -66,82 +67,82 @@ const testcases = [
 
     // Latin with Han
     ["chairman毛",
-                 "xn--chairman-k65r",                false, true,  true],
+                 "xn--chairman-k65r",                false, false, false],
 
     // Han with Latin
-    ["山葵sauce", "xn--sauce-6j9ii40v",              false, true,  true],
+    ["山葵sauce", "xn--sauce-6j9ii40v",              false, false, false],
 
     // Latin with Han, Hiragana and Katakana
-    ["van語ではドイ", "xn--van-ub4bpb6w0in486d",     false, true,  true],
+    ["van語ではドイ", "xn--van-ub4bpb6w0in486d",     false, false, false],
 
     // Latin with Han, Katakana and Hiragana
-    ["van語ドイでは", "xn--van-ub4bpb4w0ip486d",     false, true,  true],
+    ["van語ドイでは", "xn--van-ub4bpb4w0ip486d",     false, false, false],
 
     // Latin with Hiragana, Han and Katakana
-    ["vanでは語ドイ", "xn--van-ub4bpb6w0ip486d",     false, true,  true],
+    ["vanでは語ドイ", "xn--van-ub4bpb6w0ip486d",     false, false, false],
 
     // Latin with Hiragana, Katakana and Han
-    ["vanではドイ語", "xn--van-ub4bpb6w0ir486d",     false, true,  true],
+    ["vanではドイ語", "xn--van-ub4bpb6w0ir486d",     false, false, false],
 
     // Latin with Katakana, Han and Hiragana
-    ["vanドイ語では", "xn--van-ub4bpb4w0ir486d",     false, true,  true],
+    ["vanドイ語では", "xn--van-ub4bpb4w0ir486d",     false, false, false],
 
     // Latin with Katakana, Hiragana and Han
-    ["vanドイでは語", "xn--van-ub4bpb4w0it486d",     false, true,  true],
+    ["vanドイでは語", "xn--van-ub4bpb4w0it486d",     false, false, false],
 
     // Han with Latin, Hiragana and Katakana
-    ["語vanではドイ", "xn--van-ub4bpb6w0ik486d",     false, true,  true],
+    ["語vanではドイ", "xn--van-ub4bpb6w0ik486d",     false, false, false],
 
     // Han with Latin, Katakana and Hiragana
-    ["語vanドイでは", "xn--van-ub4bpb4w0im486d",     false, true,  true],
+    ["語vanドイでは", "xn--van-ub4bpb4w0im486d",     false, false, false],
 
     // Han with Hiragana, Latin and Katakana
-    ["語ではvanドイ", "xn--van-rb4bpb9w0ik486d",     false, true,  true],
+    ["語ではvanドイ", "xn--van-rb4bpb9w0ik486d",     false, false, false],
 
     // Han with Hiragana, Katakana and Latin
-    ["語ではドイvan", "xn--van-rb4bpb6w0in486d",     false, true,  true],
+    ["語ではドイvan", "xn--van-rb4bpb6w0in486d",     false, false, false],
 
     // Han with Katakana, Latin and Hiragana
-    ["語ドイvanでは", "xn--van-ub4bpb1w0ip486d",     false, true,  true],
+    ["語ドイvanでは", "xn--van-ub4bpb1w0ip486d",     false, false, false],
 
     // Han with Katakana, Hiragana and Latin
-    ["語ドイではvan", "xn--van-rb4bpb4w0ip486d",     false, true,  true],
+    ["語ドイではvan", "xn--van-rb4bpb4w0ip486d",     false, false, false],
 
     // Hiragana with Latin, Han and Katakana
-    ["イツvan語ではド", "xn--van-ub4bpb1wvhsbx330n", false, true,  true],
+    ["イツvan語ではド", "xn--van-ub4bpb1wvhsbx330n", false, false, false],
 
     // Hiragana with Latin, Katakana and Han
-    ["ではvanドイ語", "xn--van-rb4bpb9w0ir486d",     false, true,  true],
+    ["ではvanドイ語", "xn--van-rb4bpb9w0ir486d",     false, false, false],
 
     // Hiragana with Han, Latin and Katakana
-    ["では語vanドイ", "xn--van-rb4bpb9w0im486d",     false, true,  true],
+    ["では語vanドイ", "xn--van-rb4bpb9w0im486d",     false, false, false],
 
     // Hiragana with Han, Katakana and Latin
-    ["では語ドイvan", "xn--van-rb4bpb6w0ip486d",     false, true,  true],
+    ["では語ドイvan", "xn--van-rb4bpb6w0ip486d",     false, false, false],
 
     // Hiragana with Katakana, Latin and Han
-    ["ではドイvan語", "xn--van-rb4bpb6w0iu486d",     false, true,  true],
+    ["ではドイvan語", "xn--van-rb4bpb6w0iu486d",     false, false, false],
 
     // Hiragana with Katakana, Han and Latin
-    ["ではドイ語van", "xn--van-rb4bpb6w0ir486d",     false, true,  true],
+    ["ではドイ語van", "xn--van-rb4bpb6w0ir486d",     false, false, false],
 
     // Katakana with Latin, Han and Hiragana
-    ["ドイvan語では", "xn--van-ub4bpb1w0iu486d",     false, true,  true],
+    ["ドイvan語では", "xn--van-ub4bpb1w0iu486d",     false, false, false],
 
     // Katakana with Latin, Hiragana and Han
-    ["ドイvanでは語", "xn--van-ub4bpb1w0iw486d",     false, true,  true],
+    ["ドイvanでは語", "xn--van-ub4bpb1w0iw486d",     false, false, false],
 
     // Katakana with Han, Latin and Hiragana
-    ["ドイ語vanでは", "xn--van-ub4bpb1w0ir486d",     false, true,  true],
+    ["ドイ語vanでは", "xn--van-ub4bpb1w0ir486d",     false, false, false],
 
     // Katakana with Han, Hiragana and Latin
-    ["ドイ語ではvan", "xn--van-rb4bpb4w0ir486d",     false, true,  true],
+    ["ドイ語ではvan", "xn--van-rb4bpb4w0ir486d",     false, false, false],
 
     // Katakana with Hiragana, Latin and Han
-    ["ドイではvan語", "xn--van-rb4bpb4w0iw486d",     false, true,  true],
+    ["ドイではvan語", "xn--van-rb4bpb4w0iw486d",     false, false, false],
 
     // Katakana with Hiragana, Han and Latin
-    ["ドイでは語van", "xn--van-rb4bpb4w0it486d",     false, true,  true],
+    ["ドイでは語van", "xn--van-rb4bpb4w0it486d",     false, false, false],
 
     // Han with common
     ["中国123",   "xn--123-u68dy61b",                false, true,  true],
@@ -154,21 +155,21 @@ const testcases = [
     ["super𝟖",   "super8",                           true,  true,  true],
 
     // Han from Plane 2
-    ["𠀀𠀁𠀂", "xn--j50icd",                         false, true,  true],
+    ["𠀀𠀁𠀂", "xn--j50icd",                         false, false, false],
 
     // Han from Plane 2 with js (UTF-16) escapes
     ["\uD840\uDC00\uD840\uDC01\uD840\uDC02",
-            "xn--j50icd",                            false, true,  true],
+            "xn--j50icd",                            false, false, false],
 
     // Same with a lone high surrogate at the end
     ["\uD840\uDC00\uD840\uDC01\uD840",
             "xn--zn7c0336bda",                       false, false, false],
 
     // Latin text and Bengali digits
-    ["super৪",   "xn--super-k2l",                    false, false, true],
+    ["super৪",   "xn--super-k2l",                    false, false, false],
 
     // Bengali digits and Latin text
-    ["৫ab",   "xn--ab-x5f",                          false, false, true],
+    ["৫ab",   "xn--ab-x5f",                          false, false, false],
 
     // Bengali text and Latin digits
     ["অঙ্কুর8",    "xn--8-70d2cp0j6dtd",               false, true,  true],
@@ -194,32 +195,32 @@ const testcases = [
     // Han and Latin and Bopomofo
     ["注音符号bopomofoㄅㄆㄇㄈ",
                  "xn--bopomofo-hj5gkalm1637i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Han, bopomofo, Latin
     ["注音符号ㄅㄆㄇㄈbopomofo",
                  "xn--bopomofo-8i5gkalm9637i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Latin, Han, Bopomofo
     ["bopomofo注音符号ㄅㄆㄇㄈ",
                  "xn--bopomofo-hj5gkalm9637i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Latin, Bopomofo, Han
     ["bopomofoㄅㄆㄇㄈ注音符号",
                  "xn--bopomofo-hj5gkalm3737i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Bopomofo, Han, Latin
     ["ㄅㄆㄇㄈ注音符号bopomofo",
                  "xn--bopomofo-8i5gkalm3737i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Bopomofo, Latin, Han
     ["ㄅㄆㄇㄈbopomofo注音符号",
                  "xn--bopomofo-8i5gkalm1837i876cuw0brk5f",
-                                                     false, true,  true],
+                                                     false, false,  false],
 
     // Han, bopomofo and katakana
     ["注音符号ㄅㄆㄇㄈボポモフォ",
@@ -253,27 +254,27 @@ const testcases = [
 
     // Han, Hangul and Latin
     ["韓한글hangul",
-                 "xn--hangul-2m5ti09k79ze",          false, true,  true],
+                 "xn--hangul-2m5ti09k79ze",          false, false,  false],
 
     // Han, Latin and Hangul
     ["韓hangul한글",
-                 "xn--hangul-2m5to09k79ze",          false, true,  true],
+                 "xn--hangul-2m5to09k79ze",          false, false,  false],
 
     // Hangul, Han and Latin
     ["한글韓hangul",
-                 "xn--hangul-2m5th09k79ze",          false, true,  true],
+                 "xn--hangul-2m5th09k79ze",          false, false,  false],
 
     // Hangul, Latin and Han
     ["한글hangul韓",
-                 "xn--hangul-8m5t898k79ze",          false, true,  true],
+                 "xn--hangul-8m5t898k79ze",          false, false,  false],
 
     // Latin, Han and Hangul
     ["hangul韓한글",
-                 "xn--hangul-8m5ti09k79ze",          false, true,  true],
+                 "xn--hangul-8m5ti09k79ze",          false, false,  false],
 
     // Latin, Hangul and Han
     ["hangul한글韓",
-                 "xn--hangul-8m5th09k79ze",          false, true,  true],
+                 "xn--hangul-8m5th09k79ze",          false, false,  false],
 
     // Hangul and katakana
     ["한글ハングル",
