@@ -9,25 +9,53 @@
 
 #include "CSSVariableResolver.h"
 
+#include "mozilla/Mutex.h"
+
 namespace mozilla {
+
+// A live-value registry lets the memory reporter account for the heap data
+// owned by every CSSVariableValues object without walking style contexts.
+// The registry and its lock are intentionally process-lifetime objects: style
+// values can be destroyed during shutdown after static destructors have run.
+static Mutex* sLiveValuesMutex = new Mutex("CSSVariableValues");
+static nsTArray<CSSVariableValues*>* sLiveValues =
+  new nsTArray<CSSVariableValues*>();
+
+static void
+RegisterVariableValues(CSSVariableValues* aValues)
+{
+  MutexAutoLock lock(*sLiveValuesMutex);
+  sLiveValues->AppendElement(aValues);
+}
+
+static void
+UnregisterVariableValues(CSSVariableValues* aValues)
+{
+  MutexAutoLock lock(*sLiveValuesMutex);
+  size_t index = sLiveValues->IndexOf(aValues);
+  if (index != nsTArray<CSSVariableValues*>::NoIndex) {
+    sLiveValues->RemoveElementAt(index);
+  }
+}
 
 CSSVariableValues::CSSVariableValues()
 {
   MOZ_COUNT_CTOR(CSSVariableValues);
+  RegisterVariableValues(this);
 }
 
 CSSVariableValues::CSSVariableValues(const CSSVariableValues& aOther)
 {
   MOZ_COUNT_CTOR(CSSVariableValues);
   CopyVariablesFrom(aOther);
+  RegisterVariableValues(this);
 }
 
-#ifdef DEBUG
 CSSVariableValues::~CSSVariableValues()
 {
+  UnregisterVariableValues(this);
   MOZ_COUNT_DTOR(CSSVariableValues);
 }
-#endif
 
 CSSVariableValues&
 CSSVariableValues::operator=(const CSSVariableValues& aOther)
@@ -157,6 +185,34 @@ CSSVariableValues::AddVariablesToResolver(CSSVariableResolver* aResolver) const
                    mVariables[i].mLastToken,
                    true);
   }
+}
+
+size_t
+CSSVariableValues::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
+{
+  size_t n = mVariables.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  for (size_t i = 0, len = mVariables.Length(); i < len; i++) {
+    n += mVariables[i].mVariableName.SizeOfExcludingThisIfUnshared(
+      aMallocSizeOf);
+    n += mVariables[i].mValue.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+  }
+
+  n += mVariableIDs.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  for (auto iter = mVariableIDs.ConstIter(); !iter.Done(); iter.Next()) {
+    n += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+  }
+  return n;
+}
+
+/* static */ size_t
+CSSVariableValues::SizeOfLive(MallocSizeOf aMallocSizeOf)
+{
+  size_t n = 0;
+  MutexAutoLock lock(*sLiveValuesMutex);
+  for (size_t i = 0, len = sLiveValues->Length(); i < len; i++) {
+    n += (*sLiveValues)[i]->SizeOfExcludingThis(aMallocSizeOf);
+  }
+  return n;
 }
 
 } // namespace mozilla

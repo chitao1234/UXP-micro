@@ -7,6 +7,7 @@
 #ifndef mozilla_CSSVariableValues_h
 #define mozilla_CSSVariableValues_h
 
+#include "mozilla/MemoryReporting.h"
 #include "nsCSSScanner.h"
 #include "nsDataHashtable.h"
 #include "nsTArray.h"
@@ -20,10 +21,15 @@ class CSSVariableValues
 public:
   CSSVariableValues();
   CSSVariableValues(const CSSVariableValues& aOther);
-#ifdef DEBUG
   ~CSSVariableValues();
-#endif
   CSSVariableValues& operator=(const CSSVariableValues& aOther);
+
+  /**
+   * Returns the heap memory currently held by all live CSSVariableValues
+   * objects.  The objects themselves are usually arena-allocated and are not
+   * included.
+   */
+  static size_t SizeOfLive(mozilla::MallocSizeOf aMallocSizeOf);
 
   bool operator==(const CSSVariableValues& aOther) const;
   bool operator!=(const CSSVariableValues& aOther) const
@@ -144,6 +150,8 @@ private:
    * Array of variables, indexed by variable ID.
    */
   nsTArray<Variable> mVariables;
+
+  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 };
 
 } // namespace mozilla

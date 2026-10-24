@@ -10,6 +10,7 @@
 #include "nsIDOMWindowCollection.h"
 #include "nsIEffectiveTLDService.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/CSSVariableValues.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
@@ -21,6 +22,28 @@
 #include "nsServiceManagerUtils.h"
 
 using namespace mozilla;
+
+class CSSVariableValuesReporter final : public nsIMemoryReporter
+{
+  MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
+
+  ~CSSVariableValuesReporter() {}
+
+public:
+  NS_DECL_ISUPPORTS
+
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    MOZ_COLLECT_REPORT(
+      "explicit/layout/style/variable-values", KIND_HEAP, UNITS_BYTES,
+      CSSVariableValues::SizeOfLive(MallocSizeOf),
+      "Heap memory used by computed CSS custom-property values.");
+    return NS_OK;
+  }
+};
+
+NS_IMPL_ISUPPORTS(CSSVariableValuesReporter, nsIMemoryReporter)
 
 StaticRefPtr<nsWindowMemoryReporter> sWindowReporter;
 
@@ -119,6 +142,7 @@ nsWindowMemoryReporter::Init()
   }
 
   RegisterStrongMemoryReporter(new GhostWindowsReporter());
+  RegisterStrongMemoryReporter(new CSSVariableValuesReporter());
   RegisterGhostWindowsDistinguishedAmount(GhostWindowsReporter::DistinguishedAmount);
 }
 
