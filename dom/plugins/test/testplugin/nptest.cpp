@@ -59,7 +59,6 @@
 #include <pthread.h>
 #endif
 
-using namespace std;
 
 #define PLUGIN_VERSION     "1.0.0.0"
 
@@ -404,11 +403,11 @@ static bool sWatchingInstanceCount = false;
  * NPP_ClearSiteData and NPP_GetSitesWithData.
  */
 struct siteData {
-  string site;
+  std::string site;
   uint64_t flags;
   uint64_t age;
 };
-static list<siteData>* sSitesWithData;
+static std::list<siteData>* sSitesWithData;
 static bool sClearByAgeSupported;
 
 static void initializeIdentifiers()
@@ -462,7 +461,7 @@ static void addRange(InstanceData* instanceData, const char* range)
 static void sendBufferToFrame(NPP instance)
 {
   InstanceData* instanceData = (InstanceData*)(instance->pdata);
-  string outbuf;
+  std::string outbuf;
   if (!instanceData->npnNewStream) outbuf = "data:text/html,";
   const char* buf = reinterpret_cast<char *>(instanceData->streamBuf);
   int32_t bufsize = instanceData->streamBufSize;
@@ -959,9 +958,9 @@ NPP_New(NPMIMEType pluginType, NPP instance, uint16_t mode, int16_t argc, char* 
       instanceData->frame = argv[i];
     }
     if (strcmp(argn[i], "range") == 0) {
-      string range = argv[i];
+      std::string range = argv[i];
       size_t semicolon = range.find(';');
-      while (semicolon != string::npos) {
+      while (semicolon != std::string::npos) {
         addRange(instanceData, range.substr(0, semicolon).c_str());
         if (semicolon == range.length()) {
           range = "";
@@ -1660,11 +1659,11 @@ NPP_ClearSiteData(const char* site, uint64_t flags, uint64_t maxAge)
     return NPERR_TIME_RANGE_NOT_SUPPORTED;
 
   // Iterate over list and remove matches
-  list<siteData>::iterator iter = sSitesWithData->begin();
-  list<siteData>::iterator end = sSitesWithData->end();
+  std::list<siteData>::iterator iter = sSitesWithData->begin();
+  std::list<siteData>::iterator end = sSitesWithData->end();
   while (iter != end) {
     const siteData& data = *iter;
-    list<siteData>::iterator next = iter;
+    std::list<siteData>::iterator next = iter;
     ++next;
     if ((!site || data.site.compare(site) == 0) &&
         (flags == NP_CLEAR_ALL || data.flags & flags) &&
@@ -1697,10 +1696,10 @@ NPP_GetSitesWithData()
   }
 
   // Iterate the list of stored data, and build a list of strings.
-  list<string> sites;
+  std::list<std::string> sites;
   {
-    list<siteData>::iterator iter = sSitesWithData->begin();
-    list<siteData>::iterator end = sSitesWithData->end();
+    std::list<siteData>::iterator iter = sSitesWithData->begin();
+    std::list<siteData>::iterator end = sSitesWithData->end();
     for (; iter != end; ++iter) {
       const siteData& data = *iter;
       sites.push_back(data.site);
@@ -1714,10 +1713,10 @@ NPP_GetSitesWithData()
   // Add strings to the result array, and null terminate.
   {
     int i = 0;
-    list<string>::iterator iter = sites.begin();
-    list<string>::iterator end = sites.end();
+    std::list<std::string>::iterator iter = sites.begin();
+    std::list<std::string>::iterator end = sites.end();
     for (; iter != end; ++iter, ++i) {
-      const string& site = *iter;
+      const std::string& site = *iter;
       result[i] = static_cast<char*>(NPN_MemAlloc(site.length() + 1));
       memcpy(result[i], site.c_str(), site.length() + 1);
     }
@@ -2108,7 +2107,7 @@ scriptableInvokeDefault(NPObject* npobj, const NPVariant* args, uint32_t argCoun
     return false;
   }
 
-  ostringstream value;
+  std::ostringstream value;
   value << sPluginName;
   for (uint32_t i = 0; i < argCount; i++) {
     switch(args[i].type) {
@@ -2707,7 +2706,7 @@ doInternalConsistencyCheck(NPObject* npobj, const NPVariant* args, uint32_t argC
 
   NPP npp = static_cast<TestNPObject*>(npobj)->npp;
   InstanceData* id = static_cast<InstanceData*>(npp->pdata);
-  string error;
+  std::string error;
   pluginDoInternalConsistencyCheck(id, error);
   NPUTF8* utf8String = (NPUTF8*)NPN_MemAlloc(error.length() + 1);
   if (!utf8String) {
@@ -3469,7 +3468,7 @@ getClipboardText(NPObject* npobj, const NPVariant* args, uint32_t argCount,
 {
   NPP npp = static_cast<TestNPObject*>(npobj)->npp;
   InstanceData* id = static_cast<InstanceData*>(npp->pdata);
-  string sel = pluginGetClipboardText(id);
+  std::string sel = pluginGetClipboardText(id);
 
   uint32_t len = sel.size();
   char* selCopy = static_cast<char*>(NPN_MemAlloc(1 + len));
@@ -3864,7 +3863,7 @@ bool setSitesWithData(NPObject* npobj, const NPVariant* args, uint32_t argCount,
     return true;
 
   // Parse the comma-delimited string into a vector.
-  sSitesWithData = new list<siteData>;
+  sSitesWithData = new std::list<siteData>;
   const char* iterator = str->UTF8Characters;
   const char* end = iterator + str->UTF8Length;
   while (1) {
@@ -3880,7 +3879,7 @@ bool setSitesWithData(NPObject* npobj, const NPVariant* args, uint32_t argCount,
     *((char*) next) = '\0';
 
     siteData data;
-    data.site = string(iterator);
+    data.site = std::string(iterator);
     data.flags = atoi(siteEnd + 1);
     data.age = atoi(flagsEnd + 1);
 

@@ -18,8 +18,8 @@
 #include "mozpkix/pkixnss.h"
 #include "mozpkix/pkixtypes.h"
 #include "mozpkix/Result.h"
-#include "mozpkixcheck.h"
-#include "mozpkixutil.h"
+#include "mozpkix/pkixcheck.h"
+#include "mozpkix/pkixutil.h"
 #include "SignedCertificateTimestamp.h"
 #include "SignedTreeHead.h"
 
@@ -590,13 +590,13 @@ public:
   }
 
   Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
-                         const Input*, const Input*) override
+                          const Input*, const Input*, const Input*) override
   {
     ADD_FAILURE();
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
   }
 
-  Result IsChainValid(const DERArray&, Time) override
+  Result IsChainValid(const DERArray&, Time, const CertPolicyId&) override
   {
     ADD_FAILURE();
     return Result::FATAL_ERROR_LIBRARY_FAILURE;

@@ -90,12 +90,11 @@ TEST(TestStandardURL, Deserialize_Bug1392739)
 
 TEST(TestStandardURL, CorruptSerialization)
 {
-  auto spec = "http://user:pass@example.com/path/to/file.ext?query#hash"_ns;
+  nsCString spec = NS_LITERAL_CSTRING("http://user:pass@example.com/path/to/file.ext?query#hash");
 
-  nsCOMPtr<nsIURI> uri;
-  nsresult rv = NS_MutateURI(NS_STANDARDURLMUTATOR_CONTRACTID)
-                    .SetSpec(spec)
-                    .Finalize(uri);
+  nsCOMPtr<nsIURI> uri(do_CreateInstance(NS_STANDARDURL_CONTRACTID));
+  ASSERT_TRUE(uri);
+  nsresult rv = uri->SetSpec(spec);
   ASSERT_EQ(rv, NS_OK);
 
   nsAutoCString serialization;
@@ -109,19 +108,20 @@ TEST(TestStandardURL, CorruptSerialization)
                                         getter_AddRefs(deserializedObject)));
 
   nsAutoCString canonicalBin;
-  Unused << Base64Decode(serialization, canonicalBin);
+  mozilla::Unused << mozilla::Base64Decode(serialization, canonicalBin);
 
 // The spec serialization begins at byte 49
 // If the implementation of nsStandardURL::Write changes, this test will need
 // to be adjusted.
 #define SPEC_OFFSET 49
 
-  ASSERT_EQ(Substring(canonicalBin, SPEC_OFFSET, 7), "http://"_ns);
+  nsAutoCString schemePrefix(Substring(canonicalBin, SPEC_OFFSET, 7));
+  ASSERT_TRUE(schemePrefix == NS_LITERAL_CSTRING("http://"));
 
   nsAutoCString corruptedBin = canonicalBin;
   // change mScheme.mPos
   corruptedBin.BeginWriting()[SPEC_OFFSET + spec.Length()] = 1;
-  Unused << Base64Encode(corruptedBin, serialization);
+  mozilla::Unused << mozilla::Base64Encode(corruptedBin, serialization);
   ASSERT_EQ(
       NS_ERROR_MALFORMED_URI,
       NS_DeserializeObject(serialization, getter_AddRefs(deserializedObject)));
@@ -129,7 +129,7 @@ TEST(TestStandardURL, CorruptSerialization)
   corruptedBin = canonicalBin;
   // change mScheme.mLen
   corruptedBin.BeginWriting()[SPEC_OFFSET + spec.Length() + 4] = 127;
-  Unused << Base64Encode(corruptedBin, serialization);
+  mozilla::Unused << mozilla::Base64Encode(corruptedBin, serialization);
   ASSERT_EQ(
       NS_ERROR_MALFORMED_URI,
       NS_DeserializeObject(serialization, getter_AddRefs(deserializedObject)));
