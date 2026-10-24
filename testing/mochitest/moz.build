@@ -33,7 +33,6 @@ GENERATED_FILES += [
 
 TEST_HARNESS_FILES.testing.mochitest += [
     '!automation.py',
-    '/build/mobile/remoteautomation.py',
     '/build/pgo/server-locations.txt',
     '/build/sanitizers/lsan_suppressions.txt',
     '/build/valgrind/cross-architecture.sup',

@@ -45,4 +45,7 @@ with Files('builtin/make_intl_data.py'):
 with Files('../public/TrackedOptimizationInfo.h'):
     BUG_COMPONENT = component_jit
 
+# jsapi-tests, gdb-tests and netwerk's C++ tests link the internal JS API
+# statically. Enabling ENABLE_TESTS also emits js_static alongside the shared
+# library (see js/src/moz.build), so they can link it.
 TEST_DIRS += ['jsapi-tests', 'tests', 'gdb']

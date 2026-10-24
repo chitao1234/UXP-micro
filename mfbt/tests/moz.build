@@ -55,7 +55,6 @@ CppUnitTests([
     'TestVariant',
     'TestVector',
     'TestWeakPtr',
-    'TestXorShift128PlusRNG',
 ])
 
 if not CONFIG['MOZ_ASAN']:

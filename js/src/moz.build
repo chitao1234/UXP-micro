@@ -655,6 +655,18 @@ if CONFIG['JS_SHARED_LIBRARY']:
     USE_LIBS += [
         'icu',
     ]
+    # The C++ test programs (jsapi-tests, gdb-tests, the JS shell) link the
+    # engine's internal API statically. A shared-only build leaves them
+    # nothing to link against, so emit the static archive as well when tests
+    # are enabled. Shipping builds stay shared-only.
+    if CONFIG['ENABLE_TESTS']:
+        FORCE_STATIC_LIB = True
+        STATIC_LIBRARY_NAME = 'js_static'
+        # Do not generate a .a.desc for the static archive: expandlibs would
+        # then inject js_static's own dependency list (notably fallible) into
+        # every test program, which already links those libraries itself and
+        # ends up with duplicate symbols.
+        NO_EXPAND_LIBS = True
 else:
     Library('js')
     FORCE_STATIC_LIB = True

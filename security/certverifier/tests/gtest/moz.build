@@ -13,8 +13,6 @@ SOURCES += [
 
 LOCAL_INCLUDES += [
     '/security/certverifier',
-    '/security/pkix/include',
-    '/security/pkix/lib',
 ]
 
 FINAL_LIBRARY = 'xul-gtest'
