@@ -55,6 +55,25 @@ def GeckoBinary(linkage='dependent', msvcrt='dynamic', mozglue=None):
 
     if mozglue:
         LDFLAGS += CONFIG['MOZ_GLUE_WRAP_LDFLAGS']
+        if (CONFIG['OS_TARGET'] == 'WINNT' and CONFIG['GNU_CC'] and
+                CONFIG['MOZ_MEMORY'] and not CONFIG['MOZ_GLUE_IN_PROGRAM']):
+            # When jemalloc is enabled on Windows, mozglue.dll exports
+            # malloc/calloc/realloc/free. GNU ld resolves the references from
+            # this module's own objects against mozglue's import library
+            # (it is scanned before the CRT libraries), but objects pulled in
+            # later from libmsvcrt.a -- notably the onexit table support
+            # used by _CRT_INIT -- see only the later msvcrt import library.
+            # The result is a module that allocates through msvcrt and frees
+            # through jemalloc, which crashes in the allocator when the
+            # module is detached. Forcing the four entry points to be
+            # undefined up front makes every reference, including the CRT's,
+            # bind to mozglue.
+            LDFLAGS += [
+                '-Wl,--undefined=_malloc',
+                '-Wl,--undefined=_calloc',
+                '-Wl,--undefined=_realloc',
+                '-Wl,--undefined=_free',
+            ]
         if mozglue == 'program':
             USE_LIBS += ['mozglue']
             DEFINES['MOZ_HAS_MOZGLUE'] = True
