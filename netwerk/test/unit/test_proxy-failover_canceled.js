@@ -40,6 +40,11 @@ function run_test()
                  getService(Ci.nsIPrefService);
   var prefs = prefserv.getBranch("network.proxy.");
   prefs.setIntPref("type", 2);
+  // The test drives failover through a PAC that proxies localhost.  The default
+  // no-proxies-on list bypasses localhost/127.0.0.1, which would send the
+  // request directly and never exercise proxy failover (nor the redirect that
+  // this test cancels).
+  prefs.setCharPref("no_proxies_on", "");
   prefs.setCharPref("autoconfig_url", "data:text/plain," +
     "function FindProxyForURL(url, host) {return 'PROXY a_non_existent_domain_x7x6c572v:80; PROXY localhost:" +
     httpServer.identity.primaryPort + "';}"

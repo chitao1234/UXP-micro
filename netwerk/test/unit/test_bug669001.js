@@ -144,7 +144,11 @@ function setUA(value)
 {
   var prefs = Cc["@mozilla.org/preferences-service;1"].
                  getService(Ci.nsIPrefBranch);
-  prefs.setCharPref("general.useragent.override", value);
+  // nsHttpHandler reads the global User-Agent override from the netwerk
+  // namespace.  general.useragent.override is only the branch prefix used by
+  // UserAgentOverrides.jsm for per-site overrides, so setting it here has no
+  // effect on the default UA (and the cache would never see a different UA).
+  prefs.setCharPref("network.http.useragent.global_override", value);
 }
 
 function getDateString(yearDelta) {

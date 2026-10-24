@@ -22,8 +22,13 @@ const testcases = [
     ["\u0702", "xn--vmb"],
     ["\u0703", "xn--wmb"],
     ["\u0704", "xn--xmb"],
-    ["\u115F", "xn--osd"],
-    ["\u1160", "xn--psd"],
+    // U+115F/U+1160 (Hangul choseong/jungseong fillers), U+3164 (Hangul
+    // filler) and U+FFA0 (halfwidth Hangul filler) are mapped to nothing by
+    // the current UTS #46 data (they are "ignored" code points), so the label
+    // becomes empty instead of being punycoded.  Keep them under the
+    // "stripped by Nameprep" policy below.
+    ["\u115F", ""],
+    ["\u1160", ""],
     ["\u1735", "xn--d0e"],
     ["\u2027", "xn--svg"],
     ["\u2028", "xn--tvg"],
@@ -69,7 +74,7 @@ const testcases = [
     ["\u3014", "xn--96j"],
     ["\u3015", "xn--b7j"],
     ["\u3033", "xn--57j"],
-    ["\u3164", "xn--psd"],
+    ["\u3164", ""],
     ["\u321D", "xn--()-357j35d"],
     ["\u321E", "xn--()-357jf36c"],
     ["\u33AE", "xn--rads-id9a"],
@@ -80,7 +85,7 @@ const testcases = [
     ["\uFE3F", "xn--x6j"],
     ["\uFE5D", "xn--96j"],
     ["\uFE5E", "xn--b7j"],
-    ["\uFFA0", "xn--psd"],
+    ["\uFFA0", ""],
     ["\uFFF9", "xn--vn7c"],
     ["\uFFFA", "xn--wn7c"],
     ["\uFFFB", "xn--xn7c"],

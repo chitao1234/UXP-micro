@@ -78,6 +78,15 @@ function setupChannel(path, originAttributes) {
 
 function run_test() {
 
+  // UXP does not build the url-classifier / Safe Browsing components.  Without
+  // @mozilla.org/url-classifier/dbservice;1 the update below cannot be driven,
+  // and the cookie-jar interaction this test is about does not exist.  Return
+  // without scheduling anything so the test is a no-op instead of a failure.
+  if (!Cc["@mozilla.org/url-classifier/dbservice;1"]) {
+    do_print("url-classifier not built; skipping cookie-jar/safebrowsing test");
+    return;
+  }
+
   // Set up a profile
   do_get_profile();
 

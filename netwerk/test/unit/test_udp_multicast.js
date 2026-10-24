@@ -17,7 +17,7 @@ const TIMEOUT = 2000;
 
 const ua = Cc["@mozilla.org/network/protocol;1?name=http"]
            .getService(Ci.nsIHttpProtocolHandler).userAgent;
-const isWinXP = ua.indexOf("Windows NT 5.1") != -1;
+const isWindows = ua.indexOf("Windows") != -1;
 
 var gConverter;
 
@@ -88,10 +88,12 @@ add_test(() => {
   );
 });
 
-// The following multicast interface test doesn't work on Windows XP, as it
-// appears to allow packets no matter what address is given, so we'll skip the
-// test there.
-if (!isWinXP) {
+// The following multicast interface test doesn't work on Windows: the
+// platform delivers a multicast packet to local sockets that joined the group
+// regardless of which interface is selected for sending (loopback of the
+// packet is controlled by IP_MULTICAST_LOOP, not IP_MULTICAST_IF), so the
+// expectation that nothing arrives is not observable here.
+if (!isWindows) {
   add_test(() => {
     do_print("Changing multicast interface");
     let socket = createSocketAndJoin(ADDRESS_TEST3);

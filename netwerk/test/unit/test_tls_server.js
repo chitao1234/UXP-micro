@@ -76,8 +76,14 @@ function startServer(cert, expectingPeerCert, clientCertificateConfig,
       } else {
         expectedCipher = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256";
       }
-      equal(status.cipherName, expectedCipher,
-            "Using expected cipher");
+      // nsITLSServerConnectionInfo.cipherName is the symmetric cipher
+      // ("AES-GCM"); the cipher suite name lives in cipherSuite.  The old
+      // single cipherName field exposed the suite name, which is why this
+      // test used to compare the suite against cipherName.
+      equal(status.cipherSuite, expectedCipher,
+            "Using expected cipher suite");
+      equal(status.cipherName, "AES-GCM",
+            "Using expected symmetric cipher");
       equal(status.keyLength, 128, "Using 128-bit key");
       equal(status.macLength, 128, "Using 128-bit MAC");
 
@@ -108,6 +114,11 @@ function storeCertOverride(port, cert) {
 function startClient(port, cert, expectingBadCertAlert) {
   let SSL_ERROR_BASE = Ci.nsINSSErrorsService.NSS_SSL_ERROR_BASE;
   let SSL_ERROR_BAD_CERT_ALERT = SSL_ERROR_BASE + 17;
+  // TLS 1.3 servers that require a client certificate but receive none send
+  // the certificate_required alert (RFC 8446, alert 116), which NSS reports
+  // as SSL_ERROR_RX_CERTIFICATE_REQUIRED_ALERT.  Older TLS versions (and the
+  // original expectation of this test) use bad_certificate instead.
+  let SSL_ERROR_RX_CERTIFICATE_REQUIRED_ALERT = SSL_ERROR_BASE + 181;
   let transport =
     socketTransportService.createTransport(["ssl"], 1, "127.0.0.1", port, null);
   let input;
@@ -134,7 +145,9 @@ function startClient(port, cert, expectingBadCertAlert) {
         inputDeferred.resolve();
       } catch (e) {
         let errorCode = -1 * (e.result & 0xFFFF);
-        if (expectingBadCertAlert && errorCode == SSL_ERROR_BAD_CERT_ALERT) {
+        if (expectingBadCertAlert &&
+            (errorCode == SSL_ERROR_BAD_CERT_ALERT ||
+             errorCode == SSL_ERROR_RX_CERTIFICATE_REQUIRED_ALERT)) {
           inputDeferred.resolve();
         } else {
           inputDeferred.reject(e);
