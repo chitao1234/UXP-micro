@@ -26,7 +26,7 @@
 #include "mozilla/Unused.h"
 
 // for ntohs
-#ifdef _MSC_VER
+#ifdef _WIN32
 #include "Winsock2.h"
 #else
 #include <netinet/in.h>

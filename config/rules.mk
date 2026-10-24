@@ -866,7 +866,11 @@ ifdef ASFILES
 # a '-c' flag.
 $(ASOBJS):
 	$(REPORT_BUILD_VERBOSE)
-	$(AS) $(ASOUTOPTION)$@ $(ASFLAGS) $($(notdir $<)_FLAGS) $(AS_DASH_C_FLAG) $(_VPATH_SRCS)
+# This rule declares no prerequisites, so $< is empty and _VPATH_SRCS
+# ($(abspath $<)) expands to nothing. Derive the source from the matching
+# ASFILES entry instead; entries may live in subdirectories (libjpeg's simd/,
+# libaom's sse2/) while the object name is flattened to its basename.
+	$(AS) $(ASOUTOPTION)$@ $(ASFLAGS) $($(notdir $<)_FLAGS) $(AS_DASH_C_FLAG) $(firstword $(foreach f,$(ASFILES),$(if $(filter $(basename $(notdir $@)),$(basename $(notdir $(f)))),$(srcdir)/$(f))))
 endif
 
 $(SOBJS):

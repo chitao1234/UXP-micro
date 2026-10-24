@@ -1862,7 +1862,7 @@ IsWindows10TabletMode()
 }
 
 static bool
-GetAutoRotationState(AR_STATE* aRotationState)
+GetAutoRotationStateInternal(AR_STATE* aRotationState)
 {
   typedef BOOL (WINAPI* GetAutoRotationStateFunc)(PAR_STATE pState);
   static GetAutoRotationStateFunc get_auto_rotation_state_func =
@@ -1905,7 +1905,7 @@ IsTabletDevice()
   // a convertible or a detachable. See:
   // https://msdn.microsoft.com/en-us/library/windows/desktop/dn629263(v=vs.85).aspx
   AR_STATE rotation_state;
-  if (GetAutoRotationState(&rotation_state) &&
+  if (GetAutoRotationStateInternal(&rotation_state) &&
       ((rotation_state & AR_NOT_SUPPORTED) || (rotation_state & AR_LAPTOP) ||
        (rotation_state & AR_NOSENSOR))) {
     return false;

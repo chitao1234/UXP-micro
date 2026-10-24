@@ -38,6 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "transport_addr.h"
 
+/* Windows headers #define interface struct (for MIDL compatibility), which
+   breaks the field name below. */
+#ifdef interface
+#undef interface
+#endif
+
 typedef struct nr_interface_ {
   int type;
 #define NR_INTERFACE_TYPE_UNKNOWN 0x0

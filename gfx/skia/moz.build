@@ -729,6 +729,9 @@ if CONFIG['GNU_CXX'] and not CONFIG['CLANG_CXX'] and not CONFIG['CLANG_CL']:
     CXXFLAGS += [
         '-Wno-logical-op',
         '-Wno-maybe-uninitialized',
+        # SkCpu.cpp calls _xgetbv(); GCC 16 refuses to inline it unless the
+        # XSAVE target feature is enabled.
+        '-mxsave',
     ]
 if CONFIG['CLANG_CXX'] or CONFIG['CLANG_CL']:
     CXXFLAGS += [

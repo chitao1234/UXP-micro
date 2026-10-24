@@ -37,7 +37,10 @@
         },{
           'use_system_sqlite%': 0,
         }],
-        ['OS=="mac" or OS=="ios" or OS=="solaris" or OS=="win"', {
+        # This fork builds Windows with MinGW, which uses GNU ld. Treating
+        # Windows as "not gnu ld" selects MSVC-only MASM source lists (e.g.
+        # freebl's mpi_x86_asm.c) that GCC cannot assemble.
+        ['OS=="mac" or OS=="ios" or OS=="solaris"', {
           'cc_use_gnu_ld%': 0,
         }, {
           'cc_use_gnu_ld%': 1,

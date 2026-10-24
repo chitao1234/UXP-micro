@@ -12,6 +12,7 @@
 #include "nsIDocument.h"
 #include "nsIDOMDocument.h"
 #include "mozilla/css/Loader.h"
+#include "mozilla/dom/Link.h"
 #include "mozilla/dom/SRILogHelper.h"
 #include "nsStyleLinkElement.h"
 #include "nsIDocShell.h"
@@ -897,7 +898,7 @@ nsContentSink::PrefetchOrPreloadHref(const nsAString &aHref,
       nsCOMPtr<nsIDOMNode> domNode = do_QueryInterface(aSource);
       if (aLinkTypes & nsStyleLinkElement::ePRELOAD) {
         nsContentPolicyType policyType;
-        bool isPreloadValid = Link::CheckPreloadAttrs(policyType,
+        bool isPreloadValid = mozilla::dom::Link::CheckPreloadAttrs(policyType,
                                                       aDestination,
                                                       aType,
                                                       aMedia,

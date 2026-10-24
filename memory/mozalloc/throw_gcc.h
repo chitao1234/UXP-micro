@@ -33,6 +33,13 @@
 #  define MOZ_THROW_NORETURN MOZ_NORETURN
 #endif
 
+// These definitions may be reached through headers that are themselves
+// included inside an `extern "C"` block (e.g. <rpc.h> includes <windows.h>,
+// which pulls in <stdlib.h> and thus this wrapper). Without an explicit C++
+// linkage specification the functions below would inherit C linkage and
+// conflict with libstdc++'s declarations in namespace std.
+extern "C++" {
+
 namespace std {
 
 // NB: user code is not supposed to touch the std:: namespace.  We're
@@ -140,6 +147,8 @@ __throw_system_error(int err)
 }
 
 } // namespace std
+
+} // extern "C++"
 
 #undef MOZ_THROW_NORETURN
 

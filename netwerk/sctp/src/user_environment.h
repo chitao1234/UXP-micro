@@ -62,8 +62,12 @@ extern int ipport_firstauto, ipport_lastauto;
  */
 extern int nmbclusters;
 
-#if !defined(_MSC_VER) && !defined(__MINGW32__)
+/* MSVC picks these up from windows.h. MinGW does not define them, and the
+ * BSD-derived SCTP code relies on them throughout. */
+#ifndef min
 #define min(a,b) (((a)>(b))?(b):(a))
+#endif
+#ifndef max
 #define max(a,b) (((a)>(b))?(a):(b))
 #endif
 

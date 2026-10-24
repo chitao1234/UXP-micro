@@ -17,16 +17,30 @@ import buildconfig
 
 
 def main(output, input):
-    if buildconfig.substs['OS_ARCH'] not in ('Linux', 'SunOS', 'Darwin', 'FreeBSD', 'NetBSD'):
-        print("Error: unhandled OS_ARCH %s" % buildconfig.substs['OS_ARCH'])
+    os_arch = buildconfig.substs['OS_ARCH']
+    if os_arch not in ('Linux', 'SunOS', 'Darwin', 'FreeBSD', 'NetBSD',
+                       'WINNT'):
+        print("Error: unhandled OS_ARCH %s" % os_arch)
         return 1
-    is_linux = buildconfig.substs['OS_ARCH'] in ('Linux', 'SunOS', 'FreeBSD', 'NetBSD')
+    is_linux = os_arch in ('Linux', 'SunOS', 'FreeBSD', 'NetBSD')
+    # On Windows the .def files are normally passed verbatim to the MSVC
+    # linker, which treats ';' as a comment. GNU ld's .def parser has no
+    # comment support, so strip the comments here and emit plain
+    # LIBRARY/EXPORTS syntax. Unlike the Unix ports, Windows symbols must
+    # not get a leading underscore.
+    is_windows = os_arch == 'WINNT'
 
     with open(input, 'rb') as f:
         for line in f:
             if isinstance(line, bytes):
                 line = line.decode('utf-8')
             line = line.rstrip()
+            if is_windows:
+                line = line.split(';', 1)[0].replace(' DATA ', '').rstrip()
+                if line:
+                    output.write(line)
+                    output.write('\n')
+                continue
             # Remove all lines containing ';-'
             if ';-' in line:
                 continue

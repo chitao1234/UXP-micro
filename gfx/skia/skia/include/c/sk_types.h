@@ -25,7 +25,7 @@
 
 #if !defined(SK_API)
     #if defined(SKIA_DLL)
-        #if defined(_MSC_VER)
+        #if defined(_MSC_VER) || defined(__MINGW32__)
             #if SKIA_IMPLEMENTATION
                 #define SK_API __declspec(dllexport)
             #else

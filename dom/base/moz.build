@@ -398,6 +398,13 @@ SOURCES += [
     'nsObjectLoadingContent.cpp',
 ]
 
+# This directory mixes sources that pull in <windows.h> (via Hal.h and others)
+# with sources that have `using namespace mozilla::dom`. In a unified TU that
+# makes msxml.h's COM `XMLDocument` collide with mozilla::dom::XMLDocument.
+# The platform root sets this to 1, but moz.build variables are per-directory,
+# so it has to be repeated here.
+FILES_PER_UNIFIED_FILE = 1
+
 if CONFIG['MOZ_ENABLE_NPAPI']:
     SOURCES += ['nsPluginArray.cpp']
 

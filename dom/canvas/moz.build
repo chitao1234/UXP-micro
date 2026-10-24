@@ -7,6 +7,14 @@ TEST_DIRS += [
     'gtest'
 ]
 
+# GCC's handling of stdcall member functions depends on what else the
+# translation unit has compiled: an inline virtual in WebGLContext.h is
+# emitted with a different decoration when the same TU also contains an
+# out-of-line definition from CanvasRenderingContext2D.cpp. The COMDAT
+# section names do not include that suffix, so one definition is discarded
+# and xul.dll fails to link. Keep one source per unified file here.
+FILES_PER_UNIFIED_FILE = 1
+
 # Change the following line(s) to avoid bug 1081323 (clobber after changing a manifest):
 # * Adjust failure errata for webgl-conf.
 

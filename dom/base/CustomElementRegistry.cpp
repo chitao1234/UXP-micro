@@ -12,6 +12,7 @@
 #include "mozilla/dom/Promise.h"
 #include "nsContentUtils.h"
 #include "nsHTMLTags.h"
+#include "nsInterfaceHashtable.h"
 #include "jsapi.h"
 #include "ShadowRoot.h"
 

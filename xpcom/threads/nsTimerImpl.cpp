@@ -519,7 +519,7 @@ nsTimerImpl::Fire(int32_t aGeneration)
           this, (TimeStamp::Now() - now).ToMilliseconds()));
 }
 
-#if defined(HAVE_DLADDR) && defined(HAVE___CXA_DEMANGLE)
+#if defined(HAVE_DLADDR) && defined(HAVE___CXA_DEMANGLE) && !defined(XP_WIN)
 #define USE_DLADDR 1
 #endif
 

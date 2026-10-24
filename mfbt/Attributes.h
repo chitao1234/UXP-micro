@@ -658,8 +658,18 @@
  * different meanings to the various formats.
  */
 #ifdef __GNUC__
+#ifdef __MINGW32__
+/* On MinGW, GCC validates the "printf" archetype against MSVCRT, which does
+ * not understand C99 length modifiers such as %zu and %llu. mingw-w64's ANSI
+ * stdio implementation (__USE_MINGW_ANSI_STDIO, enabled by default) does
+ * support them, so validate against the GNU archetype that matches the
+ * implementation actually linked in. */
+#define MOZ_FORMAT_PRINTF(stringIndex, firstToCheck)  \
+    __attribute__ ((format (gnu_printf, stringIndex, firstToCheck)))
+#else
 #define MOZ_FORMAT_PRINTF(stringIndex, firstToCheck)  \
     __attribute__ ((format (printf, stringIndex, firstToCheck)))
+#endif
 #else
 #define MOZ_FORMAT_PRINTF(stringIndex, firstToCheck)
 #endif

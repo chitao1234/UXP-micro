@@ -16,11 +16,23 @@
  * Note: MOZ_NORETURN seems to break crash stacks on ARM, so we don't
  * use that annotation there.
  */
+#ifdef __cplusplus
+/* This header can be reached from inside an extern "C" block (for example via
+   <rpc.h> -> <windows.h> -> <stdlib.h> -> the STL wrappers). Without an
+   explicit C++ linkage specification the symbol would be emitted unmangled and
+   fail to resolve against the C++-mangled export in mozglue. */
+extern "C++" {
+#endif
+
 MFBT_API
 #if !defined(__arm__)
   MOZ_NORETURN
 #endif
   void mozalloc_abort(const char* const msg);
+
+#ifdef __cplusplus
+}
+#endif
 
 
 #endif  /* ifndef mozilla_mozalloc_abort_h */

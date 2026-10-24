@@ -430,8 +430,7 @@ set_config('MSMANIFEST_TOOL', depends(valid_mt)(lambda x: bool(x)))
 # cross-platform check.
 option(env='LD', nargs=1, help='Path to the linker')
 
-link = check_prog('LINK', depends_win()(lambda: ('link.exe',)), input='LD',
-                  paths=vc_compiler_path)
+link = check_prog('LINK', depends_win()(lambda: ('link.exe',)), input='LD')
 
 add_old_configure_assignment('LD', depends_win(link)(lambda x: x))
 

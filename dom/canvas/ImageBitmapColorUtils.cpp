@@ -5,6 +5,8 @@
 
 #include "ImageBitmapColorUtils.h"
 
+#include <cmath>
+
 namespace mozilla {
 namespace dom {
 
@@ -1610,7 +1612,7 @@ HSVToRGBAFamily(const float* aSrcBuffer, int aSrcStride,
           do hPrime += 6.0f; while (hPrime < 0.0f);
       else if (hPrime >= 6.0f)
           do hPrime -= 6.0f; while (hPrime >= 6.0f);
-      const int sector = floor(hPrime);
+      const int sector = std::floor(hPrime);
       const float hMod1 = hPrime - sector;
 
       float values[4];

@@ -20,7 +20,10 @@
 #include "nsPrintfCString.h"
 #include "VideoUtils.h"
 
-const CLSID CLSID_VideoProcessorMFT =
+// Renamed from CLSID_VideoProcessorMFT: mingw-w64's mfidl.h now declares that
+// name, and DEFINE_GUID only declares it (no definition without INITGUID), so
+// a local definition is still needed here.
+const CLSID kVideoProcessorMFT =
 {
   0x88753b26,
   0x5b24,
@@ -683,7 +686,7 @@ D3D11DXVA2Manager::Init(layers::KnowsCompositor* aKnowsCompositor,
   }
 
   mTransform = new MFTDecoder();
-  hr = mTransform->Create(CLSID_VideoProcessorMFT);
+  hr = mTransform->Create(kVideoProcessorMFT);
   if (!SUCCEEDED(hr)) {
     aFailureReason = nsPrintfCString("MFTDecoder::Create(CLSID_VideoProcessorMFT) failed with code %X", hr);
     return hr;

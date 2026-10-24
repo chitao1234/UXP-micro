@@ -44,12 +44,18 @@ void SetThreadName(DWORD dwThreadID, LPCSTR szThreadName) {
   info.dwThreadID = dwThreadID;
   info.dwFlags = 0;
 
+#ifdef _MSC_VER
+  // SEH swallows the exception RaiseException raises when no debugger is
+  // attached. GCC has no __try/__except, so the thread simply stays unnamed.
   __try {
     RaiseException(MSDEV_SET_THREAD_NAME, 0, sizeof(info) / sizeof(DWORD),
                    reinterpret_cast<ULONG_PTR*>(&info));
   }
   __except(EXCEPTION_CONTINUE_EXECUTION) {
   }
+#else
+  (void)info;
+#endif
 }
 
 }

@@ -49,7 +49,7 @@ static char *RCSSTRING __UNUSED__ ="$Id: r_log.c,v 1.10 2008/11/25 22:25:18 adam
 
 #include <string.h>
 #include <errno.h>
-#ifndef _MSC_VER
+#if !defined(_MSC_VER) && !defined(__MINGW32__)
 #include <strings.h>
 #include <syslog.h>
 #endif

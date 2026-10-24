@@ -26,6 +26,10 @@ if CONFIG['MOZ_WEBRTC']:
 
 if CONFIG['OS_TARGET'] == 'WINNT':
     DEFINES['WEBRTC_WIN'] = True
+    # LoadMonitor.cpp uses the Performance Data Helper API and declares the
+    # dependency with "#pragma comment(lib, \"pdh.lib\")", which only MSVC
+    # honours. Link it explicitly so GCC resolves Pdh* as well.
+    OS_LIBS += ['pdh']
 else:
     DEFINES['WEBRTC_POSIX'] = True
 

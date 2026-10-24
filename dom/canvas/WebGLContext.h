@@ -347,15 +347,8 @@ public:
 
     NS_IMETHOD SetDimensions(int32_t width, int32_t height) override;
     NS_IMETHOD InitializeWithDrawTarget(nsIDocShell*,
-                                        NotNull<gfx::DrawTarget*>) override
-    {
-        return NS_ERROR_NOT_IMPLEMENTED;
-    }
-
-    NS_IMETHOD Reset() override {
-        /* (InitializeWithSurface) */
-        return NS_ERROR_NOT_IMPLEMENTED;
-    }
+                                        NotNull<gfx::DrawTarget*>) override;
+    NS_IMETHOD Reset() override;
 
     virtual UniquePtr<uint8_t[]> GetImageBuffer(int32_t* out_format) override;
     NS_IMETHOD GetInputStream(const char* mimeType,

@@ -10,6 +10,11 @@
 #include <shlwapi.h>
 #include <cderr.h>
 
+// Added in the Windows 11 SDK; mingw-w64's shobjidl.h does not define it yet.
+#ifndef FOS_OKBUTTONNEEDSINTERACTION
+#define FOS_OKBUTTONNEEDSINTERACTION 0x00200000
+#endif
+
 #include "mozilla/mscom/EnsureMTA.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/UniquePtr.h"

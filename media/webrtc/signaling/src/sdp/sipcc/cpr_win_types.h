@@ -55,11 +55,21 @@ typedef int pid_t;
  *    defined in windef.h as lowercase
  */
 #ifndef MIN
+#ifdef __GNUC__
+/* MinGW's headers do not provide the lowercase min/max macros that windef.h
+ * defines for MSVC, so expand MIN/MAX directly instead of aliasing them. */
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#else
 #define MIN min
+#endif
 #endif
 
 #ifndef MAX
+#ifdef __GNUC__
+#define MAX(a,b) (((a) > (b)) ? (a) : (b))
+#else
 #define MAX max
+#endif
 #endif
 
 /*

@@ -450,6 +450,10 @@ CaptureInputPin::Receive ( IN IMediaSample * pIMediaSample )
         info.dwThreadID = (DWORD)-1;
         info.dwFlags = 0;
 
+#ifdef _MSC_VER
+        // Naming the thread relies on SEH to swallow the exception that
+        // RaiseException produces when no debugger is attached. GCC has no
+        // __try/__except, so skip it there (the thread simply stays unnamed).
         __try
         {
             RaiseException( 0x406D1388, 0, sizeof(info)/sizeof(DWORD),
@@ -458,6 +462,7 @@ CaptureInputPin::Receive ( IN IMediaSample * pIMediaSample )
         __except (EXCEPTION_CONTINUE_EXECUTION)
         {
         }
+#endif
 
     }
 

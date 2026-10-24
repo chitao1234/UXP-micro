@@ -237,8 +237,16 @@ ifndef NS_USE_GCC
 DLLFLAGS += -DEF:$(MAPFILE)
 endif
 endif
-# Change PROCESS to put the mapfile in the correct format for this platform
+# Change PROCESS to put the mapfile in the correct format for this platform.
+# MSVC keeps these .def files verbatim because ';' starts a comment for its
+# linker. GNU ld's .def parser has no comment support, so for GCC builds cut
+# the comments (this also discards the Unix-only version-script sugar) and
+# drop the blank lines that leaves behind. EXPORTS/LIBRARY survive intact.
+ifdef NS_USE_GCC
+PROCESS_MAP_FILE = sed -e 's/ DATA / /g' -e 's/;.*//' -e 's/[[:space:]]*$$//' $< | grep -v '^$$' > $@
+else
 PROCESS_MAP_FILE = cp $< $@
+endif
 
 
 #

@@ -678,7 +678,7 @@ case "$host" in
         HOST_CFLAGS="$HOST_CFLAGS -TC -nologo"
         HOST_RANLIB='echo ranlib'
     else
-        HOST_CFLAGS="$HOST_CFLAGS -mwindows"
+        HOST_CFLAGS="$HOST_CFLAGS"
     fi
     HOST_CFLAGS="$HOST_CFLAGS -DXP_WIN32 -DXP_WIN -DWIN32 -D_WIN32 -D_CRT_SECURE_NO_WARNINGS"
     HOST_OPTIMIZE_FLAGS="${HOST_OPTIMIZE_FLAGS=-O2}"
@@ -840,9 +840,6 @@ case "$target" in
     # certain versions of cygwin's makedepend barf on the
     # #include <string> vs -I./dist/include/string issue so don't use it
     if test -n "$GNU_CC" -o -n "$CLANG_CC"; then
-        CC="$CC -mwindows"
-        CXX="$CXX -mwindows"
-        CPP="$CPP -mwindows"
         CFLAGS="$CFLAGS -mms-bitfields"
         CXXFLAGS="$CXXFLAGS -mms-bitfields"
         DSO_LDOPTS='-shared'
@@ -860,8 +857,8 @@ case "$target" in
         DLL_PREFIX=
         IMPORT_LIB_SUFFIX=a
 
-        WIN32_CONSOLE_EXE_LDFLAGS=-mconsole
-        WIN32_GUI_EXE_LDFLAGS=-mwindows
+        WIN32_CONSOLE_EXE_LDFLAGS=-mconsole -municode
+        WIN32_GUI_EXE_LDFLAGS=-mwindows -municode
 
         # GCC/binutils can't link to a function if we try to include dllexport function
         # in the same library as dllimport caller. To work around it, we build NSPR

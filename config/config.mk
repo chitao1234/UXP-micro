@@ -568,3 +568,16 @@ export CL_TOPSRCDIR = $(EXTERNAL_SOURCE_DIR)
 # in environment variables to prevent it from breking silently on
 # non-English systems.
 export NONASCII
+
+# Folding: NSPR is linked statically into its consumers. On Windows,
+# nspr/prtypes.h marks every PR_EXTERN with __declspec(dllexport), which makes
+# GCC emit references to the import symbol (_imp__PR_*) rather than the plain
+# one. -mnop-fun-dllimport makes GCC ignore that annotation so the references
+# match the statically-linked definitions. MSVC gets this for free from the
+# folded .lib layout, which is why the flag existed but was never wired up.
+ifdef MOZ_FOLD_LIBS
+ifdef GNU_CC
+CFLAGS += $(MOZ_FOLD_LIBS_FLAGS)
+CXXFLAGS += $(MOZ_FOLD_LIBS_FLAGS)
+endif
+endif
