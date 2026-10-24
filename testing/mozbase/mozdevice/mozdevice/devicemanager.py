@@ -428,7 +428,7 @@ class DeviceManager(object):
         Information on process is in tuple format: (pid, process path, user)
         If a process with the specified name does not exist this function will return None.
         """
-        if not isinstance(processName, basestring):
+        if not isinstance(processName, str):
             raise TypeError("Process name %s is not a string" % processName)
 
         processInfo = None

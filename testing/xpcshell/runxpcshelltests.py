@@ -91,7 +91,7 @@ def cleanup_encoding(s):
        points, etc.  If it is a byte string, it is assumed to be
        UTF-8, but it may not be *correct* UTF-8.  Return a
        sanitized unicode object."""
-    if not isinstance(s, basestring):
+    if not isinstance(s, (str, bytes)):
         return str(s)
     if not isinstance(s, str):
         s = s.decode('utf-8', 'replace')
@@ -514,7 +514,7 @@ class XPCShellTestThread(Thread):
     def log_line(self, line):
         """Log a line of output (either a parser json object or text output from
         the test process"""
-        if isinstance(line, basestring):
+        if isinstance(line, (str, bytes)):
             line = self.fix_text_output(line).rstrip('\r\n')
             self.log.process_output(self.proc_ident,
                                     line,
@@ -1215,15 +1215,9 @@ class XPCShellTests(object):
                 return False
             self.mozInfo = json.load(open(mozInfoFile))
 
-        # mozinfo.info is used as kwargs.  Some builds are done with
-        # an older Python that can't handle Unicode keys in kwargs.
-        # All of the keys in question should be ASCII.
-        fixedInfo = {}
-        for k, v in list(self.mozInfo.items()):
-            if isinstance(k, str):
-                k = k.encode('ascii')
-            fixedInfo[k] = v
-        self.mozInfo = fixedInfo
+        # mozinfo.info is used as kwargs, so its keys must be str. The old
+        # workaround encoded them to bytes for Python 2, which Python 3
+        # rejects; the keys are already text here.
 
         mozinfo.update(self.mozInfo)
 

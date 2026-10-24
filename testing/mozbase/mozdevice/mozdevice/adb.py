@@ -2032,7 +2032,7 @@ class ADBDevice(ADBCommand, metaclass=ABCMeta):
         :raises: * ADBTimeoutError
                  * ADBError
         """
-        if not isinstance(process_name, basestring):
+        if not isinstance(process_name, str):
             raise ADBError("Process name %s is not a string" % process_name)
 
         # Filter out extra spaces.

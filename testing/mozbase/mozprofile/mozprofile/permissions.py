@@ -137,7 +137,7 @@ class ServerLocations(object):
             self.add_callback([location])
 
     def add_host(self, host, port='80', scheme='http', options='privileged'):
-        if isinstance(options, basestring):
+        if isinstance(options, str):
             options = options.split(',')
         self.add(Location(scheme, host, port, options))
 

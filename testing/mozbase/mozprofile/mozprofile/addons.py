@@ -168,14 +168,14 @@ class AddonManager(object):
 
         # install addon paths
         if addons:
-            if isinstance(addons, basestring):
+            if isinstance(addons, str):
                 addons = [addons]
             for addon in set(addons):
                 self.install_from_path(addon)
 
         # install addon manifests
         if manifests:
-            if isinstance(manifests, basestring):
+            if isinstance(manifests, str):
                 manifests = [manifests]
             for manifest in manifests:
                 self.install_from_manifest(manifest)
@@ -315,7 +315,7 @@ class AddonManager(object):
             raise AddonFormatError(str(e)).with_traceback(sys.exc_info()[2])
 
         # turn unpack into a true/false value
-        if isinstance(details['unpack'], basestring):
+        if isinstance(details['unpack'], str):
             details['unpack'] = details['unpack'].lower() == 'true'
 
         # If no ID is set, the add-on is invalid

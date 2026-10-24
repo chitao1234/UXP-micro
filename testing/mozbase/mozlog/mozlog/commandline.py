@@ -223,7 +223,7 @@ def setup_logging(logger, args, defaults=None, formatter_defaults=None,
     found_stdout_logger = False
     if args is None:
         args = {}
-    if not hasattr(args, 'iteritems'):
+    if not isinstance(args, dict):
         args = vars(args)
 
     if defaults is None:
@@ -246,7 +246,7 @@ def setup_logging(logger, args, defaults=None, formatter_defaults=None,
                 _, formatter = parts
                 for value in values:
                     found = True
-                    if isinstance(value, basestring):
+                    if isinstance(value, str):
                         value = log_file(value)
                     if value == sys.stdout:
                         found_stdout_logger = True

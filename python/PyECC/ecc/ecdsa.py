@@ -12,10 +12,10 @@ import hashlib
 
 def randkey(bits, n):
     '''Generate a random number (mod n) having the specified bit length'''
-    rb = urandom(bits / 8 + 8)  # + 64 bits as recommended in FIPS 186-3
+    rb = urandom(bits // 8 + 8)  # + 64 bits as recommended in FIPS 186-3
     c = 0
     for r in rb:
-        c = (c << 8) | ord(r)
+        c = (c << 8) | r
     return (c % (n - 1)) + 1
 
 def keypair(bits):

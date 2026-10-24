@@ -33,7 +33,7 @@ class BaseRunner(object, metaclass=ABCMeta):
                  dump_save_path=None, addons=None):
         self.app_ctx = app_ctx or DefaultContext()
 
-        if isinstance(profile, basestring):
+        if isinstance(profile, str):
             self.profile = self.app_ctx.profile_class(profile=profile,
                                                       addons=addons)
         else:

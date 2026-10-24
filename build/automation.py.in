@@ -266,7 +266,7 @@ class Automation(object):
           env["ASAN_OPTIONS"] = "quarantine_size=50331648:malloc_context_size=5"
         else:
           self.log.info("INFO | automation.py | ASan running in default memory configuration")
-      except OSError,err:
+      except OSError as err:
         self.log.info("Failed determine available memory, disabling ASan low-memory configuration: %s", err.strerror)
       except:
         self.log.info("Failed determine available memory, disabling ASan low-memory configuration")
@@ -351,7 +351,7 @@ class Automation(object):
         # the process terminates before we get to this point.
         wpid, wstatus = os.waitpid(pid, os.WNOHANG)
         return wpid == 0
-      except OSError, err:
+      except OSError as err:
         # Catch the errors we might expect from os.kill/os.waitpid, 
         # and re-raise any others
         if err.errno == errno.ESRCH or err.errno == errno.ECHILD:

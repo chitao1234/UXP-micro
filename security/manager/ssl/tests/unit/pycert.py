@@ -93,6 +93,15 @@ import sys
 
 import pykey
 
+# This tree's build runs under Python 3, while the test-certificate utilities
+# were written for Python 2. pyasn1 and hashlib want bytes where the spec
+# parser produces text, so normalize explicitly instead of relying on the
+# Python 2 str/bytes equivalence.
+def ensure_binary(value):
+    if isinstance(value, str):
+        return value.encode('utf-8')
+    return value
+
 # The GeneralSubtree definition in pyasn1_modules.rfc2459 is incorrect.
 # Where this definition uses a DefaultedNamedType, pyasn1_modules uses
 # a NamedType, which results in the default value being explicitly
@@ -288,7 +297,7 @@ def stringToDN(string, tag=None):
             # The value may have things like '\0' (i.e. a slash followed by
             # the number zero) that have to be decoded into the resulting
             # '\x00' (i.e. a byte with value zero).
-            nameComponent.setComponentByName(encoding, value.decode(encoding='string_escape'))
+            nameComponent.setComponentByName(encoding, ensure_binary(value).decode(encoding='unicode_escape'))
         ava.setComponentByName('value', nameComponent)
         rdn = rfc2459.RelativeDistinguishedName()
         rdn.setComponentByPosition(0, ava)
@@ -339,7 +348,7 @@ def serialBytesToString(serialBytes):
         raise InvalidSerialNumber("{} bytes is too long".format(serialBytesLen))
     # Prepend the ASN.1 INTEGER tag and length bytes.
     stringBytes = [getASN1Tag(univ.Integer), serialBytesLen] + serialBytes
-    return ''.join(chr(b) for b in stringBytes)
+    return bytes(stringBytes)
 
 class Certificate(object):
     """Utility class for reading a certificate specification and
@@ -371,16 +380,16 @@ class Certificate(object):
         the build system on OS X (see the comment above main, later in
         this file)."""
         hasher = hashlib.sha256()
-        hasher.update(str(self.versionValue))
-        hasher.update(self.signature)
-        hasher.update(self.issuer)
-        hasher.update(str(self.notBefore))
-        hasher.update(str(self.notAfter))
-        hasher.update(self.subject)
+        hasher.update(ensure_binary(str(self.versionValue)))
+        hasher.update(ensure_binary(self.signature))
+        hasher.update(ensure_binary(self.issuer))
+        hasher.update(ensure_binary(str(self.notBefore)))
+        hasher.update(ensure_binary(str(self.notAfter)))
+        hasher.update(ensure_binary(self.subject))
         if self.extensions:
             for extension in self.extensions:
-                hasher.update(str(extension))
-        serialBytes = [ord(c) for c in hasher.digest()[:20]]
+                hasher.update(ensure_binary(str(extension)))
+        serialBytes = list(hasher.digest()[:20])
         # Ensure that the most significant bit isn't set (which would
         # indicate a negative number, which isn't valid for serial
         # numbers).
@@ -544,7 +553,7 @@ class Certificate(object):
                 # The string may have things like '\0' (i.e. a slash
                 # followed by the number zero) that have to be decoded into
                 # the resulting '\x00' (i.e. a byte with value zero).
-                generalName.setComponentByName('dNSName', name.decode(encoding='string_escape'))
+                generalName.setComponentByName('dNSName', ensure_binary(name).decode(encoding='unicode_escape'))
             subjectAlternativeName.setComponentByPosition(count, generalName)
         self.addExtension(rfc2459.id_ce_subjectAltName, subjectAlternativeName, critical)
 
@@ -666,7 +675,7 @@ class Certificate(object):
     def toPEM(self):
         output = '-----BEGIN CERTIFICATE-----'
         der = self.toDER()
-        b64 = base64.b64encode(der)
+        b64 = base64.b64encode(der).decode('ascii')
         while b64:
             output += '\n' + b64[:64]
             b64 = b64[64:]

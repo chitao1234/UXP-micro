@@ -95,11 +95,14 @@ class StreamHandler(BaseHandler):
         if not formatted:
             return
         with self._lock:
-            if isinstance(formatted, str):
-                self.stream.write(formatted.encode("utf-8", "replace"))
-            elif isinstance(formatted, str):
+            # Formatters produce text. Streams used by mach are text streams,
+            # while file-backed streams may be binary; accept either instead
+            # of assuming one, as the Python 2-era check did.
+            if not isinstance(formatted, bytes):
+                formatted = formatted.encode("utf-8", "replace")
+            try:
                 self.stream.write(formatted)
-            else:
-                assert False, "Got output from the formatter of an unexpected type"
+            except TypeError:
+                self.stream.write(formatted.decode("utf-8", "replace"))
 
             self.stream.flush()

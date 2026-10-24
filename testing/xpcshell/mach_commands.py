@@ -121,17 +121,10 @@ class XPCShellRunner(MozbuildObject):
                 raise
         kwargs['tempDir'] = temp_dir
 
-        # Python through 2.7.2 has issues with unicode in some of the
-        # arguments. Work around that.
-        filtered_args = {}
-        for k, v in kwargs.items():
-            if isinstance(v, unicode_type):
-                v = v.encode('utf-8')
-
-            if isinstance(k, unicode_type):
-                k = k.encode('utf-8')
-
-            filtered_args[k] = v
+        # This build's harness runs under Python 3, where keyword arguments
+        # must have str keys; the old Python 2 workaround of encoding them to
+        # bytes actively breaks the call.
+        filtered_args = kwargs
 
         result = xpcshell.runTests(**filtered_args)
 

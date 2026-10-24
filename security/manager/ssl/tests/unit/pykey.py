@@ -46,7 +46,7 @@ def byteStringToHexifiedBitString(string):
     those bytes for use with pyasn1.type.univ.BitString. It must be of
     the form "'<hex bytes>'H", where the trailing 'H' indicates to
     pyasn1 that the input is a hex string."""
-    return "'%s'H" % binascii.hexlify(string)
+    return "'%s'H" % binascii.hexlify(string).decode('ascii')
 
 class UnknownBaseError(Exception):
     """Base class for handling unexpected input in this module."""
@@ -531,7 +531,7 @@ class RSAKey(object):
     def toPEM(self):
         output = '-----BEGIN PRIVATE KEY-----'
         der = self.toDER()
-        b64 = base64.b64encode(der)
+        b64 = base64.b64encode(der).decode('ascii')
         while b64:
             output += '\n' + b64[:64]
             b64 = b64[64:]

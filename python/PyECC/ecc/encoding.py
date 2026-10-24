@@ -9,27 +9,27 @@ import io
 def enc_long(n):
     '''Encodes arbitrarily large number n to a sequence of bytes.
     Big endian byte order is used.'''
-    s = ""
+    s = b""
     while n > 0:
-        s = chr(n & 0xFF) + s
+        s = bytes([n & 0xFF]) + s
         n >>= 8
     return s
 
 def enc_int(n):
     '''Encodes an integer n to a 4-byte string.
     Big endian byte order is used.'''
-    return chr((n >> 24) & 0xFF) + chr((n >> 16) & 0xFF) + \
-           chr((n >>  8) & 0xFF) + chr( n        & 0xFF)
+    return bytes([(n >> 24) & 0xFF, (n >> 16) & 0xFF,
+                  (n >>  8) & 0xFF,  n        & 0xFF])
 
 def enc_fixed_long(n, length):
-    return enc_long(n)[:length].rjust(length, '\x00')
+    return enc_long(n)[:length].rjust(length, b'\x00')
 
 def dec_long(s):
     '''Decodes s to its numeric representation.
     Big endian byte order is used.'''
     n = 0
     for c in s:
-        n = (n << 8) | ord(c)
+        n = (n << 8) | (c if isinstance(c, int) else ord(c))
     return n
 
 # dec_int not necessary,
@@ -39,7 +39,7 @@ def dec_long(s):
 
 def enc_chunks(*args):
     '''Chain given string args or sub-chunks to a single chunk'''
-    return ''.join([enc_int(len(a)) + a for a in args])
+    return b''.join([enc_int(len(a)) + a for a in args])
 
 def dec_chunks(s):
     '''Split a chunk into strings or sub-chunks'''
@@ -61,21 +61,21 @@ def enc_point(p):
     sy = enc_long(y)
     diff = len(sx) - len(sy)
     if diff > 0:
-        sy = '\x00' * diff + sy
+        sy = b'\x00' * diff + sy
     elif diff < 0:
-        sx = '\x00' * -diff + sx
+        sx = b'\x00' * -diff + sx
     return sx + sy
 
 def dec_point(s):
     '''Decode an even length string s to a point(x, y)'''
-    d = len(s) / 2
+    d = len(s) // 2
     return (dec_long(s[:d]), dec_long(s[d:]))
 
 
 class Encoder:
 
     def __init__(self):
-        self._io = io.StringIO()
+        self._io = io.BytesIO()
 
     def int(self, n, size = 4):
         self._io.write(enc_fixed_long(n, size))
@@ -106,7 +106,7 @@ class Encoder:
 class Decoder:
 
     def __init__(self, data, offset = 0):
-        self._io = io.StringIO(data)
+        self._io = io.BytesIO(data)
         self._io.seek(offset)
         self._res = []
         self._limit = None

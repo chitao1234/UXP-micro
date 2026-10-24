@@ -330,7 +330,7 @@ class tags(InstanceFilter):
 
     def __init__(self, tags):
         InstanceFilter.__init__(self, tags)
-        if isinstance(tags, basestring):
+        if isinstance(tags, str):
             tags = [tags]
         self.tags = tags
 
@@ -353,7 +353,7 @@ class pathprefix(InstanceFilter):
 
     def __init__(self, paths):
         InstanceFilter.__init__(self, paths)
-        if isinstance(paths, basestring):
+        if isinstance(paths, str):
             paths = [paths]
         self.paths = paths
 

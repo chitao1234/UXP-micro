@@ -16,7 +16,7 @@ class XUnitOutput(Output):
         """ Writes the xUnit formatted results to the given file object """
 
         def _extract_xml(test_result, text='', result='Pass'):
-            if not isinstance(text, basestring):
+            if not isinstance(text, str):
                 text = '\n'.join(text)
 
             cls_name = test_result.test_class
