@@ -5,6 +5,10 @@
 
 SPHINX_TREES['toolkit_modules'] = 'docs'
 
+TESTING_JS_MODULES += [
+    'tests/PromiseTestUtils.jsm',
+]
+
 EXTRA_JS_MODULES += [
     'addons/MatchPattern.jsm',
     'addons/WebNavigation.jsm',

@@ -769,6 +769,15 @@ class MachCommandConditions(object):
         return False
 
     @staticmethod
+    def is_android(cls):
+        """Must have an Android build.
+
+        UXP does not target Android, but the test harness command modules
+        still ask this condition. Like the B2G stubs above, it is always
+        false so those commands can be constructed on desktop."""
+        return False
+
+    @staticmethod
     def is_emulator(cls):
         """Must have a B2G build with an emulator configured."""
         try:
