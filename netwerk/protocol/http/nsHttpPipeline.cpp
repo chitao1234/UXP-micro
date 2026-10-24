@@ -265,7 +265,14 @@ nsHttpPipeline::TakeTransport(nsISocketTransport  **aTransport,
 bool
 nsHttpPipeline::IsPersistent()
 {
-    return true; // pipelining requires this
+    // A pipeline is only reusable while the connection underneath it is
+    // persistent.  Returning true unconditionally made callers (notably the
+    // authentication retry in nsHttpChannel) reuse a connection after the
+    // server had already announced "Connection: close", so the retried
+    // request was written to a socket the peer had shut down and failed with
+    // NS_ERROR_NET_RESET.  Normal pipelined connections are persistent, so
+    // delegating preserves the previous answer in that case.
+    return mConnection && mConnection->IsPersistent();
 }
 
 bool

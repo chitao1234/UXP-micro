@@ -2012,7 +2012,10 @@ nsCookieService::SetCookieStringCommon(nsIURI *aHostURI,
   NS_ENSURE_ARG(aHostURI);
   NS_ENSURE_ARG(aCookieHeader);
 
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
+  nsCOMPtr<nsILoadInfo> loadInfo;
+  if (aChannel) {
+    loadInfo = aChannel->GetLoadInfo();
+  }
 
   // Determine whether the request is foreign. Failure is acceptable.
   bool isForeign = true;
@@ -2020,7 +2023,7 @@ nsCookieService::SetCookieStringCommon(nsIURI *aHostURI,
   
   // include sub-document navigations from cross-site to same-site
   // wrt top-level in our check for thirdparty-ness
-  if (!isForeign &&
+  if (!isForeign && loadInfo &&
       loadInfo->GetExternalContentPolicyType() == nsIContentPolicy::TYPE_SUBDOCUMENT) {
     bool triggeringPrincipalIsThirdParty = false;
     nsCOMPtr<nsIURI> trigURI;

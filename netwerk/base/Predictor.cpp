@@ -294,7 +294,10 @@ Predictor::Action::OnCacheEntryAvailable(nsICacheEntry *entry, bool isNew,
                    "Aborting.", this, result));
     return NS_OK;
   }
-  if (!mPredict) {
+  if (mPredict) {
+    mPredictor->PredictInternal(mPredictReason, entry, isNew, mFullUri,
+                                mTargetURI, mVerifier, mStackCount);
+  } else {
     mPredictor->LearnInternal(mLearnReason, entry, isNew, mFullUri, mTargetURI,
                               mSourceURI);
   }
