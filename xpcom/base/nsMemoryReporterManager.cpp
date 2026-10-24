@@ -16,7 +16,7 @@
 #include "nsIObserverService.h"
 #include "nsIGlobalObject.h"
 #include "nsIXPConnect.h"
-#if defined(XP_UNIX)
+#if defined(XP_UNIX) || defined(MOZ_DMD)
 #include "nsMemoryInfoDumper.h"
 #endif
 #include "mozilla/Attributes.h"
@@ -1453,6 +1453,64 @@ NS_IMPL_ISUPPORTS(DeadlockDetectorReporter, nsIMemoryReporter)
 
 #endif
 
+#ifdef MOZ_DMD
+
+namespace mozilla {
+namespace dmd {
+
+// See http://mxr.mozilla.org/mozilla-central/source/memory/replace/dmd/DMD.cpp
+// for a description of DMD's output.
+class DMDReporter final : public nsIMemoryReporter
+{
+public:
+  NS_DECL_ISUPPORTS
+
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    dmd::Sizes sizes;
+    dmd::SizeOf(&sizes);
+
+    MOZ_COLLECT_REPORT(
+      "explicit/dmd/stack-traces/used", KIND_HEAP, UNITS_BYTES,
+      sizes.mStackTracesUsed,
+      "Memory used by the stack traces of live blocks tracked by DMD, as "
+      "well as the stack traces of blocks that have been reported.");
+
+    MOZ_COLLECT_REPORT(
+      "explicit/dmd/stack-traces/unused", KIND_HEAP, UNITS_BYTES,
+      sizes.mStackTracesUnused,
+      "Memory used by stack traces that are no longer needed by DMD.");
+
+    MOZ_COLLECT_REPORT(
+      "explicit/dmd/stack-traces/table", KIND_HEAP, UNITS_BYTES,
+      sizes.mStackTraceTable,
+      "Memory used by DMD's stack trace table.");
+
+    MOZ_COLLECT_REPORT(
+      "explicit/dmd/live-block-table", KIND_HEAP, UNITS_BYTES,
+      sizes.mLiveBlockTable,
+      "Memory used by DMD's live block table.");
+
+    MOZ_COLLECT_REPORT(
+      "explicit/dmd/dead-block-list", KIND_HEAP, UNITS_BYTES,
+      sizes.mDeadBlockTable,
+      "Memory used by DMD's dead block list.");
+
+    return NS_OK;
+  }
+
+private:
+  ~DMDReporter() {}
+};
+
+NS_IMPL_ISUPPORTS(DMDReporter, nsIMemoryReporter)
+
+} // namespace dmd
+} // namespace mozilla
+
+#endif  // MOZ_DMD
+
 /**
  ** nsMemoryReporterManager implementation
  **/
@@ -1527,6 +1585,10 @@ nsMemoryReporterManager::Init()
 #endif
 
   RegisterStrongReporter(new AtomTablesReporter());
+
+#ifdef MOZ_DMD
+  RegisterStrongReporter(new mozilla::dmd::DMDReporter());
+#endif
 
 #ifdef DEBUG
   RegisterStrongReporter(new DeadlockDetectorReporter());
@@ -1647,9 +1709,22 @@ nsMemoryReporterManager::StartGettingReports()
   PendingProcessesState* s = mPendingProcessesState;
   nsresult rv;
 
+  // Get reports for this process.
+  FILE* parentDMDFile = nullptr;
+#ifdef MOZ_DMD
+  if (!s->mDMDDumpIdent.IsEmpty()) {
+    rv = nsMemoryInfoDumper::OpenDMDFile(s->mDMDDumpIdent, getpid(),
+                                         &parentDMDFile);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      // Proceed with the memory report as if DMD were disabled.
+      parentDMDFile = nullptr;
+    }
+  }
+#endif
+
   // This is async.
   GetReportsForThisProcessExtended(s->mHandleReport, s->mHandleReportData,
-                                   s->mAnonymize, nullptr,
+                                   s->mAnonymize, parentDMDFile,
                                    s->mFinishReporting, s->mFinishReportingData);
 
   nsTArray<ContentParent*> childWeakRefs;
@@ -1730,6 +1805,17 @@ nsMemoryReporterManager::GetReportsForThisProcessExtended(
     return NS_ERROR_IN_PROGRESS;
   }
 
+#ifdef MOZ_DMD
+  if (aDMDFile || mozilla::dmd::IsRunning()) {
+    // Clear DMD's reportedness state before running the memory reporters, to
+    // avoid spurious twice-reported warnings.  Reportedness is only recorded
+    // in dark-matter mode; ClearReports() is a no-op otherwise.
+    mozilla::dmd::ClearReports();
+  }
+#else
+  MOZ_ASSERT(!aDMDFile);
+#endif
+
   mPendingReportersState = new PendingReportersState(
       aFinishReporting, aFinishReportingData, aDMDFile);
 
@@ -1755,6 +1841,11 @@ NS_IMETHODIMP
 nsMemoryReporterManager::EndReport()
 {
   if (--mPendingReportersState->mReportsPending == 0) {
+#ifdef MOZ_DMD
+    if (mPendingReportersState->mDMDFile) {
+      nsMemoryInfoDumper::DumpDMDToFile(mPendingReportersState->mDMDFile);
+    }
+#endif
     if (mPendingProcessesState) {
       // This is the parent process.
       EndProcessReport(mPendingProcessesState->mGeneration, true);
@@ -1842,8 +1933,24 @@ nsMemoryReporterManager::StartChildReport(mozilla::dom::ContentParent* aChild,
     return false;
   }
 
+  mozilla::dom::MaybeFileDesc dmdFileDesc = void_t();
+#ifdef MOZ_DMD
+  if (!aState->mDMDDumpIdent.IsEmpty()) {
+    FILE* dmdFile = nullptr;
+    nsresult rv = nsMemoryInfoDumper::OpenDMDFile(aState->mDMDDumpIdent,
+                                                   aChild->Pid(), &dmdFile);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      // Proceed with the memory report as if DMD were disabled.
+      dmdFile = nullptr;
+    }
+    if (dmdFile) {
+      dmdFileDesc = mozilla::ipc::FILEToFileDescriptor(dmdFile);
+      fclose(dmdFile);
+    }
+  }
+#endif
   return aChild->SendPMemoryReportRequestConstructor(
-    aState->mGeneration, aState->mAnonymize, aState->mMinimize, void_t());
+    aState->mGeneration, aState->mAnonymize, aState->mMinimize, dmdFileDesc);
 }
 
 void

@@ -509,8 +509,22 @@ nsresult RegisterNonJSSizeOfTab(NonJSSizeOfTabFn aSizeOfTabFn);
 
 }
 
+#if defined(MOZ_DMD)
+#if !defined(MOZ_MEMORY)
+#error "MOZ_DMD requires MOZ_MEMORY"
+#endif
+
+#include "DMD.h"
+
+#define MOZ_REPORT(ptr)          mozilla::dmd::Report(ptr)
+#define MOZ_REPORT_ON_ALLOC(ptr) mozilla::dmd::ReportOnAlloc(ptr)
+
+#else
+
 #define MOZ_REPORT(ptr)
 #define MOZ_REPORT_ON_ALLOC(ptr)
+
+#endif  // defined(MOZ_DMD)
 
 // Functions generated via this macro should be used by all traversal-based
 // memory reporters.  Such functions return |moz_malloc_size_of(ptr)|;  this

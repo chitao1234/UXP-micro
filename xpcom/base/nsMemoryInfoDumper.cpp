@@ -504,6 +504,60 @@ DumpDMDToNamedFile(const nsAString& aReportsFilename)
   mozilla::dmd::Analyze(Move(writer));
   Unused << gzWriter->Finish();
 }
+
+nsresult
+nsMemoryInfoDumper::OpenDMDFile(const nsAString& aIdentifier, int aPid,
+                                FILE** aOutFile)
+{
+  if (!mozilla::dmd::IsRunning()) {
+    *aOutFile = nullptr;
+    return NS_OK;
+  }
+
+  // Create a filename like dmd-<identifier>-<pid>.json.gz, which will be used
+  // if DMD is enabled.
+  nsCString dmdFilename;
+  MakeFilename("dmd", aIdentifier, aPid, "json.gz", dmdFilename);
+
+  // Open a new DMD file named |dmdFilename| in NS_OS_TEMP_DIR for writing,
+  // and dump DMD output to it.  This must occur after the memory reporters
+  // have been run (above), but before the memory-reports file has been
+  // renamed (so scripts can detect the DMD file, if present).
+  nsresult rv;
+  nsCOMPtr<nsIFile> dmdFile;
+  rv = nsDumpUtils::OpenTempFile(dmdFilename, getter_AddRefs(dmdFile),
+                                 NS_LITERAL_CSTRING("memory-reports"));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+  rv = dmdFile->OpenANSIFileDesc("wb", aOutFile);
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "OpenANSIFileDesc failed");
+
+  nsCString path;
+  rv = dmdFile->GetNativePath(path);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+  mozilla::dmd::StatusMsg("opened %s for writing\n", path.get());
+  return rv;
+}
+
+nsresult
+nsMemoryInfoDumper::DumpDMDToFile(FILE* aFile)
+{
+  RefPtr<nsGZFileWriter> gzWriter = new nsGZFileWriter();
+  nsresult rv = gzWriter->InitANSIFileDesc(aFile);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  UniquePtr<JSONWriteFunc> writer(MakeUnique<GZWriterWrapper>(gzWriter));
+  mozilla::dmd::Analyze(Move(writer));
+
+  rv = gzWriter->Finish();
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Finish failed");
+  return rv;
+}
 #endif
 
 // We need two callbacks: one that handles reports, and one that is called at
@@ -517,10 +571,12 @@ public:
 
   HandleReportAndFinishReportingCallbacks(UniquePtr<JSONWriter> aWriter,
                                           nsIFinishDumpingCallback* aFinishDumping,
-                                          nsISupports* aFinishDumpingData)
+                                          nsISupports* aFinishDumpingData,
+                                          const nsAString& aDMDNamedPath)
     : mWriter(Move(aWriter))
     , mFinishDumping(aFinishDumping)
     , mFinishDumpingData(aFinishDumpingData)
+    , mDMDNamedPath(aDMDNamedPath)
   {
   }
 
@@ -581,6 +637,14 @@ public:
     nsresult rv = static_cast<GZWriterWrapper*>(mWriter->WriteFunc())->Finish();
     NS_ENSURE_SUCCESS(rv, rv);
 
+#ifdef MOZ_DMD
+    // Reporters have finished by now, so DMD's reportedness state is final.
+    // Write the analysis after the ordinary report writer has flushed.
+    if (!mDMDNamedPath.IsEmpty()) {
+      DumpDMDToNamedFile(mDMDNamedPath);
+    }
+#endif
+
     if (!mFinishDumping) {
       return NS_OK;
     }
@@ -594,6 +658,7 @@ private:
   UniquePtr<JSONWriter> mWriter;
   nsCOMPtr<nsIFinishDumpingCallback> mFinishDumping;
   nsCOMPtr<nsISupports> mFinishDumpingData;
+  nsString mDMDNamedPath;
 };
 
 NS_IMPL_ISUPPORTS(HandleReportAndFinishReportingCallbacks,
@@ -680,7 +745,8 @@ DumpMemoryInfoToFile(
   nsISupports* aFinishDumpingData,
   bool aAnonymize,
   bool aMinimizeMemoryUsage,
-  nsAString& aDMDIdentifier)
+  nsAString& aDMDIdentifier,
+  const nsAString& aDMDNamedPath)
 {
   RefPtr<nsGZFileWriter> gzWriter = new nsGZFileWriter();
   nsresult rv = gzWriter->Init(aReportsFile);
@@ -708,7 +774,8 @@ DumpMemoryInfoToFile(
     handleReportAndFinishReporting =
       new HandleReportAndFinishReportingCallbacks(Move(jsonWriter),
                                                   aFinishDumping,
-                                                  aFinishDumpingData);
+                                                  aFinishDumpingData,
+                                                  aDMDNamedPath);
   rv = mgr->GetReportsExtended(handleReportAndFinishReporting, nullptr,
                                handleReportAndFinishReporting, nullptr,
                                aAnonymize,
@@ -752,14 +819,10 @@ nsMemoryInfoDumper::DumpMemoryReportsToNamedFile(
     }
   }
 
-#ifdef MOZ_DMD
-  DumpDMDToNamedFile(aFilename);
-#endif
-
   nsString dmdIdent = EmptyString();
   return DumpMemoryInfoToFile(reportsFile, aFinishDumping, aFinishDumpingData,
                               aAnonymize, /* minimizeMemoryUsage = */ false,
-                              dmdIdent);
+                              dmdIdent, aFilename);
 }
 
 NS_IMETHODIMP
@@ -806,6 +869,7 @@ nsMemoryInfoDumper::DumpMemoryInfoToTempDir(const nsAString& aIdentifier,
     new TempDirFinishCallback(reportsTmpFile, reportsFinalFilename);
 
   return DumpMemoryInfoToFile(reportsTmpFile, finishDumping, nullptr,
-                              aAnonymize, aMinimizeMemoryUsage, identifier);
+                              aAnonymize, aMinimizeMemoryUsage, identifier,
+                              EmptyString());
 }
 
