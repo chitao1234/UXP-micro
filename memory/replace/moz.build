@@ -11,3 +11,6 @@ DIRS += [
 if CONFIG['MOZ_REPLACE_MALLOC_LINKAGE'] == 'dummy library':
     DIRS += ['dummy']
 
+if CONFIG['MOZ_DMD']:
+    DIRS += ['dmd']
+

@@ -786,6 +786,25 @@ MozDescribeCodeAddress(void* aPC, MozCodeAddressDetails* aDetails)
   aDetails->function[0] = '\0';
   aDetails->foffset = 0;
 
+#ifdef MOZ_DMD
+  // DMD only needs module + offset; dbghelp's symbol lookup is unusably slow
+  // with this tree's multi-GB MinGW DWARF sections. Resolve the module with
+  // VirtualQuery and leave function/file empty for offline symbolization.
+  MEMORY_BASIC_INFORMATION mbi;
+  if (!VirtualQuery(aPC, &mbi, sizeof(mbi)) || mbi.Type != MEM_IMAGE) {
+    return false;
+  }
+  char path[MAX_PATH];
+  DWORD len = GetModuleFileNameA((HMODULE)mbi.AllocationBase, path, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) {
+    return false;
+  }
+  strncpy(aDetails->library, path, sizeof(aDetails->library) - 1);
+  aDetails->library[sizeof(aDetails->library) - 1] = '\0';
+  aDetails->loffset = (char*)aPC - (char*)mbi.AllocationBase;
+  return true;
+#endif
+
   if (!EnsureSymInitialized()) {
     return false;
   }

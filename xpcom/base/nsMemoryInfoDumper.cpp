@@ -5,6 +5,10 @@
 
 #include "mozilla/JSONWriter.h"
 #include "mozilla/UniquePtr.h"
+#ifdef MOZ_DMD
+#include "DMD.h"
+#endif
+
 #include "mozilla/nsMemoryInfoDumper.h"
 #include "mozilla/DebugOnly.h"
 #include "nsDumpUtils.h"
@@ -53,6 +57,16 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+
+#ifdef MOZ_DMD
+// DMD.h expects this singleton to be defined by the embedding program; it
+// reaches dmd.dll through the replace-malloc bridge.
+namespace mozilla {
+namespace dmd {
+DMDFuncs::Singleton DMDFuncs::sSingleton;
+} // namespace dmd
+} // namespace mozilla
+#endif
 
 namespace {
 
@@ -458,6 +472,40 @@ private:
   RefPtr<nsGZFileWriter> mGZWriter;
 };
 
+#ifdef MOZ_DMD
+// Write a DMD analysis next to the ordinary memory report. dmd.py can read the
+// gzipped JSON directly. This is only compiled into DMD builds and only does
+// anything when dmd.dll is actually loaded.
+static void
+DumpDMDToNamedFile(const nsAString& aReportsFilename)
+{
+  if (!mozilla::dmd::IsRunning()) {
+    return;
+  }
+
+  nsAutoCString path = NS_ConvertUTF16toUTF8(aReportsFilename);
+  path.AppendLiteral(".dmd.json.gz");
+
+  nsCOMPtr<nsIFile> dmdFile;
+  nsresult rv = NS_NewLocalFile(NS_ConvertUTF8toUTF16(path), false,
+                                getter_AddRefs(dmdFile));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return;
+  }
+
+  RefPtr<nsGZFileWriter> gzWriter = new nsGZFileWriter();
+  rv = gzWriter->Init(dmdFile);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return;
+  }
+
+  UniquePtr<JSONWriteFunc> writer(
+      MakeUnique<GZWriterWrapper>(gzWriter));
+  mozilla::dmd::Analyze(Move(writer));
+  Unused << gzWriter->Finish();
+}
+#endif
+
 // We need two callbacks: one that handles reports, and one that is called at
 // the end of reporting. Both the callbacks need access to the same JSONWriter,
 // so we implement both of them in this one class.
@@ -703,6 +751,10 @@ nsMemoryInfoDumper::DumpMemoryReportsToNamedFile(
       return rv;
     }
   }
+
+#ifdef MOZ_DMD
+  DumpDMDToNamedFile(aFilename);
+#endif
 
   nsString dmdIdent = EmptyString();
   return DumpMemoryInfoToFile(reportsFile, aFinishDumping, aFinishDumpingData,
