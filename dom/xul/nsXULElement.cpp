@@ -67,6 +67,7 @@
 #include "nsContentList.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/Preferences.h"
 #include "nsIDOMMutationEvent.h"
 #include "nsPIDOMWindow.h"
 #include "nsJSPrincipals.h"
@@ -2789,6 +2790,35 @@ OffThreadScriptReceiverCallback(void *aToken, void *aCallbackData)
     NS_DispatchToMainThread(notify);
 }
 
+static bool
+ShouldUseLazyFunctions(const nsACString& aSpec)
+{
+    nsAdoptingCString allow =
+        mozilla::Preferences::GetCString("browser.memory.lazyFunctions.allow");
+    if (allow.IsEmpty()) {
+        return false;
+    }
+    if (allow.EqualsLiteral("*")) {
+        return true;
+    }
+
+    nsCString spec(aSpec);
+    int32_t start = 0;
+    while (start < (int32_t)allow.Length()) {
+        int32_t comma = allow.FindChar(',', start);
+        if (comma == kNotFound) {
+            comma = allow.Length();
+        }
+        nsCString token(Substring(allow, start, comma - start));
+        token.Trim(" \t");
+        if (!token.IsEmpty() && spec.Find(token) != kNotFound) {
+            return true;
+        }
+        start = comma + 1;
+    }
+    return false;
+}
+
 nsresult
 nsXULPrototypeScript::Compile(JS::SourceBufferHolder& aSrcBuf,
                               nsIURI* aURI, uint32_t aLineNo,
@@ -2817,8 +2847,10 @@ nsXULPrototypeScript::Compile(JS::SourceBufferHolder& aSrcBuf,
            .setVersion(JSVersion(mLangVersion));
     // If the script was inline, tell the JS parser to save source for
     // Function.prototype.toSource(). If it's out of line, we retrieve the
-    // source from the files on demand.
-    options.setSourceIsLazy(mOutOfLine);
+    // source from the files on demand. The allowlist can instead retain
+    // compressed source and lazily parse function bodies for selected chrome
+    // scripts as a memory-tier experiment.
+    options.setSourceIsLazy(mOutOfLine && !ShouldUseLazyFunctions(urlspec));
     JS::Rooted<JSObject*> scope(cx, JS::CurrentGlobalOrNull(cx));
     if (scope) {
       JS::ExposeObjectToActiveJS(scope);

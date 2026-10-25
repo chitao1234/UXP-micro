@@ -84,6 +84,35 @@ static LazyLogModule gJSCLLog("JSComponentLoader");
 #define ERROR_SETTING_SYMBOL "%s - Could not set symbol '%s' on target object."
 
 static bool
+ShouldUseLazyFunctions(const nsACString& aSpec)
+{
+    nsAdoptingCString allow =
+        mozilla::Preferences::GetCString("browser.memory.lazyFunctions.allow");
+    if (allow.IsEmpty()) {
+        return false;
+    }
+    if (allow.EqualsLiteral("*")) {
+        return true;
+    }
+
+    nsCString spec(aSpec);
+    int32_t start = 0;
+    while (start < (int32_t)allow.Length()) {
+        int32_t comma = allow.FindChar(',', start);
+        if (comma == kNotFound) {
+            comma = allow.Length();
+        }
+        nsCString token(Substring(allow, start, comma - start));
+        token.Trim(" \t");
+        if (!token.IsEmpty() && spec.Find(token) != kNotFound) {
+            return true;
+        }
+        start = comma + 1;
+    }
+    return false;
+}
+
+static bool
 Dump(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -732,10 +761,12 @@ mozJSComponentLoader::ObjectForLocation(ComponentLoaderInfo& aInfo,
         //     them to use non-lazy source code to enable lazy parsing.
         //     See bug 1303754.
         CompileOptions options(cx);
+        bool lazySource = !mReuseLoaderGlobal && !!cache &&
+                          !ShouldUseLazyFunctions(nativePath);
         options.setNoScriptRval(mReuseLoaderGlobal ? false : true)
                .setVersion(JSVERSION_LATEST)
                .setFileAndLine(nativePath.get(), 1)
-               .setSourceIsLazy(!mReuseLoaderGlobal && !!cache);
+               .setSourceIsLazy(lazySource);
 
         if (realFile) {
 #ifdef HAVE_PR_MEMMAP

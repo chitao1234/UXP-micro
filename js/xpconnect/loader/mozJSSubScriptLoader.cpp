@@ -28,6 +28,7 @@
 #include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/HoldDropJSObjects.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/scache/StartupCache.h"
 #include "mozilla/scache/StartupCacheUtils.h"
 #include "mozilla/Unused.h"
@@ -117,6 +118,35 @@ ReportError(JSContext* cx, const char* origMsg, nsIURI* uri)
     ReportError(cx, msg.get());
 }
 
+static bool
+ShouldUseLazyFunctions(const nsACString& aSpec)
+{
+    nsAdoptingCString allow =
+        mozilla::Preferences::GetCString("browser.memory.lazyFunctions.allow");
+    if (allow.IsEmpty()) {
+        return false;
+    }
+    if (allow.EqualsLiteral("*")) {
+        return true;
+    }
+
+    nsCString spec(aSpec);
+    int32_t start = 0;
+    while (start < (int32_t)allow.Length()) {
+        int32_t comma = allow.FindChar(',', start);
+        if (comma == kNotFound) {
+            comma = allow.Length();
+        }
+        nsCString token(Substring(allow, start, comma - start));
+        token.Trim(" \t");
+        if (!token.IsEmpty() && spec.Find(token) != kNotFound) {
+            return true;
+        }
+        start = comma + 1;
+    }
+    return false;
+}
+
 bool
 PrepareScript(nsIURI* uri,
               JSContext* cx,
@@ -165,9 +195,12 @@ PrepareScript(nsIURI* uri,
         }
     } else {
         // We only use lazy source when no special encoding is specified because
-        // the lazy source loader doesn't know the encoding.
+        // the lazy source loader doesn't know the encoding. The allowlist lets
+        // the memory-tier experiment retain compressed source and lazily parse
+        // function bodies for selected chrome scripts instead.
         if (!reuseGlobal) {
-            options.setSourceIsLazy(true);
+            nsDependentCString spec(uriStr);
+            options.setSourceIsLazy(!ShouldUseLazyFunctions(spec));
             if (JS_IsGlobalObject(targetObj)) {
                 return JS::Compile(cx, options, buf, len, script);
             }
