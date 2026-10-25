@@ -67,7 +67,7 @@ if CONFIG['MOZ_DEBUG']:
 # This causes a known warning due to the way mozjemalloc is linked and the
 # malloc_usable_size function not being available at compile time on MSVC
 # so we suppress that particular warning (C4013)
-if CONFIG['OS_ARCH'] == 'WINNT' and CONFIG['MOZ_MEMORY']:
+if CONFIG['OS_ARCH'] == 'WINNT' and (CONFIG['MOZ_MEMORY'] or CONFIG['MOZ_MIMALLOC']):
     DEFINES['HAVE_MALLOC_USABLE_SIZE'] = True
     DEFINES['SQLITE_WITHOUT_MSIZE'] = True
     # C4013 is an MSVC warning id; GCC/MinGW rejects -wdNNNN.

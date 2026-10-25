@@ -45,7 +45,10 @@ if not CONFIG['JS_STANDALONE']:
         DISABLE_STL_WRAPPING = True
         OS_LIBS += ['version']
         if CONFIG['MOZ_MIMALLOC']:
-            USE_LIBS += ['mimalloc']
+            # memory/mimalloc is a FINAL_LIBRARY of mozglue, so its objects are
+            # linked in directly; there is no separate mimalloc library name.
+            LOCAL_INCLUDES += ['/memory/mimalloc/include']
+            SOURCES += ['mimalloc_wrap.c']
 
     EXPORTS.mozilla += [
         'arm.h',
