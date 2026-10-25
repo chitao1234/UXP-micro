@@ -11250,6 +11250,16 @@ nsRuleNode::ComputeVariablesData(void* aStartStruct,
                    aRuleData->mVariables);
   aRuleData->mVariables->ResolveRevertLayerFallbacks(&parentVariables->mVariables,
                                                      &variables->mVariables);
+
+  // Most elements that declare custom properties only repeat what they
+  // inherited, or override values without changing the set of names.  Reuse
+  // the parent's immutable data block when the computed result is identical;
+  // CSSVariableValues is copy-on-write, so later mutations will detach safely.
+  if (variables->mVariables.EqualsInOrder(parentVariables->mVariables)) {
+    variables->mVariables = parentVariables->mVariables;
+  }
+  variables->mVariables.Intern();
+
   conditions.SetUncacheable();
 
   COMPUTE_END_INHERITED(Variables, variables)

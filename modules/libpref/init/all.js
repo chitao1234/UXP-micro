@@ -2481,6 +2481,9 @@ pref("layout.css.visited_links_enabled", true);
 // interpretation of physical units such as "pt".
 pref("layout.css.dpi", -1);
 
+// Share identical computed custom-property sets between style contexts.
+pref("layout.css.variables.intern", true);
+
 // Set the number of device pixels per CSS pixel. A value <= 0 means choose
 // automatically based on user settings for the platform (e.g., "UI scale factor"
 // on Mac). A positive value is used as-is. This effectively controls the size

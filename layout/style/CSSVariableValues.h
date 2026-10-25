@@ -8,6 +8,7 @@
 #define mozilla_CSSVariableValues_h
 
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/RefPtr.h"
 #include "nsCSSScanner.h"
 #include "nsDataHashtable.h"
 #include "nsTArray.h"
@@ -34,6 +35,14 @@ public:
   bool operator==(const CSSVariableValues& aOther) const;
   bool operator!=(const CSSVariableValues& aOther) const
     { return !(*this == aOther); }
+
+  /**
+   * Returns whether the two sets have the same names and values in the same
+   * order (including the token types).  This is used to share an unchanged
+   * computed set with its parent, so it is intentionally stricter than
+   * operator==.
+   */
+  bool EqualsInOrder(const CSSVariableValues& aOther) const;
 
   /**
    * Gets the value of a variable in this set of computed variables.
@@ -106,52 +115,28 @@ public:
   void Remove(const nsAString& aName);
 
   /**
+   * Replaces this object's data with an equivalent interned block when one
+   * already exists.  The data block is immutable once interned; mutations
+   * detach through copy-on-write.
+   */
+  void Intern();
+
+  /**
    * Copies the variables from this object into aResolver, marking them as
    * computed, inherited values.
    */
   void AddVariablesToResolver(CSSVariableResolver* aResolver) const;
 
 private:
-  struct Variable
-  {
-    Variable()
-      : mFirstToken(eCSSTokenSerialization_Nothing)
-      , mLastToken(eCSSTokenSerialization_Nothing)
-    {}
-
-    Variable(const nsAString& aVariableName,
-             nsString aValue,
-             nsCSSTokenSerializationType aFirstToken,
-             nsCSSTokenSerializationType aLastToken)
-      : mVariableName(aVariableName)
-      , mValue(aValue)
-      , mFirstToken(aFirstToken)
-      , mLastToken(aLastToken)
-    {}
-
-    nsString mVariableName;
-    nsString mValue;
-    nsCSSTokenSerializationType mFirstToken;
-    nsCSSTokenSerializationType mLastToken;
-  };
+  struct Data;
 
   /**
-   * Adds all the variables from aOther into this object.
+   * Returns a writable data block, cloning the shared block if necessary.
    */
-  void CopyVariablesFrom(const CSSVariableValues& aOther);
+  Data* EnsureWritableData();
 
-  /**
-   * Map of variable names to IDs.  Variable IDs are indexes into
-   * mVariables.
-   */
-  nsDataHashtable<nsStringHashKey, size_t> mVariableIDs;
+  RefPtr<Data> mData;
 
-  /**
-   * Array of variables, indexed by variable ID.
-   */
-  nsTArray<Variable> mVariables;
-
-  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 };
 
 } // namespace mozilla
