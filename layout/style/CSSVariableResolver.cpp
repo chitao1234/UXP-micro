@@ -147,10 +147,13 @@ CSSVariableResolver::ResolveVariable(size_t aID)
       }
     }
     nsString resolvedValue;
-    nsCSSTokenSerializationType firstToken, lastToken;
+    nsCSSTokenSerializationType firstToken = eCSSTokenSerialization_Nothing;
+    nsCSSTokenSerializationType lastToken = eCSSTokenSerialization_Nothing;
     if (!mParser.ResolveVariableValue(mVariables[aID].mValue, mOutput,
                                       resolvedValue, firstToken, lastToken)) {
       resolvedValue.Truncate(0);
+      firstToken = eCSSTokenSerialization_Nothing;
+      lastToken = eCSSTokenSerialization_Nothing;
     }
     mOutput->Put(mVariables[aID].mVariableName, resolvedValue,
                  firstToken, lastToken);

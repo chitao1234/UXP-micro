@@ -20,6 +20,9 @@ with Files('nsDOM*'):
 
 TEST_DIRS += ['test']
 
+if CONFIG['ENABLE_TESTS']:
+    DIRS += ['gtest']
+
 EXPORTS += [
     '!nsStyleStructList.h',
     'AnimationCommon.h',

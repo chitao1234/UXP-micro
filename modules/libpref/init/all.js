@@ -2483,6 +2483,8 @@ pref("layout.css.dpi", -1);
 
 // Share identical computed custom-property sets between style contexts.
 pref("layout.css.variables.intern", true);
+// Use the compact index representation for computed variable dictionaries.
+pref("layout.css.variables.compact", true);
 
 // Set the number of device pixels per CSS pixel. A value <= 0 means choose
 // automatically based on user settings for the platform (e.g., "UI scale factor"

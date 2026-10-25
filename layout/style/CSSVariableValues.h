@@ -115,8 +115,8 @@ public:
   void Remove(const nsAString& aName);
 
   /**
-   * Replaces this object's data with an equivalent interned block when one
-   * already exists.  The data block is immutable once interned; mutations
+   * Freezes this object's computed data and, when enabled, replaces it with
+   * an equivalent interned block.  Frozen data is immutable; mutations
    * detach through copy-on-write.
    */
   void Intern();
