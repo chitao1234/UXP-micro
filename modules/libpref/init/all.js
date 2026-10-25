@@ -1238,9 +1238,6 @@ pref("javascript.options.strict.debug",     false);
 #endif
 pref("javascript.options.unboxed_objects",  false);
 pref("javascript.options.baselinejit",      true);
-pref("javascript.options.baseline_warmup_trigger", 10);
-pref("browser.memory.startupCacheDelayMs", 60000);
-pref("browser.memory.releaseStartupCache", false);
 pref("javascript.options.ion",              true);
 pref("javascript.options.ion.inlining",     true);
 pref("javascript.options.asmjs",            true);

@@ -1426,15 +1426,6 @@ ReloadPrefsCallback(const char* pref, void* data)
     bool useBaselineEager = Preferences::GetBool(JS_OPTIONS_DOT_STR
                                                  "baselinejit.unsafe_eager_compilation");
     bool useIonEager = Preferences::GetBool(JS_OPTIONS_DOT_STR "ion.unsafe_eager_compilation");
-    int32_t baselineWarmupTrigger =
-        Preferences::GetInt(JS_OPTIONS_DOT_STR "baseline_warmup_trigger", 10);
-    // Low-memory tiers defer baseline compilation until a script has proven
-    // that it is hot. Keep the normal threshold for the default tier and for
-    // users that explicitly selected a value.
-    if (!Preferences::HasUserValue(JS_OPTIONS_DOT_STR "baseline_warmup_trigger") &&
-        Preferences::GetInt("browser.memoryTier", 3) <= 1) {
-      baselineWarmupTrigger = 100;
-    }
 
     sDiscardSystemSource = Preferences::GetBool(JS_OPTIONS_DOT_STR "discardSystemSource");
 
@@ -1484,7 +1475,7 @@ ReloadPrefsCallback(const char* pref, void* data)
     JS_SetParallelParsingEnabled(cx, parallelParsing);
     JS_SetOffthreadIonCompilationEnabled(cx, offthreadIonCompilation);
     JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_BASELINE_WARMUP_TRIGGER,
-                                  useBaselineEager ? 0 : baselineWarmupTrigger);
+                                  useBaselineEager ? 0 : -1);
     JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_ION_WARMUP_TRIGGER,
                                   useIonEager ? 0 : -1);
     JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_UNBOXED_OBJECTS,

@@ -8,7 +8,6 @@
 #include "nsXPCOMStrings.h"
 #include "mozilla/IOInterposer.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/Preferences.h"
 #include "mozilla/scache/StartupCache.h"
 
 #include "nsAutoPtr.h"
@@ -301,25 +300,7 @@ StartupCache::GetBuffer(const char* id, UniquePtr<char[]>* outbuf, uint32_t* len
 
   omnijar = mozilla::Omnijar::GetReader(mozilla::Omnijar::GRE);
   // no need to checksum omnijarred entries
-  rv = GetBufferFromZipArchive(omnijar, false, id, outbuf, length);
-  bool releaseArchive =
-      Preferences::GetBool("browser.memory.releaseStartupCache", false);
-  if (!Preferences::HasUserValue("browser.memory.releaseStartupCache") &&
-      Preferences::GetInt("browser.memoryTier", 3) <= 1) {
-    releaseArchive = true;
-  }
-  if (NS_SUCCEEDED(rv) || mArchive || gIgnoreDiskCache || !mStartupWriteInitiated ||
-      releaseArchive) {
-    return rv;
-  }
-
-  // The archive was released after the flush. Reload it only when a caller
-  // actually needs an entry that is not present in the omnijar.
-  rv = LoadArchive(IGNORE_AGE);
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-  return GetBufferFromZipArchive(mArchive, true, id, outbuf, length);
+  return GetBufferFromZipArchive(omnijar, false, id, outbuf, length);
 }
 
 // Makes a copy of the buffer, client retains ownership of inbuf.
@@ -473,19 +454,6 @@ StartupCache::WriteToDisk()
   // We succesfully wrote the archive to disk; mark the disk file as trusted
   gIgnoreDiskCache = false;
 
-  // Keeping the zip mapping resident is not required after the cache has been
-  // flushed. Low-memory configurations can drop it and fall back to the
-  // omnijar instead of remapping the archive.
-  bool releaseArchive =
-      Preferences::GetBool("browser.memory.releaseStartupCache", false);
-  if (!Preferences::HasUserValue("browser.memory.releaseStartupCache") &&
-      Preferences::GetInt("browser.memoryTier", 3) <= 1) {
-    releaseArchive = true;
-  }
-  if (releaseArchive) {
-    return;
-  }
-
   // Our reader's view of the archive is outdated now, reload it.
   LoadArchive(gPostFlushAgeAction);
   
@@ -622,18 +590,8 @@ StartupCache::ResetStartupWriteTimer()
   else
     rv = mTimer->Cancel();
   NS_ENSURE_SUCCESS(rv, rv);
-  int32_t delay = 60000;
-  if (Preferences::HasUserValue("browser.memory.startupCacheDelayMs")) {
-    delay = Preferences::GetInt("browser.memory.startupCacheDelayMs", 60000);
-  } else if (Preferences::GetInt("browser.memoryTier", 3) <= 1) {
-    // The low-memory tiers flush the startup cache promptly instead of
-    // holding its serialized entries until the 60 second idle deadline.
-    delay = 10000;
-  }
-  if (delay < 1000) {
-    delay = 60000;
-  }
-  mTimer->InitWithFuncCallback(StartupCache::WriteTimeout, this, delay,
+  // Wait for 10 seconds, then write out the cache.
+  mTimer->InitWithFuncCallback(StartupCache::WriteTimeout, this, 60000,
                                nsITimer::TYPE_ONE_SHOT);
   return NS_OK;
 }
