@@ -16,6 +16,7 @@
 #include "mozilla/Likely.h"
 #include "mozilla/Move.h"
 #include "mozilla/Pair.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
@@ -1063,6 +1064,16 @@ SurfaceCache::Initialize()
     MOZ_ASSERT_UNREACHABLE("PR_GetPhysicalMemorySize not implemented here");
     memorySize = 256 * 1024 * 1024;  // Fall back to 256MB.
   }
+  // Low-memory tiers use a bounded decoded-surface pool.  Locked surfaces
+  // remain protected by SurfaceCache; only reconstructible, unlocked surfaces
+  // are evicted and decoded again on demand.
+  int32_t memoryTier = Preferences::GetInt("browser.memoryTier", 3);
+  if (memoryTier <= 1) {
+    uint64_t tierCapKB =
+      Preferences::GetInt("browser.memory.surfaceCacheMaxKB", 8192);
+    surfaceCacheMaxSizeKB = min<uint64_t>(surfaceCacheMaxSizeKB, tierCapKB);
+  }
+
   uint64_t proposedSize = memorySize / surfaceCacheSizeFactor;
   uint64_t surfaceCacheSizeBytes = min(proposedSize,
                                        surfaceCacheMaxSizeKB * 1024);
