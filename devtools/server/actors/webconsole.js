@@ -1372,7 +1372,11 @@ WebConsoleActor.prototype =
       // Attempt to initialize any declarations found in the evaluated string
       // since they may now be stuck in an "initializing" state due to the
       // error. Already-initialized bindings will be ignored.
-      if ("throw" in result) {
+      //
+      // JSTRAP_ERROR produces a null completion value.  Do not assume that
+      // every result is an object; a large or interrupted evaluation can
+      // return null through this path.
+      if (result && typeof result === "object" && "throw" in result) {
         let ast;
         // Parse errors will raise an exception. We can/should ignore the error
         // since it's already being handled elsewhere and we are only interested
@@ -1429,6 +1433,13 @@ WebConsoleActor.prototype =
             dbgWindow.forceLexicalInitializationByName(name);
         }
       }
+    }
+
+    // A JSTRAP_ERROR completion is represented by a null result in the
+    // debugger API.  Keep the actor boundary object-shaped so callers do not
+    // throw while probing a missing completion, and surface a useful error.
+    if (!result || typeof result !== "object") {
+      result = { throw: "Evaluation failed (no completion value)" };
     }
 
     let helperResult = helpers.helperResult;
