@@ -1946,6 +1946,12 @@ Declaration::GetNthProperty(uint32_t aIndex, nsAString& aReturn) const
 void
 Declaration::InternBlocks()
 {
+  if (mVariables) {
+    mVariables->Intern();
+  }
+  if (mImportantVariables) {
+    mImportantVariables->Intern();
+  }
   if (!Preferences::GetBool("layout.css.declarations.intern", true)) {
     return;
   }
@@ -1956,12 +1962,6 @@ Declaration::InternBlocks()
   if (mImportantData) {
     mImportantData = dont_AddRef(
       nsCSSCompressedDataBlock::Intern(mImportantData.forget().take()));
-  }
-  if (mVariables) {
-    mVariables->Intern();
-  }
-  if (mImportantVariables) {
-    mImportantVariables->Intern();
   }
 }
 
