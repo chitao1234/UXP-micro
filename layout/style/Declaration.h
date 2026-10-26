@@ -19,6 +19,7 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/RefPtr.h"
 #include "CSSVariableDeclarations.h"
 #include "nsCSSDataBlock.h"
 #include "nsCSSPropertyID.h"
@@ -122,7 +123,20 @@ public:
    * Mark this declaration as unmodifiable.  It's 'const' so it can
    * be called from ToString.
    */
-  void SetImmutable() const { mImmutable = true; }
+  void SetImmutable() const
+  {
+    if (mImmutable) {
+      return;
+    }
+    mImmutable = true;
+    const_cast<Declaration*>(this)->InternBlocks();
+  }
+
+  /**
+   * Replace immutable compressed blocks with equal shared blocks.  This is
+   * called once, when the declaration enters the style rule tree.
+   */
+  void InternBlocks();
 
   /**
    * Copy |this|, if necessary to ensure that it can be modified.
@@ -242,8 +256,8 @@ public:
 
   void ToString(nsAString& aString) const;
 
-  nsCSSCompressedDataBlock* GetNormalBlock() const { return mData; }
-  nsCSSCompressedDataBlock* GetImportantBlock() const { return mImportantData; }
+  nsCSSCompressedDataBlock* GetNormalBlock() const { return mData.get(); }
+  nsCSSCompressedDataBlock* GetImportantBlock() const { return mImportantData.get(); }
 
   void AssertNotExpanded() const {
     MOZ_ASSERT(mData, "should only be called when not expanded");
@@ -262,9 +276,11 @@ public:
   void CompressFrom(nsCSSExpandedDataBlock *aExpandedData) {
     MOZ_ASSERT(!mData, "oops");
     MOZ_ASSERT(!mImportantData, "oops");
-    aExpandedData->Compress(getter_Transfers(mData),
-                            getter_Transfers(mImportantData),
-                            mOrder);
+    nsCSSCompressedDataBlock* normal = nullptr;
+    nsCSSCompressedDataBlock* important = nullptr;
+    aExpandedData->Compress(&normal, &important, mOrder);
+    mData = dont_AddRef(normal);
+    mImportantData = dont_AddRef(important);
     aExpandedData->AssertInitialState();
   }
 
@@ -280,7 +296,11 @@ public:
     aExpandedData->AssertInitialState();
 
     MOZ_ASSERT(mData, "oops");
-    aExpandedData->Expand(mData.forget(), mImportantData.forget());
+    MOZ_ASSERT(mData->RefCount() == 1, "expanding a shared block");
+    MOZ_ASSERT(!mImportantData || mImportantData->RefCount() == 1,
+               "expanding a shared important block");
+    aExpandedData->Expand(mData.forget().take(),
+                          mImportantData.forget().take());
   }
 
   void MapImportantRuleInfoInto(nsRuleData *aRuleData) const {
@@ -318,7 +338,8 @@ public:
       *aChanged = false;
       return false;
     }
-    nsCSSCompressedDataBlock *block = aIsImportant ? mImportantData : mData;
+    nsCSSCompressedDataBlock *block = aIsImportant ? mImportantData.get()
+                                                   : mData.get();
     // mImportantData might be null
     if (!block) {
       *aChanged = false;
@@ -327,7 +348,8 @@ public:
 
 #ifdef DEBUG
     {
-      nsCSSCompressedDataBlock *other = aIsImportant ? mData : mImportantData;
+      nsCSSCompressedDataBlock *other = aIsImportant ? mData.get()
+                                                   : mImportantData.get();
       MOZ_ASSERT(!other || !other->ValueFor(aProperty) ||
                  !block->ValueFor(aProperty),
                  "Property both important and not?");
@@ -459,10 +481,10 @@ private:
 
   // never null, except while expanded, or before the first call to
   // InitializeEmpty or CompressFrom.
-  nsAutoPtr<nsCSSCompressedDataBlock> mData;
+  RefPtr<nsCSSCompressedDataBlock> mData;
 
   // may be null
-  nsAutoPtr<nsCSSCompressedDataBlock> mImportantData;
+  RefPtr<nsCSSCompressedDataBlock> mImportantData;
 
   // may be null
   nsAutoPtr<CSSVariableDeclarations> mVariables;

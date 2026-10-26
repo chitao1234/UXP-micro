@@ -41,11 +41,34 @@ private:
   // Only this class (via |CreateEmptyBlock|) or nsCSSExpandedDataBlock
   // (in |Compress|) can create compressed data blocks.
   explicit nsCSSCompressedDataBlock(uint32_t aNumProps)
-    : mStyleBits(0), mNumProps(aNumProps)
+    : mStyleBits(0), mNumProps(aNumProps), mRefCnt(1)
   {}
 
 public:
   ~nsCSSCompressedDataBlock();
+
+  // Compressed blocks are reference counted once they may be shared between
+  // declarations.  Blocks created by the parser start with a count of one,
+  // which is the ordinary non-shared ownership case.
+  void AddRef();
+  void Release();
+
+  uint16_t RefCount() const { return mRefCnt; }
+  bool IsInterned() const { return (mStyleBits & kInternedBit) != 0; }
+
+  /**
+   * Try to replace |aBlock| with an equal immutable block.  Consumes the
+   * caller's reference and returns a block with one reference for the caller.
+   * When sharing is not profitable or the block contains values that cannot
+   * be compared safely, the original block is returned unchanged.
+   */
+  static nsCSSCompressedDataBlock* Intern(nsCSSCompressedDataBlock* aBlock);
+
+  /**
+   * Diagnostics for the shared-block pool.
+   */
+  static void GetInternStats(size_t aMallocSizeOf, size_t* aBytes,
+                             size_t* aUniqueBlocks, size_t* aReferences);
 
   /**
    * Do what |nsIStyleRule::MapRuleInfoInto| needs to do for a style
@@ -114,14 +137,23 @@ public:
   static const size_t MaxCompressedCSSProperty = INT16_MAX;
 
 private:
+  bool ComputeHash(uint32_t* aHash) const;
+  bool Equals(const nsCSSCompressedDataBlock* aOther) const;
+
   static size_t DataSize(uint32_t aNumProps) {
     return size_t(aNumProps) *
            (sizeof(nsCSSValue) + sizeof(CompressedCSSProperty));
   }
 
-  int32_t mStyleBits; // the structs for which we have data, according to
-                      // |nsCachedStyleData::GetBitForSID|.
-  uint32_t mNumProps;
+  // Bit 31 marks a block as belonging to the shared-block pool.  Style
+  // struct IDs use the low bits only (see nsStyleStruct.h), so this does not
+  // collide with a real SID bit.
+  static const uint32_t kInternedBit = 0x80000000u;
+
+  uint32_t mStyleBits; // the structs for which we have data, according to
+                       // |nsCachedStyleData::GetBitForSID|.
+  uint16_t mNumProps;
+  uint16_t mRefCnt;
   // nsCSSValue elements are stored after these fields, and
   // nsCSSPropertyID elements are stored -- each one compressed as a
   // CompressedCSSProperty -- after the nsCSSValue elements.  Space for them
@@ -134,16 +166,18 @@ private:
   }
 
   CompressedCSSProperty* CompressedProperties() const {
-    return (CompressedCSSProperty*)(Values() + mNumProps);
+    return (CompressedCSSProperty*)(Values() + NumProps());
   }
 
+  uint16_t NumProps() const { return mNumProps; }
+
   nsCSSValue* ValueAtIndex(uint32_t i) const {
-    MOZ_ASSERT(i < mNumProps, "value index out of range");
+    MOZ_ASSERT(i < NumProps(), "value index out of range");
     return Values() + i;
   }
 
   nsCSSPropertyID PropertyAtIndex(uint32_t i) const {
-    MOZ_ASSERT(i < mNumProps, "property index out of range");
+    MOZ_ASSERT(i < NumProps(), "property index out of range");
     nsCSSPropertyID prop = (nsCSSPropertyID)CompressedProperties()[i];
     MOZ_ASSERT(!nsCSSProps::IsShorthand(prop), "out of range");
     return prop;
@@ -158,7 +192,7 @@ private:
   }
 
   void SetPropertyAtIndex(uint32_t i, nsCSSPropertyID aProperty) {
-    MOZ_ASSERT(i < mNumProps, "set property index out of range");
+    MOZ_ASSERT(i < NumProps(), "set property index out of range");
     CompressedProperties()[i] = (CompressedCSSProperty)aProperty;
   }
 
