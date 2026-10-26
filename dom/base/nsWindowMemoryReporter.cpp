@@ -12,6 +12,7 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/CSSVariableValues.h"
 #include "nsCSSDataBlock.h"
+#include "mozilla/CSSVariableDeclarations.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
@@ -76,6 +77,37 @@ public:
 };
 
 NS_IMPL_ISUPPORTS(CSSDeclarationBlocksReporter, nsIMemoryReporter)
+
+class CSSAuthoredVariablesReporter final : public nsIMemoryReporter
+{
+  MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
+
+  ~CSSAuthoredVariablesReporter() {}
+
+public:
+  NS_DECL_ISUPPORTS
+
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    size_t bytes = 0, blocks = 0, refs = 0;
+    CSSVariableDeclarations::GetInternStats(MallocSizeOf, &bytes, &blocks,
+                                            &refs);
+    MOZ_COLLECT_REPORT(
+      "explicit/layout/style/authored-variable-declarations", KIND_HEAP,
+      UNITS_BYTES, bytes,
+      "Heap memory used by shared authored custom-property declaration "
+      "sets, including the sharing table.");
+    MOZ_COLLECT_REPORT(
+      "explicit/layout/style/authored-variable-declaration-refs", KIND_OTHER,
+      UNITS_COUNT, refs,
+      "Number of declarations referring to shared authored custom-property "
+      "declaration sets.");
+    return NS_OK;
+  }
+};
+
+NS_IMPL_ISUPPORTS(CSSAuthoredVariablesReporter, nsIMemoryReporter)
 
 StaticRefPtr<nsWindowMemoryReporter> sWindowReporter;
 
@@ -176,6 +208,7 @@ nsWindowMemoryReporter::Init()
   RegisterStrongMemoryReporter(new GhostWindowsReporter());
   RegisterStrongMemoryReporter(new CSSVariableValuesReporter());
   RegisterStrongMemoryReporter(new CSSDeclarationBlocksReporter());
+  RegisterStrongMemoryReporter(new CSSAuthoredVariablesReporter());
   RegisterGhostWindowsDistinguishedAmount(GhostWindowsReporter::DistinguishedAmount);
 }
 

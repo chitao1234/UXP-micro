@@ -7,6 +7,8 @@
 #ifndef mozilla_CSSVariableDeclarations_h
 #define mozilla_CSSVariableDeclarations_h
 
+#include "mozilla/MemoryReporting.h"
+#include "mozilla/RefPtr.h"
 #include "nsClassHashtable.h"
 #include "nsDataHashtable.h"
 #include "nsTArray.h"
@@ -24,9 +26,7 @@ class CSSVariableDeclarations
 public:
   CSSVariableDeclarations();
   CSSVariableDeclarations(const CSSVariableDeclarations& aOther);
-#ifdef DEBUG
   ~CSSVariableDeclarations();
-#endif
   CSSVariableDeclarations& operator=(const CSSVariableDeclarations& aOther);
 
   /**
@@ -131,7 +131,22 @@ public:
   /**
    * Returns the number of entries in this set of variable declarations.
    */
-  uint32_t Count() const { return mVariables.Count(); }
+  uint32_t Count() const;
+
+  /**
+   * Replaces the mutable representation with an equal shared immutable one
+   * when possible.  Called when a declaration enters the rule tree.
+   */
+  void Intern();
+
+  bool IsInterned() const;
+
+  /**
+   * Diagnostics for the shared authored-variable store.
+   */
+  static void GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
+                             size_t* aBytes, size_t* aUniqueBlocks,
+                             size_t* aReferences);
 
   /**
    * Copies each variable value from this object into aRuleData, unless that
@@ -171,10 +186,13 @@ private:
    */
   void CopyVariablesFrom(const CSSVariableDeclarations& aOther);
 
-  nsDataHashtable<nsStringHashKey, nsString> mVariables;
-  nsDataHashtable<nsStringHashKey, nsString> mRevertLayerSources;
-  nsClassHashtable<nsStringHashKey, RevertLayerFallbackList>
-    mRevertLayerFallbacks;
+  struct Data;
+
+  Data* EnsureWritableData();
+  const Data* GetData() const { return mData; }
+  static void RemoveInternedData(void* aData);
+
+  RefPtr<Data> mData;
 };
 
 } // namespace mozilla

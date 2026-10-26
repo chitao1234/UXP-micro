@@ -1955,6 +1955,12 @@ Declaration::InternBlocks()
     mImportantData = dont_AddRef(
       nsCSSCompressedDataBlock::Intern(mImportantData.forget().take()));
   }
+  if (mVariables) {
+    mVariables->Intern();
+  }
+  if (mImportantVariables) {
+    mImportantVariables->Intern();
+  }
 }
 
 void
@@ -1992,10 +1998,10 @@ Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
          ? mData->SizeOfIncludingThis(aMallocSizeOf) : 0;
   n += mImportantData && !mImportantData->IsInterned()
          ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  if (mVariables) {
+  if (mVariables && !mVariables->IsInterned()) {
     n += mVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
-  if (mImportantVariables) {
+  if (mImportantVariables && !mImportantVariables->IsInterned()) {
     n += mImportantVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
   return n;
