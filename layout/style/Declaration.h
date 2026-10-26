@@ -440,7 +440,7 @@ public:
     uint32_t variableIndex = mOrder[aIndex] - eCSSProperty_COUNT;
     aResult.Truncate();
     aResult.AppendLiteral("--");
-    aResult.Append(mVariableOrder[variableIndex]);
+    aResult.Append(nsDependentAtomString(mVariableOrder[variableIndex]));
   }
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
@@ -476,8 +476,10 @@ private:
   // specific variable the custom property declaration is for.
   AutoTArray<uint32_t, 8> mOrder;
 
-  // variable names of custom properties found in mOrder
-  nsTArray<nsString> mVariableOrder;
+  // variable names of custom properties found in mOrder.  Names are atoms:
+  // custom-property names repeat heavily across rules and stylesheets, and
+  // atoms make the per-declaration order list independent of the name text.
+  nsTArray<nsCOMPtr<nsIAtom>> mVariableOrder;
 
   // never null, except while expanded, or before the first call to
   // InitializeEmpty or CompressFrom.

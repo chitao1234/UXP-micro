@@ -1808,7 +1808,9 @@ Declaration::ToString(nsAString& aString) const
 
     if (property == eCSSPropertyExtra_variable) {
       uint32_t variableIndex = mOrder[index] - eCSSProperty_COUNT;
-      AppendVariableAndValueToString(mVariableOrder[variableIndex], aString);
+      nsAutoString variableName;
+      mVariableOrder[variableIndex]->ToString(variableName);
+      AppendVariableAndValueToString(variableName, aString);
       continue;
     }
 
@@ -1993,6 +1995,7 @@ Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
   n += mOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
   // Shared blocks are reported once by the declaration-block reporter.
   n += mData && !mData->IsInterned()
          ? mData->SizeOfIncludingThis(aMallocSizeOf) : 0;
@@ -2057,10 +2060,15 @@ Declaration::AddVariable(const nsAString& aName,
 {
   MOZ_ASSERT(IsMutable());
 
-  nsTArray<nsString>::index_type index = mVariableOrder.IndexOf(aName);
-  if (index == nsTArray<nsString>::NoIndex) {
-    index = mVariableOrder.Length();
-    mVariableOrder.AppendElement(aName);
+  nsCOMPtr<nsIAtom> nameAtom = NS_Atomize(aName);
+  size_t index = 0;
+  for (; index < mVariableOrder.Length(); index++) {
+    if (mVariableOrder[index] == nameAtom) {
+      break;
+    }
+  }
+  if (index == mVariableOrder.Length()) {
+    mVariableOrder.AppendElement(nameAtom);
   }
 
   if (!aIsImportant && !aOverrideImportant &&
@@ -2135,9 +2143,12 @@ Declaration::RemoveVariable(const nsAString& aName)
   if (mImportantVariables) {
     mImportantVariables->Remove(aName);
   }
-  nsTArray<nsString>::index_type index = mVariableOrder.IndexOf(aName);
-  if (index != nsTArray<nsString>::NoIndex) {
-    mOrder.RemoveElement(index + eCSSProperty_COUNT);
+  nsCOMPtr<nsIAtom> nameAtom = NS_Atomize(aName);
+  for (size_t index = 0; index < mVariableOrder.Length(); index++) {
+    if (mVariableOrder[index] == nameAtom) {
+      mOrder.RemoveElement(index + eCSSProperty_COUNT);
+      break;
+    }
   }
 }
 
