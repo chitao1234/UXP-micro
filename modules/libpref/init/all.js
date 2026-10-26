@@ -2483,6 +2483,7 @@ pref("layout.css.dpi", -1);
 
 // Share identical computed custom-property sets between style contexts.
 pref("layout.css.variables.intern", true);
+pref("layout.css.variables.base", true);
 // Use the compact index representation for computed variable dictionaries.
 pref("layout.css.variables.compact", true);
 

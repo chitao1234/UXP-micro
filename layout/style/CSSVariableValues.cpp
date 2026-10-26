@@ -59,12 +59,14 @@ struct CSSVariableValues::Data : public RefCounted<Data>
              uint32_t aNameLength,
              uint32_t aValueOffset,
              uint32_t aValueLength,
-             uint32_t aTokens)
+             uint32_t aTokens,
+             uint32_t aBaseIndex = UINT32_MAX)
       : mNameOffset(aNameOffset)
       , mNameLength(aNameLength)
       , mValueOffset(aValueOffset)
       , mValueLength(aValueLength)
       , mTokens(aTokens)
+      , mBaseIndex(aBaseIndex)
     {}
 
     static uint32_t PackTokens(nsCSSTokenSerializationType aFirstToken,
@@ -91,6 +93,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     uint32_t mValueOffset;
     uint32_t mValueLength;
     uint32_t mTokens;
+    uint32_t mBaseIndex;
   };
 
   MOZ_DECLARE_REFCOUNTED_TYPENAME(Data)
@@ -107,6 +110,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     : mStrings(aOther.mStrings)
     , mVariables(aOther.mVariables)
     , mIndex(aOther.mIndex)
+    , mBase(aOther.mBase)
     , mUseCompact(aOther.mUseCompact)
     , mIndexMask(aOther.mIndexMask)
     , mHash(0)
@@ -223,24 +227,216 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     }
   }
 
+  bool HasBase() const { return !!mBase; }
+
+  bool IsOverridden(size_t aBaseIndex, const Variable** aVariable) const
+  {
+    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
+      if (mVariables[i].mBaseIndex == aBaseIndex) {
+        *aVariable = &mVariables[i];
+        return true;
+      }
+    }
+    return false;
+  }
+
+  uint32_t Count() const
+  {
+    if (!mBase) {
+      return mVariables.Length();
+    }
+    uint32_t count = mBase->Count();
+    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
+      if (mVariables[i].mBaseIndex == UINT32_MAX) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   bool Find(const nsAString& aName, size_t* aIndex) const
   {
     if (!mUseCompact) {
       return mLegacyIDs && mLegacyIDs->Get(aName, aIndex);
     }
-    if (mIndex.IsEmpty()) {
+    if (!mIndex.IsEmpty()) {
+      uint32_t slot = NameHash(aName) & mIndexMask;
+      while (uint32_t entry = mIndex[slot]) {
+        size_t index = entry - 1;
+        if (NameEquals(mVariables[index], aName)) {
+          *aIndex = index;
+          return true;
+        }
+        slot = (slot + 1) & mIndexMask;
+      }
+    }
+    return mBase && mBase->Find(aName, aIndex);
+  }
+
+  bool Get(const nsAString& aName, nsString& aValue,
+           nsCSSTokenSerializationType& aFirstToken,
+           nsCSSTokenSerializationType& aLastToken) const
+  {
+    size_t index;
+    if (mUseCompact) {
+      if (!mIndex.IsEmpty()) {
+        uint32_t slot = NameHash(aName) & mIndexMask;
+        while (uint32_t entry = mIndex[slot]) {
+          size_t i = entry - 1;
+          if (NameEquals(mVariables[i], aName)) {
+            aValue.Assign(Value(mVariables[i]));
+            aFirstToken = mVariables[i].FirstToken();
+            aLastToken = mVariables[i].LastToken();
+            return true;
+          }
+          slot = (slot + 1) & mIndexMask;
+        }
+      }
+    } else if (mLegacyIDs && mLegacyIDs->Get(aName, &index)) {
+      aValue.Assign(Value(mVariables[index]));
+      aFirstToken = mVariables[index].FirstToken();
+      aLastToken = mVariables[index].LastToken();
+      return true;
+    }
+    return mBase && mBase->Get(aName, aValue, aFirstToken, aLastToken);
+  }
+
+  bool GetAt(uint32_t aIndex, nsAString& aName, nsString& aValue,
+             nsCSSTokenSerializationType& aFirstToken,
+             nsCSSTokenSerializationType& aLastToken) const
+  {
+    if (mBase) {
+      uint32_t baseCount = mBase->Count();
+      if (aIndex < baseCount) {
+        const Variable* override = nullptr;
+        if (IsOverridden(aIndex, &override)) {
+          aName.Assign(Name(*override));
+          aValue.Assign(Value(*override));
+          aFirstToken = override->FirstToken();
+          aLastToken = override->LastToken();
+          return true;
+        }
+        return mBase->GetAt(aIndex, aName, aValue, aFirstToken, aLastToken);
+      }
+      aIndex -= baseCount;
+      for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
+        if (mVariables[i].mBaseIndex == UINT32_MAX) {
+          if (aIndex == 0) {
+            aName.Assign(Name(mVariables[i]));
+            aValue.Assign(Value(mVariables[i]));
+            aFirstToken = mVariables[i].FirstToken();
+            aLastToken = mVariables[i].LastToken();
+            return true;
+          }
+          aIndex--;
+        }
+      }
       return false;
     }
-    uint32_t slot = NameHash(aName) & mIndexMask;
-    while (uint32_t entry = mIndex[slot]) {
-      size_t index = entry - 1;
-      if (NameEquals(mVariables[index], aName)) {
-        *aIndex = index;
-        return true;
-      }
-      slot = (slot + 1) & mIndexMask;
+    if (aIndex >= mVariables.Length()) {
+      return false;
     }
-    return false;
+    const Variable& v = mVariables[aIndex];
+    aName.Assign(Name(v));
+    aValue.Assign(Value(v));
+    aFirstToken = v.FirstToken();
+    aLastToken = v.LastToken();
+    return true;
+  }
+
+  already_AddRefed<Data> Flatten() const
+  {
+    if (!mBase) {
+      RefPtr<Data> self = const_cast<Data*>(this);
+      return self.forget();
+    }
+    RefPtr<Data> flat = new Data();
+    flat->mUseCompact = mUseCompact;
+    uint32_t count = Count();
+    for (uint32_t i = 0; i < count; i++) {
+      nsString name, value;
+      nsCSSTokenSerializationType first, last;
+      GetAt(i, name, value, first, last);
+      flat->PutFull(name, value, first, last);
+    }
+    return flat.forget();
+  }
+
+  void PutFull(const nsAString& aName, const nsString& aValue,
+               nsCSSTokenSerializationType aFirstToken,
+               nsCSSTokenSerializationType aLastToken)
+  {
+    size_t id = mVariables.Length();
+    if (mUseCompact) {
+      if (mIndex.IsEmpty() || (id + 1) * 2 > mIndex.Length()) {
+        BuildIndex(mIndex.IsEmpty() ? 8 : mIndex.Length() * 2);
+      }
+    }
+    uint32_t nameOffset = AppendString(aName);
+    uint32_t valueOffset = AppendString(aValue);
+    mVariables.AppendElement(Variable(nameOffset, aName.Length(),
+                                      valueOffset, aValue.Length(),
+                                      Variable::PackTokens(aFirstToken,
+                                                           aLastToken)));
+    if (mUseCompact) {
+      InsertIndex(id);
+    }
+  }
+
+  bool Factor(const Data& aBase, uint32_t aMaxOverrides)
+  {
+    if (mBase || aBase.mBase || !aBase.mVariables.Length()) {
+      return false;
+    }
+    uint32_t baseCount = aBase.Count();
+    uint32_t fullCount = mVariables.Length();
+    if (fullCount < baseCount) {
+      return false;
+    }
+    RefPtr<Data> overrides = new Data();
+    overrides->mUseCompact = mUseCompact;
+    uint32_t overrideCount = 0;
+    for (uint32_t i = 0; i < fullCount; i++) {
+      nsString name, value;
+      nsCSSTokenSerializationType first, last;
+      GetAt(i, name, value, first, last);
+      bool isBase = i < baseCount;
+      if (isBase) {
+        nsString baseName, baseValue;
+        nsCSSTokenSerializationType baseFirst, baseLast;
+        aBase.GetAt(i, baseName, baseValue, baseFirst, baseLast);
+        if (!name.Equals(baseName)) {
+          return false;
+        }
+        if (value.Equals(baseValue) && first == baseFirst && last == baseLast) {
+          continue;
+        }
+      }
+      uint32_t nameOffset = overrides->AppendString(name);
+      uint32_t valueOffset = overrides->AppendString(value);
+      overrides->mVariables.AppendElement(
+        Variable(nameOffset, name.Length(), valueOffset, value.Length(),
+                 Variable::PackTokens(first, last),
+                 isBase ? i : UINT32_MAX));
+      overrideCount++;
+      if (overrideCount > aMaxOverrides) {
+        return false;
+      }
+    }
+    if (overrideCount == 0) {
+      mBase = const_cast<Data*>(&aBase);
+      mVariables.Clear();
+      mStrings.Clear();
+      mIndex.Clear();
+      mIndexMask = 0;
+      return true;
+    }
+    mBase = const_cast<Data*>(&aBase);
+    mStrings.SwapElements(overrides->mStrings);
+    mVariables.SwapElements(overrides->mVariables);
+    mIndex.Clear();
+    BuildIndex(mVariables.Length() + 8);
+    return true;
   }
 
   void CompactStrings()
@@ -293,6 +489,10 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   uint64_t Hash() const
   {
+    if (mBase) {
+      RefPtr<Data> flat = Flatten();
+      return flat->Hash();
+    }
     uint64_t hash = 1469598103934665603ULL;
     Mix(hash, static_cast<uint64_t>(mVariables.Length()));
     for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
@@ -308,6 +508,11 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   bool EqualsInOrder(const Data& aOther) const
   {
+    if (mBase || aOther.mBase) {
+      RefPtr<Data> left = Flatten();
+      RefPtr<Data> right = const_cast<Data&>(aOther).Flatten();
+      return left->EqualsInOrder(*right);
+    }
     if (mVariables.Length() != aOther.mVariables.Length()) {
       return false;
     }
@@ -345,6 +550,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
   nsTArray<char16_t> mStrings;
   nsTArray<Variable> mVariables;
   nsTArray<uint32_t> mIndex;
+  RefPtr<Data> mBase;
   nsAutoPtr<nsDataHashtable<nsStringHashKey, size_t> > mLegacyIDs;
   bool mUseCompact;
   uint32_t mIndexMask;
@@ -385,6 +591,9 @@ CSSVariableValues::Data*
 CSSVariableValues::EnsureWritableData()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  if (mData && mData->HasBase()) {
+    mData = mData->Flatten();
+  }
   if (!mData) {
     mData = new Data();
   } else if (!mData->hasOneRef() || mData->mFrozen || mData->mInCache) {
@@ -402,19 +611,18 @@ CSSVariableValues::operator==(const CSSVariableValues& aOther) const
   if (!mData || !aOther.mData) {
     return false;
   }
-  if (mData->mVariables.Length() != aOther.mData->mVariables.Length()) {
+  if (mData->Count() != aOther.mData->Count()) {
     return false;
   }
 
-  for (size_t thisIndex = 0; thisIndex < mData->mVariables.Length();
-       ++thisIndex) {
-    size_t otherIndex;
-    if (!aOther.mData->Find(mData->Name(mData->mVariables[thisIndex]),
-                            &otherIndex)) {
-      return false;
-    }
-    if (!mData->Value(mData->mVariables[thisIndex])
-           .Equals(aOther.mData->Value(aOther.mData->mVariables[otherIndex]))) {
+  for (size_t i = 0; i < mData->Count(); ++i) {
+    nsString name, value;
+    nsCSSTokenSerializationType first, last;
+    mData->GetAt(i, name, value, first, last);
+    nsString otherValue;
+    nsCSSTokenSerializationType otherFirst, otherLast;
+    if (!aOther.mData->Get(name, otherValue, otherFirst, otherLast) ||
+        !value.Equals(otherValue)) {
       return false;
     }
   }
@@ -437,7 +645,7 @@ CSSVariableValues::EqualsInOrder(const CSSVariableValues& aOther) const
 size_t
 CSSVariableValues::Count() const
 {
-  return mData ? mData->mVariables.Length() : 0;
+  return mData ? mData->Count() : 0;
 }
 
 bool
@@ -446,12 +654,8 @@ CSSVariableValues::Get(const nsAString& aName, nsString& aValue) const
   if (!mData) {
     return false;
   }
-  size_t id;
-  if (!mData->Find(aName, &id)) {
-    return false;
-  }
-  aValue.Assign(mData->Value(mData->mVariables[id]));
-  return true;
+  nsCSSTokenSerializationType first, last;
+  return mData->Get(aName, aValue, first, last);
 }
 
 bool
@@ -463,22 +667,16 @@ CSSVariableValues::Get(const nsAString& aName,
   if (!mData) {
     return false;
   }
-  size_t id;
-  if (!mData->Find(aName, &id)) {
-    return false;
-  }
-  const Data::Variable& variable = mData->mVariables[id];
-  aValue.Assign(mData->Value(variable));
-  aFirstToken = variable.FirstToken();
-  aLastToken = variable.LastToken();
-  return true;
+  return mData->Get(aName, aValue, aFirstToken, aLastToken);
 }
 
 void
 CSSVariableValues::GetVariableAt(size_t aIndex, nsAString& aName) const
 {
-  MOZ_ASSERT(mData && aIndex < mData->mVariables.Length());
-  aName.Assign(mData->Name(mData->mVariables[aIndex]));
+  MOZ_ASSERT(mData);
+  nsString value;
+  nsCSSTokenSerializationType first, last;
+  MOZ_ALWAYS_TRUE(mData->GetAt(aIndex, aName, value, first, last));
 }
 
 void
@@ -546,6 +744,15 @@ CSSVariableValues::Remove(const nsAString& aName)
   }
 }
 
+bool
+CSSVariableValues::Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides)
+{
+  if (!mData || !aBase.mData) {
+    return false;
+  }
+  return mData->Factor(*aBase.mData, aMaxOverrides);
+}
+
 void
 CSSVariableValues::Intern()
 {
@@ -560,7 +767,8 @@ CSSVariableValues::Intern()
     mData = new Data(*mData);
   }
   mData->Freeze();
-  if (!Preferences::GetBool("layout.css.variables.intern", true)) {
+  if (mData->HasBase() ||
+      !Preferences::GetBool("layout.css.variables.intern", true)) {
     return;
   }
 
@@ -588,12 +796,11 @@ CSSVariableValues::AddVariablesToResolver(CSSVariableResolver* aResolver) const
   if (!mData) {
     return;
   }
-  for (size_t i = 0, n = mData->mVariables.Length(); i < n; i++) {
-    const Data::Variable& variable = mData->mVariables[i];
-    nsString value;
-    value.Assign(mData->Value(variable));
-    aResolver->Put(mData->Name(variable), value,
-                   variable.FirstToken(), variable.LastToken(), true);
+  for (size_t i = 0, n = mData->Count(); i < n; i++) {
+    nsString name, value;
+    nsCSSTokenSerializationType first, last;
+    mData->GetAt(i, name, value, first, last);
+    aResolver->Put(name, value, first, last, true);
   }
 }
 
@@ -605,9 +812,10 @@ CSSVariableValues::SizeOfLive(MallocSizeOf aMallocSizeOf)
   MutexAutoLock lock(*sLiveValuesMutex);
   for (size_t i = 0, len = sLiveValues->Length(); i < len; i++) {
     Data* data = (*sLiveValues)[i]->mData;
-    if (data && !seen.GetEntry(data)) {
+    while (data && !seen.GetEntry(data)) {
       seen.PutEntry(data);
       n += data->SizeOfExcludingThis(aMallocSizeOf);
+      data = data->mBase;
     }
   }
   return n;

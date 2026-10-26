@@ -115,6 +115,12 @@ public:
   void Remove(const nsAString& aName);
 
   /**
+   * Share the immutable entries of aBase and retain only this object's
+   * resolved overrides where that is profitable.
+   */
+  bool Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides);
+
+  /**
    * Freezes this object's computed data and, when enabled, replaces it with
    * an equivalent interned block.  Frozen data is immutable; mutations
    * detach through copy-on-write.

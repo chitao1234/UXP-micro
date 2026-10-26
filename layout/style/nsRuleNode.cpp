@@ -11255,7 +11255,12 @@ nsRuleNode::ComputeVariablesData(void* aStartStruct,
   // inherited, or override values without changing the set of names.  Reuse
   // the parent's immutable data block when the computed result is identical;
   // CSSVariableValues is copy-on-write, so later mutations will detach safely.
-  if (variables->mVariables.EqualsInOrder(parentVariables->mVariables)) {
+  bool factored = false;
+  if (Preferences::GetBool("layout.css.variables.base", true)) {
+    factored = variables->mVariables.Factor(parentVariables->mVariables, 32);
+  }
+  if (!factored &&
+      variables->mVariables.EqualsInOrder(parentVariables->mVariables)) {
     variables->mVariables = parentVariables->mVariables;
   }
   variables->mVariables.Intern();
