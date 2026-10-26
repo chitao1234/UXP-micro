@@ -837,6 +837,9 @@ RuleCascadeData::RuleCascadeData(bool aQuirksMode)
   , mKeyframesRuleTable()
   , mCounterStyleRuleTable()
   , mQuirksMode(aQuirksMode)
+  , mAttributeIndexesBuilt(false)
+  , mUseLazyInvalidation(
+      Preferences::GetBool("layout.css.invalidation.lazy", true))
 {
   memset(mPseudoElementRuleHashes, 0, sizeof(mPseudoElementRuleHashes));
 }
@@ -871,6 +874,7 @@ RuleCascadeData::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
   }
 
   n += mStateSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mDeferredSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
 
   n += SizeOfSelectorsHashTable(mIdSelectors, aMallocSizeOf);
   n += SizeOfSelectorsHashTable(mClassSelectors, aMallocSizeOf);
@@ -1009,6 +1013,34 @@ RestyleHintForOp(char16_t oper)
  * |ComputeSelectorStateDependence| determines which selectors are in
  * |mStateSelectors|.
  */
+void
+RuleCascadeData::EnsureAttributeIndexes()
+{
+  if (mAttributeIndexesBuilt) {
+    return;
+  }
+  mAttributeIndexesBuilt = true;
+  for (size_t i = 0, n = mDeferredSelectors.Length(); i < n; i++) {
+    RuleSelectorPair pair = mDeferredSelectors[i];
+    for (nsCSSSelector* selector = pair.mSelector; selector;
+         selector = selector->mNext) {
+      if (selector->IsPseudoElement()) {
+        CSSPseudoElementType pseudo = selector->PseudoType();
+        if (pseudo >= CSSPseudoElementType::Count ||
+            !nsCSSPseudoElements::PseudoElementSupportsUserActionState(
+              pseudo)) {
+          continue;
+        }
+      }
+      if (!AddAttributeSelector(selector, selector, pair.mSelector)) {
+        break;
+      }
+    }
+  }
+  nsTArray<RuleSelectorPair> empty;
+  mDeferredSelectors.SwapElements(empty);
+}
+
 void
 RuleCascadeData::HasStateDependentStyle(
   ElementDependentRuleProcessorData* aData,
@@ -1221,6 +1253,8 @@ RuleCascadeData::HasAttributeDependentStyle(
   AttributeEnumData* aEnumData,
   mozilla::RestyleHintData& aRestyleHintDataResult)
 {
+  EnsureAttributeIndexes();
+
   // Since we get both before and after notifications for attributes, we
   // don't have to ignore aData->mAttribute while matching.  Just check
   // whether we have selectors relevant to aData->mAttribute that we
@@ -1309,8 +1343,46 @@ ComputeSelectorStateDependence(nsCSSSelector& aSelector)
   return states;
 }
 
+void
+RuleCascadeData::AddStateSelector(nsCSSSelector* aSelectorInTopLevel,
+                                  nsCSSSelector* aSelectorPart)
+{
+  for (nsCSSSelector* negation = aSelectorPart; negation;
+       negation = negation->mNegations) {
+    for (nsPseudoClassList* pseudoClass = negation->mPseudoClassList;
+         pseudoClass; pseudoClass = pseudoClass->mNext) {
+      switch (pseudoClass->mType) {
+        case CSSPseudoClassType::mozLocaleDir:
+          mSelectorDocumentStates |= NS_DOCUMENT_STATE_RTL_LOCALE;
+          break;
+        case CSSPseudoClassType::mozWindowInactive:
+          mSelectorDocumentStates |= NS_DOCUMENT_STATE_WINDOW_INACTIVE;
+          break;
+        default:
+          break;
+      }
+    }
+
+    EventStates dependentStates = ComputeSelectorStateDependence(*negation);
+    if (!dependentStates.IsEmpty()) {
+      mStateSelectors.AppendElement(
+        StateSelector(dependentStates, aSelectorInTopLevel));
+    }
+
+    for (nsPseudoClassList* pseudoClass = negation->mPseudoClassList;
+         pseudoClass; pseudoClass = pseudoClass->mNext) {
+      if (nsCSSPseudoClasses::HasSelectorListArg(pseudoClass->mType)) {
+        for (nsCSSSelectorList* l = pseudoClass->u.mSelectorList; l;
+             l = l->mNext) {
+          AddStateSelector(aSelectorInTopLevel, l->mSelectors);
+        }
+      }
+    }
+  }
+}
+
 bool
-RuleCascadeData::AddSelector(
+RuleCascadeData::AddAttributeSelector(
   // The part between combinators at the top level of the selector
   nsCSSSelector* aSelectorInTopLevel,
   // The part we should look through (might be in :not or :-moz-any())
@@ -1318,51 +1390,19 @@ RuleCascadeData::AddSelector(
   // The right-most selector at the top level
   nsCSSSelector* aRightmostSelector)
 {
-  // It's worth noting that this loop over negations isn't quite
-  // optimal for two reasons.  One, we could add something to one of
-  // these lists twice, which means we'll check it twice, but I don't
-  // think that's worth worrying about.   (We do the same for multiple
-  // attribute selectors on the same attribute.)  Two, we don't really
-  // need to check negations past the first in the current
-  // implementation (and they're rare as well), but that might change
-  // in the future if :not() is extended.
   for (nsCSSSelector* negation = aSelectorPart; negation;
        negation = negation->mNegations) {
-    // Track both document states and attribute dependence in pseudo-classes.
     for (nsPseudoClassList* pseudoClass = negation->mPseudoClassList;
-         pseudoClass;
-         pseudoClass = pseudoClass->mNext) {
-      switch (pseudoClass->mType) {
-        case CSSPseudoClassType::mozLocaleDir: {
-          mSelectorDocumentStates |= NS_DOCUMENT_STATE_RTL_LOCALE;
-          break;
+         pseudoClass; pseudoClass = pseudoClass->mNext) {
+      if (pseudoClass->mType == CSSPseudoClassType::mozTableBorderNonzero) {
+        nsTArray<SelectorPair>* array =
+          AttributeListFor(nsGkAtoms::border);
+        if (!array) {
+          return false;
         }
-        case CSSPseudoClassType::mozWindowInactive: {
-          mSelectorDocumentStates |=
-            NS_DOCUMENT_STATE_WINDOW_INACTIVE;
-          break;
-        }
-        case CSSPseudoClassType::mozTableBorderNonzero: {
-          nsTArray<SelectorPair>* array =
-            AttributeListFor(nsGkAtoms::border);
-          if (!array) {
-            return false;
-          }
-          array->AppendElement(
-            SelectorPair(aSelectorInTopLevel, aRightmostSelector));
-          break;
-        }
-        default: {
-          break;
-        }
+        array->AppendElement(
+          SelectorPair(aSelectorInTopLevel, aRightmostSelector));
       }
-    }
-
-    // Build mStateSelectors.
-    EventStates dependentStates = ComputeSelectorStateDependence(*negation);
-    if (!dependentStates.IsEmpty()) {
-      mStateSelectors.AppendElement(
-        StateSelector(dependentStates, aSelectorInTopLevel));
     }
 
     // Build mIDSelectors
@@ -1421,7 +1461,8 @@ RuleCascadeData::AddSelector(
         for (nsCSSSelectorList* l = pseudoClass->u.mSelectorList; l;
              l = l->mNext) {
           nsCSSSelector* s = l->mSelectors;
-          if (!AddSelector(aSelectorInTopLevel, s, aRightmostSelector)) {
+          if (!AddAttributeSelector(aSelectorInTopLevel, s,
+                                    aRightmostSelector)) {
             return false;
           }
         }
@@ -1482,6 +1523,23 @@ RuleCascadeData::AddRule(RuleSelectorPair* aRuleInfo)
       RuleValue(*aRuleInfo, 0, mQuirksMode));
   }
 
+  if (mUseLazyInvalidation && !mAttributeIndexesBuilt) {
+    mDeferredSelectors.AppendElement(*aRuleInfo);
+    for (nsCSSSelector* selector = aRuleInfo->mSelector; selector;
+         selector = selector->mNext) {
+      if (selector->IsPseudoElement()) {
+        CSSPseudoElementType pseudo = selector->PseudoType();
+        if (pseudo >= CSSPseudoElementType::Count ||
+            !nsCSSPseudoElements::PseudoElementSupportsUserActionState(
+              pseudo)) {
+          continue;
+        }
+      }
+      AddStateSelector(selector, selector);
+    }
+    return true;
+  }
+
   for (nsCSSSelector* selector = aRuleInfo->mSelector; selector;
        selector = selector->mNext) {
     if (selector->IsPseudoElement()) {
@@ -1499,7 +1557,8 @@ RuleCascadeData::AddRule(RuleSelectorPair* aRuleInfo)
         continue;
       }
     }
-    if (!AddSelector(selector, selector, aRuleInfo->mSelector)) {
+    AddStateSelector(selector, selector);
+    if (!AddAttributeSelector(selector, selector, aRuleInfo->mSelector)) {
       return false;
     }
   }

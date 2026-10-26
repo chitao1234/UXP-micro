@@ -153,7 +153,8 @@ CascadeLayerRuleProcessor::HasStateDependentStyle(
 CascadeLayerRuleProcessor::HasDocumentStateDependentStyle(
   StateRuleProcessorData* aData)
 {
-  if (mCascade && mCascade->mSelectorDocumentStates.HasAtLeastOneOfStates(
+  if (mCascade &&
+      mCascade->SelectorDocumentStates().HasAtLeastOneOfStates(
         aData->mStateMask)) {
     return true;
   }
