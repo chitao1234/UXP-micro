@@ -72,6 +72,11 @@ public:
       UNITS_COUNT, refs,
       "Number of declarations referring to shared immutable CSS "
       "declaration blocks.");
+    MOZ_COLLECT_REPORT(
+      "explicit/layout/style/declaration-block-unique", KIND_OTHER,
+      UNITS_COUNT, blocks,
+      "Number of distinct immutable CSS declaration blocks kept for "
+      "sharing.");
     return NS_OK;
   }
 };

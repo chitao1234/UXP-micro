@@ -263,13 +263,24 @@ InternEnabled()
   return enabled;
 }
 
+inline uint32_t
+Mix32(uint32_t aValue)
+{
+  aValue ^= aValue >> 16;
+  aValue *= 0x7feb352dU;
+  aValue ^= aValue >> 15;
+  aValue *= 0x846ca68bU;
+  aValue ^= aValue >> 16;
+  return aValue;
+}
+
 inline void
 BloomPositions(uint32_t aHash, uint32_t* aFirst, uint32_t* aSecond)
 {
-  *aFirst = aHash & (sSeenBitCount - 1);
-  uint32_t mixed = aHash ^ (aHash >> 16);
-  mixed *= 0x7feb352dU;
-  *aSecond = mixed & (sSeenBitCount - 1);
+  uint32_t first = Mix32(aHash);
+  uint32_t second = Mix32(aHash ^ 0x9e3779b9U);
+  *aFirst = first & (sSeenBitCount - 1);
+  *aSecond = second & (sSeenBitCount - 1);
 }
 
 bool
