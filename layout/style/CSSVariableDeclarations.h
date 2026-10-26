@@ -190,6 +190,7 @@ private:
 
   Data* EnsureWritableData();
   const Data* GetData() const { return mData; }
+  void EnsureHashOrder();
   static void RemoveInternedData(void* aData);
 
   RefPtr<Data> mData;
