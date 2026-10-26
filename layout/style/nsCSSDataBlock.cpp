@@ -240,9 +240,18 @@ struct InternEntry
   InternEntry* mNext;
 };
 
+// Two-hit interning.  The first occurrence of a block hash is only recorded
+// in a Bloom filter; a canonical block is created when the same hash is seen
+// again.  This keeps the cost of truly unique declaration blocks to a few
+// bits each instead of a pointer-sized table entry, while still sharing the
+// repeated blocks that dominate real stylesheets.
 InternEntry** sInternBuckets;
 uint32_t sInternBucketCount;
 uint32_t sInternEntryCount;
+
+uint64_t* sSeenBits;
+uint32_t sSeenBitCount;
+uint32_t sSeenHashCount;
 
 bool
 InternEnabled()
@@ -252,6 +261,49 @@ InternEnabled()
   static bool enabled =
     Preferences::GetBool("layout.css.declarations.intern", true);
   return enabled;
+}
+
+inline void
+BloomPositions(uint32_t aHash, uint32_t* aFirst, uint32_t* aSecond)
+{
+  *aFirst = aHash & (sSeenBitCount - 1);
+  uint32_t mixed = aHash ^ (aHash >> 16);
+  mixed *= 0x7feb352dU;
+  *aSecond = mixed & (sSeenBitCount - 1);
+}
+
+bool
+BloomSeen(uint32_t aHash)
+{
+  if (!sSeenBits) {
+    return false;
+  }
+  uint32_t first, second;
+  BloomPositions(aHash, &first, &second);
+  return (sSeenBits[first >> 6] & (uint64_t(1) << (first & 63))) &&
+         (sSeenBits[second >> 6] & (uint64_t(1) << (second & 63)));
+}
+
+void
+BloomAdd(uint32_t aHash)
+{
+  if (!sSeenBits) {
+    sSeenBitCount = 1 << 16;
+    sSeenBits = static_cast<uint64_t*>(
+      moz_xcalloc(sSeenBitCount / 64, sizeof(uint64_t)));
+    sSeenHashCount = 0;
+  }
+  uint32_t first, second;
+  BloomPositions(aHash, &first, &second);
+  uint64_t& word1 = sSeenBits[first >> 6];
+  uint64_t& word2 = sSeenBits[second >> 6];
+  uint64_t mask1 = uint64_t(1) << (first & 63);
+  uint64_t mask2 = uint64_t(1) << (second & 63);
+  if (!(word1 & mask1) || !(word2 & mask2)) {
+    sSeenHashCount++;
+  }
+  word1 |= mask1;
+  word2 |= mask2;
 }
 
 void
@@ -273,6 +325,24 @@ GrowInternTable()
   free(sInternBuckets);
   sInternBuckets = newBuckets;
   sInternBucketCount = newCount;
+}
+
+void
+GrowBloom()
+{
+  uint32_t newBits = sSeenBitCount ? sSeenBitCount * 2 : (1 << 16);
+  free(sSeenBits);
+  sSeenBits = static_cast<uint64_t*>(
+    moz_xcalloc(newBits / 64, sizeof(uint64_t)));
+  sSeenBitCount = newBits;
+  sSeenHashCount = 0;
+  // Keep the hashes that already have canonical blocks.  First occurrences
+  // that have not been seen twice are intentionally forgotten.
+  for (uint32_t i = 0; i < sInternBucketCount; i++) {
+    for (InternEntry* entry = sInternBuckets[i]; entry; entry = entry->mNext) {
+      BloomAdd(entry->mHash);
+    }
+  }
 }
 
 InternEntry*
@@ -378,6 +448,16 @@ nsCSSCompressedDataBlock::Intern(nsCSSCompressedDataBlock* aBlock)
     return entry->mBlock;
   }
 
+  if (!BloomSeen(hash)) {
+    BloomAdd(hash);
+    if (sSeenHashCount > sSeenBitCount / 8) {
+      GrowBloom();
+    }
+    return aBlock;
+  }
+
+  // Second occurrence (or a Bloom false positive): promote this block to a
+  // canonical shared block.
   aBlock->mStyleBits |= kInternedBit;
   InsertInternEntry(hash, aBlock);
   return aBlock;
@@ -401,6 +481,7 @@ nsCSSCompressedDataBlock::GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
   }
   bytes += sInternBucketCount * sizeof(InternEntry*);
   bytes += sInternEntryCount * sizeof(InternEntry);
+  bytes += sSeenBitCount / 8;
   *aBytes = bytes;
   *aUniqueBlocks = blocks;
   *aReferences = refs;
