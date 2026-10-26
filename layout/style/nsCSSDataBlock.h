@@ -67,8 +67,13 @@ public:
   /**
    * Diagnostics for the shared-block pool.
    */
-  static void GetInternStats(size_t aMallocSizeOf, size_t* aBytes,
-                             size_t* aUniqueBlocks, size_t* aReferences);
+  static void GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
+                             size_t* aBytes, size_t* aUniqueBlocks,
+                             size_t* aReferences);
+
+  // Internal structural comparison used by the sharing table.
+  bool ComputeHash(uint32_t* aHash) const;
+  bool Equals(const nsCSSCompressedDataBlock* aOther) const;
 
   /**
    * Do what |nsIStyleRule::MapRuleInfoInto| needs to do for a style
@@ -137,9 +142,6 @@ public:
   static const size_t MaxCompressedCSSProperty = INT16_MAX;
 
 private:
-  bool ComputeHash(uint32_t* aHash) const;
-  bool Equals(const nsCSSCompressedDataBlock* aOther) const;
-
   static size_t DataSize(uint32_t aNumProps) {
     return size_t(aNumProps) *
            (sizeof(nsCSSValue) + sizeof(CompressedCSSProperty));

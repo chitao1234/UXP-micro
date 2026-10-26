@@ -384,7 +384,8 @@ nsCSSCompressedDataBlock::Intern(nsCSSCompressedDataBlock* aBlock)
 }
 
 /* static */ void
-nsCSSCompressedDataBlock::GetInternStats(size_t aMallocSizeOf, size_t* aBytes,
+nsCSSCompressedDataBlock::GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
+                                         size_t* aBytes,
                                          size_t* aUniqueBlocks,
                                          size_t* aReferences)
 {
