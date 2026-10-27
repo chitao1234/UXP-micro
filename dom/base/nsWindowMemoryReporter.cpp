@@ -11,7 +11,6 @@
 #include "nsIEffectiveTLDService.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/CSSVariableValues.h"
-#include "nsCSSDataBlock.h"
 #include "mozilla/CSSVariableDeclarations.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
@@ -46,42 +45,6 @@ public:
 };
 
 NS_IMPL_ISUPPORTS(CSSVariableValuesReporter, nsIMemoryReporter)
-
-class CSSDeclarationBlocksReporter final : public nsIMemoryReporter
-{
-  MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
-
-  ~CSSDeclarationBlocksReporter() {}
-
-public:
-  NS_DECL_ISUPPORTS
-
-  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
-                            nsISupports* aData, bool aAnonymize) override
-  {
-    size_t bytes = 0, blocks = 0, refs = 0;
-    nsCSSCompressedDataBlock::GetInternStats(MallocSizeOf, &bytes, &blocks,
-                                             &refs);
-    MOZ_COLLECT_REPORT(
-      "explicit/layout/style/declaration-blocks", KIND_HEAP, UNITS_BYTES,
-      bytes,
-      "Heap memory used by shared immutable CSS declaration blocks, "
-      "including the sharing table.");
-    MOZ_COLLECT_REPORT(
-      "explicit/layout/style/declaration-block-refs", KIND_OTHER,
-      UNITS_COUNT, refs,
-      "Number of declarations referring to shared immutable CSS "
-      "declaration blocks.");
-    MOZ_COLLECT_REPORT(
-      "explicit/layout/style/declaration-block-unique", KIND_OTHER,
-      UNITS_COUNT, blocks,
-      "Number of distinct immutable CSS declaration blocks kept for "
-      "sharing.");
-    return NS_OK;
-  }
-};
-
-NS_IMPL_ISUPPORTS(CSSDeclarationBlocksReporter, nsIMemoryReporter)
 
 class CSSAuthoredVariablesReporter final : public nsIMemoryReporter
 {
@@ -212,7 +175,6 @@ nsWindowMemoryReporter::Init()
 
   RegisterStrongMemoryReporter(new GhostWindowsReporter());
   RegisterStrongMemoryReporter(new CSSVariableValuesReporter());
-  RegisterStrongMemoryReporter(new CSSDeclarationBlocksReporter());
   RegisterStrongMemoryReporter(new CSSAuthoredVariablesReporter());
   RegisterGhostWindowsDistinguishedAmount(GhostWindowsReporter::DistinguishedAmount);
 }

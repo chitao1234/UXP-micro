@@ -289,10 +289,6 @@ struct RuleCascadeData
 
   const bool mQuirksMode;
 
-  bool mAttributeIndexesBuilt;
-  bool mUseLazyInvalidation;
-  nsTArray<RuleSelectorPair> mDeferredSelectors;
-
   void RulesMatching(ElementRuleProcessorData* aData);
 
   void RulesMatching(PseudoElementRuleProcessorData* aData);
@@ -312,7 +308,7 @@ struct RuleCascadeData
     AttributeEnumData* aEnumData,
     mozilla::RestyleHintData& aRestyleHintDataResult);
 
-  bool AddAttributeSelector(
+  bool AddSelector(
     // The part between combinators at the top level of the selector
     nsCSSSelector* aSelectorInTopLevel,
     // The part we should look through (might be in :not or :-moz-any())
@@ -320,20 +316,7 @@ struct RuleCascadeData
     // The right-most selector at the top level
     nsCSSSelector* aRightmostSelector);
 
-  // State selectors are cheap and need to be available as soon as the
-  // document starts receiving state changes.
-  void AddStateSelector(nsCSSSelector* aSelectorInTopLevel,
-                        nsCSSSelector* aSelectorPart);
-
   bool AddRule(RuleSelectorPair* aRuleInfo);
-
-  // The class/id/attribute selector maps are only needed when those
-  // attributes actually change.  Defer them until the first such change.
-  void EnsureAttributeIndexes();
-  mozilla::EventStates SelectorDocumentStates()
-  {
-    return mSelectorDocumentStates;
-  }
 
 private:
   static const PLDHashTableOps AtomSelector_CSOps;

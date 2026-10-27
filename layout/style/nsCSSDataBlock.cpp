@@ -10,12 +10,6 @@
 
 #include "nsCSSDataBlock.h"
 
-#include "mozilla/Preferences.h"
-#include "mozilla/mozalloc.h"
-#include "nsCRTGlue.h"
-#include "nsThreadUtils.h"
-
-
 #include "CSSVariableImageTable.h"
 #include "mozilla/css/Declaration.h"
 #include "mozilla/css/ImageLoader.h"
@@ -44,458 +38,6 @@ MoveValue(nsCSSValue* aSource, nsCSSValue* aDest)
   memcpy(aDest, aSource, sizeof(nsCSSValue));
   new (aSource) nsCSSValue();
   return changed;
-}
-
-// ---------------------------------------------------------------------------
-// Immutable declaration-block sharing
-//
-// A compressed block is a small heap object that is immutable once the
-// declaration that owns it has been marked immutable.  Pages repeat the same
-// declaration blocks constantly (utility classes, theme variants, resets), so
-// identical blocks can share one allocation.  The table below is weak: it
-// holds no reference of its own, and a block removes itself when its last
-// declaration releases it.
-// ---------------------------------------------------------------------------
-
-static inline void
-HashMix(uint32_t& aHash, uint32_t aValue)
-{
-  aHash = (aHash ^ aValue) * 16777619u;
-}
-
-static inline uint32_t
-FloatBits(float aValue)
-{
-  // +0 and -0 compare equal, so they must hash equal too.
-  if (aValue == 0.0f) {
-    return 0;
-  }
-  uint32_t bits;
-  memcpy(&bits, &aValue, sizeof(bits));
-  return bits;
-}
-
-// Returns false when the value contains something whose equality is not safe
-// to use here (token streams are mutated during matching, and URLs / images /
-// gradients carry external state).  Blocks with such values are left alone.
-static bool
-HashValue(const nsCSSValue& aValue, uint32_t& aHash)
-{
-  nsCSSUnit unit = aValue.GetUnit();
-  HashMix(aHash, static_cast<uint32_t>(unit));
-
-  if (unit <= eCSSUnit_DummyInherit) {
-    return true;
-  }
-
-  if (aValue.UnitHasStringValue()) {
-    const char16_t* str = aValue.GetStringBufferValue();
-    uint32_t len = NS_strlen(str);
-    HashMix(aHash, len);
-    for (uint32_t i = 0; i < len; i++) {
-      HashMix(aHash, str[i]);
-    }
-    return true;
-  }
-
-  if (eCSSUnit_Integer <= unit && unit <= eCSSUnit_EnumColor) {
-    HashMix(aHash, static_cast<uint32_t>(aValue.GetIntValue()));
-    return true;
-  }
-
-  if (aValue.IsIntegerColorUnit()) {
-    HashMix(aHash, static_cast<uint32_t>(aValue.GetColorValue()));
-    return true;
-  }
-
-  if (aValue.IsFloatColorUnit()) {
-    const nsCSSValueFloatColor* color = aValue.GetFloatColorValue();
-    HashMix(aHash, FloatBits(color->Comp1()));
-    HashMix(aHash, FloatBits(color->Comp2()));
-    HashMix(aHash, FloatBits(color->Comp3()));
-    HashMix(aHash, FloatBits(color->Alpha()));
-    return true;
-  }
-
-  if (aValue.UnitHasArrayValue()) {
-    const nsCSSValue::Array* array = aValue.GetArrayValue();
-    uint32_t count = array->Count();
-    HashMix(aHash, count);
-    for (uint32_t i = 0; i < count; i++) {
-      if (!HashValue((*array)[i], aHash)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  if (unit == eCSSUnit_List) {
-    const nsCSSValueList* item = aValue.GetListValue();
-    while (item) {
-      if (!HashValue(item->mValue, aHash)) {
-        return false;
-      }
-      item = item->mNext;
-    }
-    HashMix(aHash, 0x9e3779b9u);
-    return true;
-  }
-
-  if (unit == eCSSUnit_SharedList) {
-    const nsCSSValueList* item = aValue.GetSharedListValue()->mHead;
-    while (item) {
-      if (!HashValue(item->mValue, aHash)) {
-        return false;
-      }
-      item = item->mNext;
-    }
-    HashMix(aHash, 0x9e3779b9u);
-    return true;
-  }
-
-  if (unit == eCSSUnit_Pair) {
-    const nsCSSValuePair& pair = aValue.GetPairValue();
-    return HashValue(pair.mXValue, aHash) && HashValue(pair.mYValue, aHash);
-  }
-
-  if (unit == eCSSUnit_Triplet) {
-    const nsCSSValueTriplet& triplet = aValue.GetTripletValue();
-    return HashValue(triplet.mXValue, aHash) &&
-           HashValue(triplet.mYValue, aHash) &&
-           HashValue(triplet.mZValue, aHash);
-  }
-
-  if (unit == eCSSUnit_Rect) {
-    const nsCSSRect& rect = aValue.GetRectValue();
-    return HashValue(rect.mTop, aHash) &&
-           HashValue(rect.mRight, aHash) &&
-           HashValue(rect.mBottom, aHash) &&
-           HashValue(rect.mLeft, aHash);
-  }
-
-  if (unit == eCSSUnit_PairList) {
-    const nsCSSValuePairList* item = aValue.GetPairListValue();
-    while (item) {
-      if (!HashValue(item->mXValue, aHash) ||
-          !HashValue(item->mYValue, aHash)) {
-        return false;
-      }
-      item = item->mNext;
-    }
-    HashMix(aHash, 0x9e3779b9u);
-    return true;
-  }
-
-  if (unit >= eCSSUnit_Percent) {
-    // Percent, number, lengths, angles, times, frequencies and flex factors
-    // are all stored as floats and compare by value.
-    HashMix(aHash, FloatBits(aValue.GetFloatValue()));
-    return true;
-  }
-
-  // URL, Image, Gradient, TokenStream, GridTemplateAreas, FontFamilyList,
-  // ComplexColor, ColorMix, Revert and RevertLayer are deliberately not
-  // shared here.
-  return false;
-}
-
-bool
-nsCSSCompressedDataBlock::ComputeHash(uint32_t* aHash) const
-{
-  uint32_t hash = 2166136261u;
-  HashMix(hash, mStyleBits & ~kInternedBit);
-  HashMix(hash, NumProps());
-  for (uint32_t i = 0; i < NumProps(); i++) {
-    HashMix(hash, static_cast<uint32_t>(PropertyAtIndex(i)));
-    if (!HashValue(*ValueAtIndex(i), hash)) {
-      return false;
-    }
-  }
-  *aHash = hash;
-  return true;
-}
-
-bool
-nsCSSCompressedDataBlock::Equals(const nsCSSCompressedDataBlock* aOther) const
-{
-  if ((mStyleBits & ~kInternedBit) != (aOther->mStyleBits & ~kInternedBit) ||
-      NumProps() != aOther->NumProps()) {
-    return false;
-  }
-  for (uint32_t i = 0; i < NumProps(); i++) {
-    if (PropertyAtIndex(i) != aOther->PropertyAtIndex(i) ||
-        *ValueAtIndex(i) != *aOther->ValueAtIndex(i)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-namespace {
-
-struct InternEntry
-{
-  nsCSSCompressedDataBlock* mBlock;
-  uint32_t mHash;
-  InternEntry* mNext;
-};
-
-// Two-hit interning.  The first occurrence of a block hash is only recorded
-// in a Bloom filter; a canonical block is created when the same hash is seen
-// again.  This keeps the cost of truly unique declaration blocks to a few
-// bits each instead of a pointer-sized table entry, while still sharing the
-// repeated blocks that dominate real stylesheets.
-InternEntry** sInternBuckets;
-uint32_t sInternBucketCount;
-uint32_t sInternEntryCount;
-
-uint64_t* sSeenBits;
-uint32_t sSeenBitCount;
-uint32_t sSeenHashCount;
-
-bool
-InternEnabled()
-{
-  // A process-lifetime snapshot is enough: the pref is a lab control that is
-  // set before the first stylesheet is parsed.
-  static bool enabled =
-    Preferences::GetBool("layout.css.declarations.intern", true);
-  return enabled;
-}
-
-inline uint32_t
-Mix32(uint32_t aValue)
-{
-  aValue ^= aValue >> 16;
-  aValue *= 0x7feb352dU;
-  aValue ^= aValue >> 15;
-  aValue *= 0x846ca68bU;
-  aValue ^= aValue >> 16;
-  return aValue;
-}
-
-inline void
-BloomPositions(uint32_t aHash, uint32_t* aFirst, uint32_t* aSecond)
-{
-  uint32_t first = Mix32(aHash);
-  uint32_t second = Mix32(aHash ^ 0x9e3779b9U);
-  *aFirst = first & (sSeenBitCount - 1);
-  *aSecond = second & (sSeenBitCount - 1);
-}
-
-bool
-BloomSeen(uint32_t aHash)
-{
-  if (!sSeenBits) {
-    return false;
-  }
-  uint32_t first, second;
-  BloomPositions(aHash, &first, &second);
-  return (sSeenBits[first >> 6] & (uint64_t(1) << (first & 63))) &&
-         (sSeenBits[second >> 6] & (uint64_t(1) << (second & 63)));
-}
-
-void
-BloomAdd(uint32_t aHash)
-{
-  if (!sSeenBits) {
-    sSeenBitCount = 1 << 16;
-    sSeenBits = static_cast<uint64_t*>(
-      moz_xcalloc(sSeenBitCount / 64, sizeof(uint64_t)));
-    sSeenHashCount = 0;
-  }
-  uint32_t first, second;
-  BloomPositions(aHash, &first, &second);
-  uint64_t& word1 = sSeenBits[first >> 6];
-  uint64_t& word2 = sSeenBits[second >> 6];
-  uint64_t mask1 = uint64_t(1) << (first & 63);
-  uint64_t mask2 = uint64_t(1) << (second & 63);
-  if (!(word1 & mask1) || !(word2 & mask2)) {
-    sSeenHashCount++;
-  }
-  word1 |= mask1;
-  word2 |= mask2;
-}
-
-void
-GrowInternTable()
-{
-  uint32_t newCount = sInternBucketCount ? sInternBucketCount * 2 : 1024;
-  InternEntry** newBuckets =
-    static_cast<InternEntry**>(moz_xcalloc(newCount, sizeof(InternEntry*)));
-  for (uint32_t i = 0; i < sInternBucketCount; i++) {
-    InternEntry* entry = sInternBuckets[i];
-    while (entry) {
-      InternEntry* next = entry->mNext;
-      uint32_t bucket = entry->mHash & (newCount - 1);
-      entry->mNext = newBuckets[bucket];
-      newBuckets[bucket] = entry;
-      entry = next;
-    }
-  }
-  free(sInternBuckets);
-  sInternBuckets = newBuckets;
-  sInternBucketCount = newCount;
-}
-
-void
-GrowBloom()
-{
-  uint32_t newBits = sSeenBitCount ? sSeenBitCount * 2 : (1 << 16);
-  free(sSeenBits);
-  sSeenBits = static_cast<uint64_t*>(
-    moz_xcalloc(newBits / 64, sizeof(uint64_t)));
-  sSeenBitCount = newBits;
-  sSeenHashCount = 0;
-  // Keep the hashes that already have canonical blocks.  First occurrences
-  // that have not been seen twice are intentionally forgotten.
-  for (uint32_t i = 0; i < sInternBucketCount; i++) {
-    for (InternEntry* entry = sInternBuckets[i]; entry; entry = entry->mNext) {
-      BloomAdd(entry->mHash);
-    }
-  }
-}
-
-InternEntry*
-FindInternEntry(uint32_t aHash, const nsCSSCompressedDataBlock* aBlock)
-{
-  if (!sInternBucketCount) {
-    return nullptr;
-  }
-  for (InternEntry* entry = sInternBuckets[aHash & (sInternBucketCount - 1)];
-       entry; entry = entry->mNext) {
-    if (entry->mHash == aHash && entry->mBlock->Equals(aBlock)) {
-      return entry;
-    }
-  }
-  return nullptr;
-}
-
-void
-InsertInternEntry(uint32_t aHash, nsCSSCompressedDataBlock* aBlock)
-{
-  if (!sInternBucketCount ||
-      (sInternEntryCount + 1) * 4 >= sInternBucketCount * 3) {
-    GrowInternTable();
-  }
-  InternEntry* entry = static_cast<InternEntry*>(moz_xmalloc(sizeof(InternEntry)));
-  entry->mBlock = aBlock;
-  entry->mHash = aHash;
-  uint32_t bucket = aHash & (sInternBucketCount - 1);
-  entry->mNext = sInternBuckets[bucket];
-  sInternBuckets[bucket] = entry;
-  sInternEntryCount++;
-}
-
-void
-RemoveInternEntry(nsCSSCompressedDataBlock* aBlock)
-{
-  if (!sInternBucketCount) {
-    return;
-  }
-  uint32_t hash;
-  if (!aBlock->ComputeHash(&hash)) {
-    return;
-  }
-  uint32_t bucket = hash & (sInternBucketCount - 1);
-  InternEntry** link = &sInternBuckets[bucket];
-  while (*link) {
-    InternEntry* entry = *link;
-    if (entry->mBlock == aBlock) {
-      *link = entry->mNext;
-      free(entry);
-      sInternEntryCount--;
-      return;
-    }
-    link = &entry->mNext;
-  }
-}
-
-} // anonymous namespace
-
-void
-nsCSSCompressedDataBlock::AddRef()
-{
-  MOZ_ASSERT(mRefCnt > 0, "AddRef on dead block");
-  if (mRefCnt != 0xffff) {
-    ++mRefCnt;
-  }
-}
-
-void
-nsCSSCompressedDataBlock::Release()
-{
-  MOZ_ASSERT(mRefCnt > 0, "Release on dead block");
-  if (--mRefCnt == 0) {
-    if (IsInterned()) {
-      RemoveInternEntry(this);
-    }
-    delete this;
-  }
-}
-
-/* static */ nsCSSCompressedDataBlock*
-nsCSSCompressedDataBlock::Intern(nsCSSCompressedDataBlock* aBlock)
-{
-  if (!aBlock || aBlock->IsInterned() || !InternEnabled()) {
-    return aBlock;
-  }
-  MOZ_ASSERT(aBlock->RefCount() == 1, "interning a block with other owners");
-
-  uint32_t hash;
-  if (!aBlock->ComputeHash(&hash)) {
-    return aBlock;
-  }
-
-  InternEntry* entry = FindInternEntry(hash, aBlock);
-  if (entry) {
-    // Do not let the 16-bit reference count saturate; a saturated canonical
-    // block would never be freed.
-    if (entry->mBlock->RefCount() >= 0xfffe) {
-      return aBlock;
-    }
-    entry->mBlock->AddRef();
-    aBlock->Release();
-    return entry->mBlock;
-  }
-
-  if (!BloomSeen(hash)) {
-    BloomAdd(hash);
-    if (sSeenHashCount > sSeenBitCount / 8) {
-      GrowBloom();
-    }
-    return aBlock;
-  }
-
-  // Second occurrence (or a Bloom false positive): promote this block to a
-  // canonical shared block.
-  aBlock->mStyleBits |= kInternedBit;
-  InsertInternEntry(hash, aBlock);
-  return aBlock;
-}
-
-/* static */ void
-nsCSSCompressedDataBlock::GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
-                                         size_t* aBytes,
-                                         size_t* aUniqueBlocks,
-                                         size_t* aReferences)
-{
-  size_t bytes = 0;
-  size_t blocks = 0;
-  size_t refs = 0;
-  for (uint32_t i = 0; i < sInternBucketCount; i++) {
-    for (InternEntry* entry = sInternBuckets[i]; entry; entry = entry->mNext) {
-      bytes += entry->mBlock->SizeOfIncludingThis(aMallocSizeOf);
-      blocks++;
-      refs += entry->mBlock->RefCount();
-    }
-  }
-  bytes += sInternBucketCount * sizeof(InternEntry*);
-  bytes += sInternEntryCount * sizeof(InternEntry);
-  bytes += sSeenBitCount / 8;
-  *aBytes = bytes;
-  *aUniqueBlocks = blocks;
-  *aReferences = refs;
 }
 
 static bool
@@ -908,7 +450,7 @@ nsCSSCompressedDataBlock::MapRuleInfoInto(nsRuleData *aRuleData) const
   // We process these in reverse order so that we end up mapping the
   // right property when one can be expressed using both logical and
   // physical property names.
-  for (uint32_t i = NumProps(); i-- > 0; ) {
+  for (uint32_t i = mNumProps; i-- > 0; ) {
     nsCSSPropertyID iProp = PropertyAtIndex(i);
     if (nsCachedStyleData::GetBitForSID(nsCSSProps::kSIDTable[iProp]) &
         aRuleData->mSIDs) {
@@ -968,7 +510,7 @@ nsCSSCompressedDataBlock::ValueFor(nsCSSPropertyID aProperty) const
         mStyleBits))
     return nullptr;
 
-  for (uint32_t i = 0; i < NumProps(); i++) {
+  for (uint32_t i = 0; i < mNumProps; i++) {
     if (PropertyAtIndex(i) == aProperty) {
       return ValueAtIndex(i);
     }
@@ -1001,12 +543,11 @@ nsCSSCompressedDataBlock*
 nsCSSCompressedDataBlock::Clone() const
 {
   nsAutoPtr<nsCSSCompressedDataBlock>
-    result(new(NumProps()) nsCSSCompressedDataBlock(NumProps()));
+    result(new(mNumProps) nsCSSCompressedDataBlock(mNumProps));
 
-  result->mStyleBits = mStyleBits & ~kInternedBit;
-  result->mRefCnt = 1;
+  result->mStyleBits = mStyleBits;
 
-  for (uint32_t i = 0; i < NumProps(); i++) {
+  for (uint32_t i = 0; i < mNumProps; i++) {
     result->SetPropertyAtIndex(i, PropertyAtIndex(i));
     result->CopyValueToIndex(i, ValueAtIndex(i));
   }
@@ -1016,7 +557,7 @@ nsCSSCompressedDataBlock::Clone() const
 
 nsCSSCompressedDataBlock::~nsCSSCompressedDataBlock()
 {
-  for (uint32_t i = 0; i < NumProps(); i++) {
+  for (uint32_t i = 0; i < mNumProps; i++) {
 #ifdef DEBUG
     (void)PropertyAtIndex(i);   // this checks the property is in range
 #endif
@@ -1037,7 +578,7 @@ size_t
 nsCSSCompressedDataBlock::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
-  for (uint32_t i = 0; i < NumProps(); i++) {
+  for (uint32_t i = 0; i < mNumProps; i++) {
     n += ValueAtIndex(i)->SizeOfExcludingThis(aMallocSizeOf);
   }
   return n;
@@ -1098,7 +639,7 @@ nsCSSExpandedDataBlock::DoExpand(nsCSSCompressedDataBlock *aBlock,
    * Save needless copying and allocation by copying the memory
    * corresponding to the stored data in the compressed block.
    */
-  for (uint32_t i = 0; i < aBlock->NumProps(); i++) {
+  for (uint32_t i = 0; i < aBlock->mNumProps; i++) {
     nsCSSPropertyID iProp = aBlock->PropertyAtIndex(i);
     MOZ_ASSERT(!nsCSSProps::IsShorthand(iProp), "out of range");
     MOZ_ASSERT(!HasPropertyBit(iProp),
@@ -1121,9 +662,7 @@ nsCSSExpandedDataBlock::DoExpand(nsCSSCompressedDataBlock *aBlock,
   // Set the number of properties to zero so that we don't destroy the
   // remnants of what we just copied.
   aBlock->SetNumPropsToZero();
-  MOZ_ASSERT(aBlock->RefCount() == 1,
-             "expanded an immutable shared block");
-  aBlock->Release();
+  delete aBlock;
 }
 
 void

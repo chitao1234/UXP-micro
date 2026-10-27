@@ -12,8 +12,6 @@
 #include "mozilla/MemoryReporting.h"
 
 #include "mozilla/css/Declaration.h"
-
-#include "mozilla/Preferences.h"
 #include "nsPrintfCString.h"
 #include "gfxFontConstants.h"
 #include "nsCSSRules.h"
@@ -70,9 +68,9 @@ Declaration::Declaration()
 Declaration::Declaration(const Declaration& aCopy)
   : mOrder(aCopy.mOrder),
     mVariableOrder(aCopy.mVariableOrder),
-    mData(dont_AddRef(aCopy.mData ? aCopy.mData->Clone() : nullptr)),
-    mImportantData(dont_AddRef(aCopy.mImportantData ?
-                                 aCopy.mImportantData->Clone() : nullptr)),
+    mData(aCopy.mData ? aCopy.mData->Clone() : nullptr),
+    mImportantData(aCopy.mImportantData ?
+                     aCopy.mImportantData->Clone() : nullptr),
     mVariables(aCopy.mVariables ?
         new CSSVariableDeclarations(*aCopy.mVariables) :
         nullptr),
@@ -1944,32 +1942,10 @@ Declaration::GetNthProperty(uint32_t aIndex, nsAString& aReturn) const
 }
 
 void
-Declaration::InternBlocks()
-{
-  if (mVariables) {
-    mVariables->Intern();
-  }
-  if (mImportantVariables) {
-    mImportantVariables->Intern();
-  }
-  if (!Preferences::GetBool("layout.css.declarations.intern", true)) {
-    return;
-  }
-  if (mData) {
-    mData = dont_AddRef(
-      nsCSSCompressedDataBlock::Intern(mData.forget().take()));
-  }
-  if (mImportantData) {
-    mImportantData = dont_AddRef(
-      nsCSSCompressedDataBlock::Intern(mImportantData.forget().take()));
-  }
-}
-
-void
 Declaration::InitializeEmpty()
 {
   MOZ_ASSERT(!mData && !mImportantData, "already initialized");
-  mData = dont_AddRef(nsCSSCompressedDataBlock::CreateEmptyBlock());
+  mData = nsCSSCompressedDataBlock::CreateEmptyBlock();
 }
 
 already_AddRefed<Declaration>
@@ -1996,11 +1972,8 @@ Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
   size_t n = aMallocSizeOf(this);
   n += mOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  // Shared blocks are reported once by the declaration-block reporter.
-  n += mData && !mData->IsInterned()
-         ? mData->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  n += mImportantData && !mImportantData->IsInterned()
-         ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  n += mData          ? mData         ->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  n += mImportantData ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
   if (mVariables && !mVariables->IsInterned()) {
     n += mVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
