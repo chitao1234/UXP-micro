@@ -9,6 +9,9 @@
 // Helper Classes
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/mozalloc.h"
+#include "nsIDocument.h"
+#include "nsWindowMemoryReporter.h"
 
 // Interfaces Needed
 #include "nsILayoutHistoryState.h"
@@ -38,10 +41,13 @@ using namespace mozilla;
 
 #define PREF_SHISTORY_SIZE "browser.sessionhistory.max_entries"
 #define PREF_SHISTORY_MAX_TOTAL_VIEWERS "browser.sessionhistory.max_total_viewers"
+#define PREF_SHISTORY_BUDGET_KB "browser.memory.historyBudgetKB"
 
 static const char* kObservedPrefs[] = {
   PREF_SHISTORY_SIZE,
   PREF_SHISTORY_MAX_TOTAL_VIEWERS,
+  PREF_SHISTORY_BUDGET_KB,
+  "browser.memoryTier",
   nullptr
 };
 
@@ -177,6 +183,47 @@ nsSHistoryObserver::Observe(nsISupports* aSubject, const char* aTopic,
 }
 
 namespace {
+
+// Charge cached presentations for their measurable DOM/layout/style storage.
+// This deliberately excludes JS, decoded images and globally shared data: it
+// is a policy budget, not an estimate of the viewer's complete process cost.
+
+uint64_t
+HistoryBudgetBytes()
+{
+  int32_t budgetKB = Preferences::GetInt(PREF_SHISTORY_BUDGET_KB, -1);
+  if (budgetKB < 0) {
+    switch (Preferences::GetInt("browser.memoryTier", 3)) {
+      case 0: budgetKB = 8192; break;
+      case 1: budgetKB = 24576; break;
+      default: return UINT64_MAX;
+    }
+  }
+  return uint64_t(budgetKB) * 1024;
+}
+
+bool
+AddDocumentCharge(nsIDocument* aDocument, void* aData)
+{
+  uint64_t& bytes = *static_cast<uint64_t*>(aData);
+  // Use the raw size query: this policy traversal must not mark allocations as
+  // reported to DMD outside an actual memory-report collection.
+  nsWindowSizes sizes(moz_malloc_size_of);
+  aDocument->DocAddSizeOfIncludingThis(&sizes);
+  bytes += sizes.getTotalSize();
+  aDocument->EnumerateSubDocuments(AddDocumentCharge, aData);
+  return true;
+}
+
+uint64_t
+ContentViewerCharge(nsIContentViewer* aViewer)
+{
+  uint64_t bytes = 0;
+  if (nsIDocument* doc = aViewer->GetDocument()) {
+    AddDocumentCharge(doc, &bytes);
+  }
+  return bytes;
+}
 
 already_AddRefed<nsIContentViewer>
 GetContentViewerForTransaction(nsISHTransaction* aTrans)
@@ -377,6 +424,16 @@ NS_IMETHODIMP
 nsSHistory::AddEntry(nsISHEntry* aSHEntry, bool aPersist)
 {
   NS_ENSURE_ARG(aSHEntry);
+
+  // Historical LastTouched tracked only history traversals, leaving every
+  // newly visited document tied at zero. Budget eviction needs recency across
+  // tabs for ordinary navigations as well. Keep count-only policy unchanged.
+  if (HistoryBudgetBytes() != UINT64_MAX) {
+    nsCOMPtr<nsISHEntryInternal> internal = do_QueryInterface(aSHEntry);
+    if (internal) {
+      internal->SetLastTouched(++gTouchCounter);
+    }
+  }
 
   nsCOMPtr<nsISHTransaction> currentTxn;
 
@@ -1088,6 +1145,7 @@ public:
     : mTransaction(aTrans)
     , mLastTouched(0)
     , mDistance(aDist)
+    , mDocumentBytes(0)
   {
     mViewer = GetContentViewerForTransaction(aTrans);
     NS_ASSERTION(mViewer, "Transaction should have a content viewer");
@@ -1124,8 +1182,90 @@ public:
 
   nsCOMPtr<nsISHTransaction> mTransaction;
   nsCOMPtr<nsIContentViewer> mViewer;
+  // Set for byte-budget collections so frame-only cached viewers can be
+  // evicted individually, rather than always evicting GetAnyContentViewer().
+  nsCOMPtr<nsISHEntry> mOwnerEntry;
   uint32_t mLastTouched;
   int32_t mDistance;
+  uint64_t mDocumentBytes;
+};
+
+void
+CollectBudgetViewers(nsISHTransaction* aTrans, nsISHEntry* aEntry,
+                     uint32_t aDistance,
+                     nsTArray<TransactionAndDistance>& aTransactions)
+{
+  nsCOMPtr<nsIContentViewer> viewer;
+  aEntry->GetContentViewer(getter_AddRefs(viewer));
+  if (viewer) {
+    for (auto& candidate : aTransactions) {
+      if (candidate.mViewer == viewer) {
+        candidate.mDistance = std::min(candidate.mDistance, int32_t(aDistance));
+        return;
+      }
+    }
+    TransactionAndDistance candidate(aTrans, aDistance);
+    candidate.mViewer = viewer;
+    candidate.mOwnerEntry = aEntry;
+    candidate.mDocumentBytes = ContentViewerCharge(viewer);
+    LOG(("BFCache charge viewer=%p bytes=%llu", viewer.get(),
+         static_cast<unsigned long long>(candidate.mDocumentBytes)));
+    nsCOMPtr<nsISHEntryInternal> internal = do_QueryInterface(aEntry);
+    if (internal) {
+      internal->GetLastTouched(&candidate.mLastTouched);
+    }
+    aTransactions.AppendElement(candidate);
+    // The root viewer owns its subdocument presentations, already charged by
+    // AddDocumentCharge. Only recurse for frame-only cached navigations.
+    return;
+  }
+  nsCOMPtr<nsISHContainer> container = do_QueryInterface(aEntry);
+  if (container) {
+    int32_t count = 0;
+    container->GetChildCount(&count);
+    for (int32_t i = 0; i < count; ++i) {
+      nsCOMPtr<nsISHEntry> child;
+      container->GetChildAt(i, getter_AddRefs(child));
+      if (child) {
+        CollectBudgetViewers(aTrans, child, aDistance, aTransactions);
+      }
+    }
+  }
+}
+
+void
+EvictBudgetViewer(TransactionAndDistance& aCandidate)
+{
+  nsCOMPtr<nsIContentViewer> viewer;
+  aCandidate.mOwnerEntry->GetContentViewer(getter_AddRefs(viewer));
+  if (viewer != aCandidate.mViewer) {
+    return;
+  }
+  // Follow the same ordering as ordinary count-based eviction. History's
+  // saved form/scroll/session state remains available for the normal reload.
+  aCandidate.mOwnerEntry->SetContentViewer(nullptr);
+  aCandidate.mOwnerEntry->SyncPresentationState();
+  viewer->Destroy();
+}
+
+struct BudgetViewerComparator
+{
+  bool LessThan(const TransactionAndDistance& aLeft,
+                const TransactionAndDistance& aRight) const
+  {
+    if (aLeft.mDistance != aRight.mDistance) {
+      return aLeft.mDistance < aRight.mDistance;
+    }
+    // Retain the most recently touched viewer when distances tie. The
+    // historical count-only comparator is left unchanged for tier 3.
+    return aLeft.mLastTouched > aRight.mLastTouched;
+  }
+
+  bool Equals(const TransactionAndDistance& aLeft,
+              const TransactionAndDistance& aRight) const
+  {
+    return aLeft == aRight;
+  }
 };
 
 } // namespace
@@ -1134,6 +1274,9 @@ public:
 void
 nsSHistory::GloballyEvictContentViewers()
 {
+  const uint64_t budget = HistoryBudgetBytes();
+  const bool budgeted = budget != UINT64_MAX;
+  const uint32_t maxViewers = budget == 0 ? 0 : uint32_t(sHistoryMaxTotalViewers);
   // First, collect from each SHistory object the transactions which have a
   // cached content viewer.  Associate with each transaction its distance from
   // its SHistory's current index.
@@ -1168,6 +1311,18 @@ nsSHistory::GloballyEvictContentViewers()
     nsCOMPtr<nsISHTransaction> trans;
     shist->GetTransactionAtIndex(startIndex, getter_AddRefs(trans));
     for (int32_t i = startIndex; trans && i <= endIndex; i++) {
+      if (budgeted) {
+        nsCOMPtr<nsISHEntry> entry;
+        trans->GetSHEntry(getter_AddRefs(entry));
+        if (entry) {
+          CollectBudgetViewers(trans, entry,
+                               DeprecatedAbs(i - shist->mIndex), transactions);
+        }
+        nsCOMPtr<nsISHTransaction> next;
+        trans->GetNext(getter_AddRefs(next));
+        trans = next;
+        continue;
+      }
       nsCOMPtr<nsIContentViewer> contentViewer =
         GetContentViewerForTransaction(trans);
 
@@ -1208,7 +1363,15 @@ nsSHistory::GloballyEvictContentViewers()
 
   // We now have collected all cached content viewers.  First check that we
   // have enough that we actually need to evict some.
-  if ((int32_t)transactions.Length() <= sHistoryMaxTotalViewers) {
+  uint64_t totalBytes = 0;
+  for (const auto& candidate : transactions) {
+    totalBytes += candidate.mDocumentBytes;
+  }
+  LOG(("BFCache budget viewers=%u bytes=%llu limit=%llu", transactions.Length(),
+       static_cast<unsigned long long>(totalBytes),
+       static_cast<unsigned long long>(budget)));
+  if (transactions.Length() <= maxViewers &&
+      totalBytes <= budget) {
     return;
   }
 
@@ -1216,11 +1379,35 @@ nsSHistory::GloballyEvictContentViewers()
   // ones.  (We could of course get better algorithmic complexity here by using
   // a heap or something more clever.  But sHistoryMaxTotalViewers isn't large,
   // so let's not worry about it.)
-  transactions.Sort();
+  if (budgeted) {
+    transactions.Sort(BudgetViewerComparator());
+  } else {
+    transactions.Sort();
+  }
 
-  for (int32_t i = transactions.Length() - 1; i >= sHistoryMaxTotalViewers;
+  uint32_t remaining = transactions.Length();
+  for (int32_t i = transactions.Length() - 1; i >= 0; --i) {
+    auto& candidate = transactions[i];
+    // Reject a single presentation larger than the entire budget before it
+    // can displace every smaller presentation nearer/further in history.
+    if (budgeted && candidate.mDocumentBytes > budget) {
+      EvictBudgetViewer(candidate);
+      totalBytes -= candidate.mDocumentBytes;
+      --remaining;
+      transactions.RemoveElementAt(i);
+    }
+  }
+  for (int32_t i = transactions.Length() - 1;
+       i >= 0 && (remaining > maxViewers || totalBytes > budget);
        --i) {
-    EvictContentViewerForTransaction(transactions[i].mTransaction);
+    auto& candidate = transactions[i];
+    if (budgeted) {
+      EvictBudgetViewer(candidate);
+    } else {
+      EvictContentViewerForTransaction(candidate.mTransaction);
+    }
+    totalBytes -= candidate.mDocumentBytes;
+    --remaining;
   }
 }
 

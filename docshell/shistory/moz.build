@@ -31,6 +31,7 @@ SOURCES += [
 
 LOCAL_INCLUDES += [
     '/docshell/base',
+    '/dom/base',
 ]
 
 FINAL_LIBRARY = 'xul'

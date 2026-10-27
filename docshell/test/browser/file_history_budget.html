@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>History budget fixture</title>
+<style>body{margin:0} #space{height:4000px} .row{height:2px}</style>
+<input id="field" value="initial"><div id="rows"></div><div id="space"></div>
+<script>
+window.pageToken = Math.random();
+window.lastPersisted = false;
+window.addEventListener('pageshow', function(e) { window.lastPersisted=e.persisted; });
+if (location.search.indexOf('heavy') >= 0) {
+  var html='',css='';
+  var count=location.search.indexOf('large') >= 0 ? 6000 : 4000;
+  for(var i=0;i<count;i++) {
+    html+='<div class="row r'+i+'">row '+i+'</div>';
+    css+='.r'+i+'{margin-left:'+i+'px;color:rgb('+i%255+',0,0)}';
+  }
+  document.getElementById('rows').innerHTML=html;
+  var style=document.createElement('style');style.textContent=css;document.head.appendChild(style);
+  document.body.offsetHeight;
+}
+if (location.search == '?frame') {
+  var frame=document.createElement('iframe');frame.id='child';
+  frame.src='file_history_budget.html?heavy';document.body.appendChild(frame);
+}
+</script>
