@@ -6,6 +6,7 @@
 #include "mozilla/layers/ContentClient.h"
 #include "BasicLayers.h"                // for BasicLayerManager
 #include "gfxContext.h"                 // for gfxContext, etc
+#include "gfx2DGlue.h"
 #include "gfxPlatform.h"                // for gfxPlatform
 #include "gfxEnv.h"                     // for gfxEnv
 #include "gfxPrefs.h"                   // for gfxPrefs
@@ -14,6 +15,7 @@
 #include "ipc/ShadowLayers.h"           // for ShadowLayerForwarder
 #include "mozilla/ArrayUtils.h"         // for ArrayLength
 #include "mozilla/Maybe.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/gfx/2D.h"             // for DrawTarget, Factory
 #include "mozilla/gfx/BasePoint.h"      // for BasePoint
 #include "mozilla/gfx/BaseSize.h"       // for BaseSize
@@ -27,6 +29,8 @@
 #include "nsISupportsImpl.h"            // for gfxContext::Release, etc
 #include "nsIWidget.h"                  // for nsIWidget
 #include "nsLayoutUtils.h"
+#include "nsITimer.h"
+#include "nsThreadUtils.h"
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -317,7 +321,8 @@ ContentClientRemoteBuffer::BuildTextureClients(SurfaceFormat aFormat,
 }
 
 void
-ContentClientRemoteBuffer::CreateBackBuffer(const IntRect& aBufferRect)
+ContentClientRemoteBuffer::CreateBackBuffer(const IntRect& aBufferRect,
+                                            bool aPreserveFrontOnFailure)
 {
   // gfx::BackendType::NONE means fallback to the content backend
   TextureAllocationFlags textureAllocFlags
@@ -331,7 +336,11 @@ ContentClientRemoteBuffer::CreateBackBuffer(const IntRect& aBufferRect)
     textureAllocFlags
   );
   if (!mTextureClient || !AddTextureClient(mTextureClient)) {
-    AbortTextureClientCreation();
+    if (aPreserveFrontOnFailure) {
+      ContentClientRemoteBuffer::AbortTextureClientCreation();
+    } else {
+      AbortTextureClientCreation();
+    }
     return;
   }
 
@@ -342,7 +351,11 @@ ContentClientRemoteBuffer::CreateBackBuffer(const IntRect& aBufferRect)
       TextureAllocationFlags::ALLOC_CLEAR_BUFFER_WHITE
     );
     if (!mTextureClientOnWhite || !AddTextureClient(mTextureClientOnWhite)) {
-      AbortTextureClientCreation();
+      if (aPreserveFrontOnFailure) {
+        ContentClientRemoteBuffer::AbortTextureClientCreation();
+      } else {
+        AbortTextureClientCreation();
+      }
       return;
     }
   }
@@ -472,11 +485,127 @@ ContentClientDoubleBuffered::DestroyFrontBuffer()
   }
 }
 
+ContentClientDoubleBuffered::~ContentClientDoubleBuffered()
+{
+  CancelIdleBackBufferTimer();
+}
+
+uint32_t
+ContentClientDoubleBuffered::IdleBackBufferDelay() const
+{
+  // Basic compositing shares these heap buffers directly. Preserve the GPU
+  // buffering and synchronization policy on hardware compositors.
+  if (mForwarder->GetCompositorBackendType() != LayersBackend::LAYERS_BASIC) {
+    return 0;
+  }
+  int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+  if (!Preferences::GetBool("browser.memory.releaseIdleBackBuffers",
+                            tier >= 0 && tier <= 1)) {
+    return 0;
+  }
+  return Preferences::GetUint("browser.memory.idleBackBufferDelayMs", 5000);
+}
+
+void
+ContentClientDoubleBuffered::CancelIdleBackBufferTimer()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mIdleBackBufferTimer) {
+    mIdleBackBufferTimer->Cancel();
+  }
+}
+
+void
+ContentClientDoubleBuffered::ArmIdleBackBufferTimer()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  uint32_t delay = IdleBackBufferDelay();
+  if (!delay || mUsedForReadback || mWaitingForBufferSwap ||
+      !mTextureClient || !mFrontClient) {
+    return;
+  }
+  if (!mIdleBackBufferTimer) {
+    mIdleBackBufferTimer = do_CreateInstance("@mozilla.org/timer;1");
+  }
+  if (mIdleBackBufferTimer) {
+    // Clean layers are visited in transactions triggered by unrelated layers.
+    // Their visits must not extend the lifetime of an unused spare buffer.
+    if (!mLastBufferUpdate.IsNull()) {
+      double elapsed = (TimeStamp::Now() - mLastBufferUpdate).ToMilliseconds();
+      delay = elapsed >= delay ? 1 : uint32_t(delay - elapsed);
+    }
+    mIdleBackBufferTimer->InitWithFuncCallback(IdleBackBufferTimerCallback, this,
+                                              delay, nsITimer::TYPE_ONE_SHOT);
+  }
+}
+
+/* static */ void
+ContentClientDoubleBuffered::IdleBackBufferTimerCallback(nsITimer* aTimer,
+                                                        void* aClosure)
+{
+  static_cast<ContentClientDoubleBuffered*>(aClosure)->DiscardIdleBackBuffer();
+}
+
+void
+ContentClientDoubleBuffered::DiscardIdleBackBuffer()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!IdleBackBufferDelay() || mUsedForReadback ||
+      mWaitingForBufferSwap || !mFrontClient ||
+      !mTextureClient || mBufferProvider || mBufferProviderOnWhite) {
+    return;
+  }
+  if (mTextureClient->IsLocked() || mTextureClient->IsReadLocked() ||
+      (mTextureClientOnWhite &&
+       (mTextureClientOnWhite->IsLocked() || mTextureClientOnWhite->IsReadLocked()))) {
+    // Avoid polling a temporarily held compositor lock every millisecond once
+    // the original idle deadline has passed.
+    mIdleBackBufferTimer->InitWithFuncCallback(IdleBackBufferTimerCallback, this,
+                                              16, nsITimer::TYPE_ONE_SHOT);
+    return;
+  }
+
+  // Release the spare through the normal texture/IPC lifetime. The compositor
+  // keeps displaying mFrontClient. Recreate and copy all surviving front pixels
+  // on the next paint, rather than just the most recent update region.
+  mTextureClient = nullptr;
+  mTextureClientOnWhite = nullptr;
+  mBackBufferDiscarded = true;
+  mFrontUpdatedRegion = mFrontBufferRect;
+  mFrontAndBackBufferDiffer = true;
+  mDidSelfCopy = false;
+}
+
+void
+ContentClientDoubleBuffered::EndPaint(nsTArray<ReadbackProcessor::Update>* aReadbackUpdates)
+{
+  if (aReadbackUpdates && !aReadbackUpdates->IsEmpty()) {
+    // Readback sinks require the original EndPaint path with a writable buffer.
+    // Exclude these layers from idle release for their remaining lifetime.
+    mUsedForReadback = true;
+    CancelIdleBackBufferTimer();
+    if (mBackBufferDiscarded && mFrontClient) {
+      // A layer can acquire its first readback sink after becoming idle.
+      // Restore the entire buffer before the normal readback handling below.
+      ContentClientRemoteBuffer::BeginPaint();
+      if (mTextureClient) {
+        FinalizeFrame(nsIntRegion());
+      }
+    }
+  }
+  ContentClientRemoteBuffer::EndPaint(aReadbackUpdates);
+  // A no-op transaction may recreate a spare without swapping. It still needs
+  // to expire when the layer becomes idle again.
+  ArmIdleBackBufferTimer();
+}
+
 void
 ContentClientDoubleBuffered::Updated(const nsIntRegion& aRegionToDraw,
                                      const nsIntRegion& aVisibleRegion,
                                      bool aDidSelfCopy)
 {
+  mLastBufferUpdate = TimeStamp::Now();
+  mWaitingForBufferSwap = true;
   ContentClientRemoteBuffer::Updated(aRegionToDraw, aVisibleRegion, aDidSelfCopy);
 }
 
@@ -504,12 +633,17 @@ ContentClientDoubleBuffered::SwapBuffers(const nsIntRegion& aFrontUpdatedRegion)
   MOZ_ASSERT(mFrontClient);
 
   ContentClientRemoteBuffer::SwapBuffers(aFrontUpdatedRegion);
+  mWaitingForBufferSwap = false;
+  ArmIdleBackBufferTimer();
 }
 
 void
 ContentClientDoubleBuffered::BeginPaint()
 {
-  ContentClientRemoteBuffer::BeginPaint();
+  CancelIdleBackBufferTimer();
+  if (!mBackBufferDiscarded) {
+    ContentClientRemoteBuffer::BeginPaint();
+  }
 
   mIsNewBuffer = false;
 
@@ -528,6 +662,56 @@ ContentClientDoubleBuffered::BeginPaint()
   }
   mBufferRect = mFrontBufferRect;
   mBufferRotation = mFrontBufferRotation;
+}
+
+ContentClientRemoteBuffer::PaintState
+ContentClientDoubleBuffered::BeginPaintBuffer(PaintedLayer* aLayer, uint32_t aFlags)
+{
+  if (mBackBufferDiscarded && mFrontClient) {
+    nsIntRegion visible = aLayer->GetVisibleRegion().ToUnknownRegion();
+    if (visible.IsEmpty()) {
+      return PaintState();
+    }
+    ContentType contentType = aLayer->CanUseOpaqueSurface()
+                            ? gfxContentType::COLOR : gfxContentType::COLOR_ALPHA;
+    SurfaceMode mode = aLayer->GetSurfaceMode();
+    if (mode == SurfaceMode::SURFACE_COMPONENT_ALPHA) {
+      if (!aLayer->GetParent() ||
+          !aLayer->GetParent()->SupportsComponentAlphaChildren() ||
+          !aLayer->AsShadowableLayer() ||
+          !aLayer->AsShadowableLayer()->HasShadow()) {
+        mode = SurfaceMode::SURFACE_SINGLE_CHANNEL_ALPHA;
+      } else {
+        contentType = gfxContentType::COLOR;
+      }
+    }
+    nsIntRegion needed = visible;
+    if ((aFlags & PAINT_WILL_RESAMPLE) &&
+        (!visible.GetBounds().IsEqualInterior(mFrontBufferRect) ||
+         visible.GetNumRects() > 1)) {
+      if (mode == SurfaceMode::SURFACE_OPAQUE) {
+        contentType = gfxContentType::COLOR_ALPHA;
+      }
+      needed = mFrontBufferRect;
+    }
+    // Match RotatedContentBuffer's effective format and resampling rules. Raw
+    // surface mode alone is insufficient (e.g. component alpha on Basic).
+    if (aLayer->GetValidRegion().Contains(needed) &&
+        mFrontBufferRect.Contains(visible.GetBounds()) &&
+        contentType == ContentForFormat(mFrontClient->GetFormat()) &&
+        (mode == SurfaceMode::SURFACE_COMPONENT_ALPHA) == !!mFrontClientOnWhite) {
+      return PaintState();
+    }
+    ContentClientRemoteBuffer::BeginPaint();
+  }
+
+  // Allocation failure must leave the authoritative front visible and preserve
+  // the layer's dirty region for a later retry, rather than partially painting
+  // a fresh, otherwise empty buffer.
+  if (!mTextureClient && mFrontClient) {
+    return PaintState();
+  }
+  return ContentClientRemoteBuffer::BeginPaintBuffer(aLayer, aFlags);
 }
 
 // Sync front/back buffers content
@@ -615,7 +799,15 @@ void
 ContentClientDoubleBuffered::EnsureBackBufferIfFrontBuffer()
 {
   if (!mTextureClient && mFrontClient) {
-    CreateBackBuffer(mFrontBufferRect);
+    CreateBackBuffer(mFrontBufferRect, true);
+    if (mTextureClient) {
+      mBackBufferDiscarded = false;
+    }
+    // A new spare has no valid pixels, even if the previous front update was
+    // tiny. FinalizeFrame will exclude only what is about to be repainted.
+    mFrontUpdatedRegion = mFrontBufferRect;
+    mFrontAndBackBufferDiffer = true;
+    mDidSelfCopy = false;
 
     mBufferRect = mFrontBufferRect;
     mBufferRotation = mFrontBufferRotation;

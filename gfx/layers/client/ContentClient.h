@@ -13,6 +13,7 @@
 #include "mozilla/Assertions.h"         // for MOZ_CRASH
 #include "mozilla/Attributes.h"         // for override
 #include "mozilla/RefPtr.h"             // for RefPtr, already_AddRefed
+#include "mozilla/TimeStamp.h"
 #include "mozilla/gfx/Point.h"          // for IntSize
 #include "mozilla/layers/CompositableClient.h"  // for CompositableClient
 #include "mozilla/layers/CompositableForwarder.h"
@@ -28,6 +29,8 @@
 #include "nsRect.h"                     // for mozilla::gfx::IntRect
 #include "nsRegion.h"                   // for nsIntRegion
 #include "nsTArray.h"                   // for nsTArray
+
+class nsITimer;
 
 namespace mozilla {
 namespace gfx {
@@ -276,7 +279,8 @@ protected:
                            const gfx::IntRect& aRect,
                            uint32_t aFlags);
 
-  void CreateBackBuffer(const gfx::IntRect& aBufferRect);
+  void CreateBackBuffer(const gfx::IntRect& aBufferRect,
+                        bool aPreserveFrontOnFailure = false);
 
   // Ensure we have a valid back buffer if we have a valid front buffer (i.e.
   // if a backbuffer has been created.)
@@ -322,12 +326,18 @@ class ContentClientDoubleBuffered : public ContentClientRemoteBuffer
 public:
   explicit ContentClientDoubleBuffered(CompositableForwarder* aFwd)
     : ContentClientRemoteBuffer(aFwd)
+    , mWaitingForBufferSwap(false)
+    , mBackBufferDiscarded(false)
+    , mUsedForReadback(false)
   {}
 
-  virtual ~ContentClientDoubleBuffered() {}
+  virtual ~ContentClientDoubleBuffered();
 
   virtual void Clear() override
   {
+    CancelIdleBackBufferTimer();
+    mWaitingForBufferSwap = false;
+    mBackBufferDiscarded = false;
     ContentClientRemoteBuffer::Clear();
     mFrontClient = nullptr;
     mFrontClientOnWhite = nullptr;
@@ -340,6 +350,11 @@ public:
   virtual void SwapBuffers(const nsIntRegion& aFrontUpdatedRegion) override;
 
   virtual void BeginPaint() override;
+
+  virtual void EndPaint(nsTArray<ReadbackProcessor::Update>* aReadbackUpdates = nullptr) override;
+
+  virtual PaintState BeginPaintBuffer(PaintedLayer* aLayer,
+                                      uint32_t aFlags) override;
 
   virtual void FinalizeFrame(const nsIntRegion& aRegionToDraw) override;
 
@@ -358,6 +373,12 @@ protected:
   virtual void DestroyFrontBuffer() override;
 
 private:
+  static void IdleBackBufferTimerCallback(nsITimer* aTimer, void* aClosure);
+  uint32_t IdleBackBufferDelay() const;
+  void ArmIdleBackBufferTimer();
+  void CancelIdleBackBufferTimer();
+  void DiscardIdleBackBuffer();
+
   void UpdateDestinationFrom(const RotatedBuffer& aSource,
                              const nsIntRegion& aUpdateRegion);
 
@@ -374,6 +395,11 @@ private:
   nsIntRegion mFrontUpdatedRegion;
   gfx::IntRect mFrontBufferRect;
   nsIntPoint mFrontBufferRotation;
+  nsCOMPtr<nsITimer> mIdleBackBufferTimer;
+  TimeStamp mLastBufferUpdate;
+  bool mWaitingForBufferSwap;
+  bool mBackBufferDiscarded;
+  bool mUsedForReadback;
 };
 
 /**
