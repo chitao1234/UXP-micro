@@ -1288,6 +1288,10 @@ StyleRule::StyleRule(nsCSSSelectorList* aSelector,
   NS_PRECONDITION(aDeclaration, "must have a declaration");
 
   mDeclaration->SetOwningRule(this);
+  // Stylesheet rules are immutable after parsing; CSSOM mutation goes through
+  // EnsureMutable.  Marking them here lets identical declaration blocks be
+  // shared even when a rule never matches an element in this document.
+  mDeclaration->SetImmutable();
 }
 
 // for |Clone|
@@ -1297,6 +1301,7 @@ StyleRule::StyleRule(const StyleRule& aCopy)
   , mDeclaration(new Declaration(*aCopy.mDeclaration))
 {
   mDeclaration->SetOwningRule(this);
+  mDeclaration->SetImmutable();
   // rest is constructed lazily on existing data
 }
 

@@ -12,6 +12,8 @@
 #include "mozilla/MemoryReporting.h"
 
 #include "mozilla/css/Declaration.h"
+
+#include "mozilla/Preferences.h"
 #include "nsPrintfCString.h"
 #include "gfxFontConstants.h"
 #include "nsCSSRules.h"
@@ -68,9 +70,9 @@ Declaration::Declaration()
 Declaration::Declaration(const Declaration& aCopy)
   : mOrder(aCopy.mOrder),
     mVariableOrder(aCopy.mVariableOrder),
-    mData(aCopy.mData ? aCopy.mData->Clone() : nullptr),
-    mImportantData(aCopy.mImportantData ?
-                     aCopy.mImportantData->Clone() : nullptr),
+    mData(dont_AddRef(aCopy.mData ? aCopy.mData->Clone() : nullptr)),
+    mImportantData(dont_AddRef(aCopy.mImportantData ?
+                                 aCopy.mImportantData->Clone() : nullptr)),
     mVariables(aCopy.mVariables ?
         new CSSVariableDeclarations(*aCopy.mVariables) :
         nullptr),
@@ -1806,7 +1808,9 @@ Declaration::ToString(nsAString& aString) const
 
     if (property == eCSSPropertyExtra_variable) {
       uint32_t variableIndex = mOrder[index] - eCSSProperty_COUNT;
-      AppendVariableAndValueToString(mVariableOrder[variableIndex], aString);
+      nsAutoString variableName;
+      mVariableOrder[variableIndex]->ToString(variableName);
+      AppendVariableAndValueToString(variableName, aString);
       continue;
     }
 
@@ -1940,10 +1944,32 @@ Declaration::GetNthProperty(uint32_t aIndex, nsAString& aReturn) const
 }
 
 void
+Declaration::InternBlocks()
+{
+  if (mVariables) {
+    mVariables->Intern();
+  }
+  if (mImportantVariables) {
+    mImportantVariables->Intern();
+  }
+  if (!Preferences::GetBool("layout.css.declarations.intern", true)) {
+    return;
+  }
+  if (mData) {
+    mData = dont_AddRef(
+      nsCSSCompressedDataBlock::Intern(mData.forget().take()));
+  }
+  if (mImportantData) {
+    mImportantData = dont_AddRef(
+      nsCSSCompressedDataBlock::Intern(mImportantData.forget().take()));
+  }
+}
+
+void
 Declaration::InitializeEmpty()
 {
   MOZ_ASSERT(!mData && !mImportantData, "already initialized");
-  mData = nsCSSCompressedDataBlock::CreateEmptyBlock();
+  mData = dont_AddRef(nsCSSCompressedDataBlock::CreateEmptyBlock());
 }
 
 already_AddRefed<Declaration>
@@ -1969,12 +1995,16 @@ Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
   n += mOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  n += mData          ? mData         ->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  n += mImportantData ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  if (mVariables) {
+  n += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  // Shared blocks are reported once by the declaration-block reporter.
+  n += mData && !mData->IsInterned()
+         ? mData->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  n += mImportantData && !mImportantData->IsInterned()
+         ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  if (mVariables && !mVariables->IsInterned()) {
     n += mVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
-  if (mImportantVariables) {
+  if (mImportantVariables && !mImportantVariables->IsInterned()) {
     n += mImportantVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
   return n;
@@ -2030,10 +2060,15 @@ Declaration::AddVariable(const nsAString& aName,
 {
   MOZ_ASSERT(IsMutable());
 
-  nsTArray<nsString>::index_type index = mVariableOrder.IndexOf(aName);
-  if (index == nsTArray<nsString>::NoIndex) {
-    index = mVariableOrder.Length();
-    mVariableOrder.AppendElement(aName);
+  nsCOMPtr<nsIAtom> nameAtom = NS_Atomize(aName);
+  size_t index = 0;
+  for (; index < mVariableOrder.Length(); index++) {
+    if (mVariableOrder[index] == nameAtom) {
+      break;
+    }
+  }
+  if (index == mVariableOrder.Length()) {
+    mVariableOrder.AppendElement(nameAtom);
   }
 
   if (!aIsImportant && !aOverrideImportant &&
@@ -2108,9 +2143,12 @@ Declaration::RemoveVariable(const nsAString& aName)
   if (mImportantVariables) {
     mImportantVariables->Remove(aName);
   }
-  nsTArray<nsString>::index_type index = mVariableOrder.IndexOf(aName);
-  if (index != nsTArray<nsString>::NoIndex) {
-    mOrder.RemoveElement(index + eCSSProperty_COUNT);
+  nsCOMPtr<nsIAtom> nameAtom = NS_Atomize(aName);
+  for (size_t index = 0; index < mVariableOrder.Length(); index++) {
+    if (mVariableOrder[index] == nameAtom) {
+      mOrder.RemoveElement(index + eCSSProperty_COUNT);
+      break;
+    }
   }
 }
 
