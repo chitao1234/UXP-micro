@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shared cascade indexes retain per-media ordering and invalidation</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+SimpleTest.waitForExplicitFinish();
+(async function() {
+  var f = document.createElement('iframe');
+  f.style.cssText = 'height:260px;border:0';
+  var loaded = new Promise(function(resolve) { f.onload = resolve; });
+  f.srcdoc = '<!doctype html><link rel="stylesheet" href="cascade-index-import.css">' +
+    '<style>' +
+    '@layer first,second;' +
+    '@layer first{.layer{color:rgb(1,2,3)!important}}' +
+    '@layer second{.layer{color:rgb(4,5,6)!important}}' +
+    '.target{color:rgb(10,20,30);margin-left:3px;--pad:7px;padding-top:var(--pad)}' +
+    '.state:checked ~ .target{margin-left:17px}' +
+    '.ancestor.changed .target[data-on=yes]{padding-top:19px}' +
+    '.target:not(.skip){border-left:4px solid black}' +
+    '.duplicate{padding-left:22px}' +
+    '.target::before{content:"wide";display:block}' +
+    '@media(max-width:1200px){.target{color:rgb(40,50,60)}.target::before{content:"medium"}}' +
+    '.target{background-color:rgb(90,80,70)}' +
+    '@media(max-width:900px){.target{color:rgb(70,80,90)}}' +
+    '@media(max-width:600px){.target{color:rgb(100,110,120)}}' +
+    '@media(max-width:800px){@layer first{.layer{color:rgb(7,8,9)!important}}}' +
+    '@media(max-width:700px){@layer second{.layer{color:var(--missing,revert-layer)!important}}}' +
+    '</style><link rel="stylesheet" href="cascade-index-import-wrapper.css" media="(min-width:900px)">' +
+    '<div class="ancestor"><input class="state" type="checkbox"><div class="target duplicate">target</div></div><div class="layer">layers</div>';
+  f.width = 1400;document.body.appendChild(f);await loaded;
+  var d=f.contentDocument,w=f.contentWindow,e=d.querySelector('.target'),a=d.querySelector('.ancestor'),input=d.querySelector('input');
+  function frame(){return new Promise(function(resolve){w.requestAnimationFrame(function(){w.requestAnimationFrame(resolve);});});}
+  function css(el,p){return w.getComputedStyle(el).getPropertyValue(p);}
+  window.cascadeFrame=f;
+  window.cascadeWidths=[1400,1100,800,500,1400,500,800,1100,1400];
+  for(var width of window.cascadeWidths){
+    f.width=width;await frame();
+    var actual=w.innerWidth;
+    is(css(e,'color'),actual<=600?'rgb(100, 110, 120)':actual<=900?'rgb(70, 80, 90)':actual<=1200?'rgb(40, 50, 60)':'rgb(10, 20, 30)','ordered media color '+width);
+    is(css(e,'background-color'),'rgb(90, 80, 70)','unconditional rule order '+width);
+    is(css(e,'padding-left'),actual>=900?'11px':'22px','duplicate imported selector ordering '+width);
+    is(css(d.querySelector('.layer'),'color'),actual<=800?'rgb(7, 8, 9)':'rgb(1, 2, 3)','layer importance/order '+width);
+    is(w.getComputedStyle(e,'::before').content,actual<=1200?'"medium"':'"wide"','pseudo rule ordering '+width);
+    input.checked=true;is(css(e,'margin-left'),'17px','state sibling invalidation '+width);
+    input.checked=false;is(css(e,'margin-left'),'3px','state invalidation removal '+width);
+    a.classList.add('changed');e.setAttribute('data-on','yes');is(css(e,'padding-top'),'19px','ancestor/attribute invalidation '+width);
+    a.classList.remove('changed');is(css(e,'padding-top'),'7px','ancestor class removal '+width);
+    e.classList.add('skip');is(css(e,'border-left-width'),'0px','negated class invalidation '+width);
+    e.classList.remove('skip');is(css(e,'border-left-width'),'4px','negated class removal '+width);
+  }
+  // Mutation after visiting cached states must discard stale index generations.
+  var s=d.styleSheets[1];s.insertRule('.target{color:rgb(121,122,123)}',s.cssRules.length);
+  for(var width of [500,1400,800]){f.width=width;await frame();is(css(e,'color'),'rgb(121, 122, 123)','CSSOM invalidates all media variants '+width);}
+  s.deleteRule(s.cssRules.length-1);f.width=1400;await frame();is(css(e,'color'),'rgb(10, 20, 30)','CSSOM deletion restores rules');
+  s.disabled=true;is(css(e,'color'),'rgb(0, 0, 0)','sheet disabled');
+  s.disabled=false;is(css(e,'color'),'rgb(10, 20, 30)','sheet reenabled');
+  f.remove();window.cascadeFrame=null;
+})().catch(function(e){ok(false,String(e)+'\n'+e.stack);}).then(function(){SimpleTest.finish();});
+</script>

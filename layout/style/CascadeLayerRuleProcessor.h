@@ -32,6 +32,7 @@ class nsCSSKeyframesRule;
 class nsCSSPageRule;
 class nsCSSFontFeatureValuesRule;
 class nsCSSCounterStyleRule;
+class CascadeIndexPool;
 
 namespace mozilla {
 class CSSStyleSheet;
@@ -109,6 +110,7 @@ public:
     nsTArray<nsCSSFontFeatureValuesRule*>& aArray);
 
   // The following API methods are consumed by nsCSSRuleProcessor only.
+  void ShareIndexes(CascadeIndexPool* aPool);
   nsRestyleHint HasAttributeDependentStyle(
     AttributeRuleProcessorData* aData,
     AttributeEnumData* aEnumData,

@@ -59,6 +59,102 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 
+uint32_t
+CascadeIndexPool::RuleId(const void* aRule, const void* aSelector,
+                          uint32_t aOccurrence)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  Key key = { aRule, aSelector, aOccurrence };
+  if (Entry* entry = mIds.GetEntry(key)) return entry->mId;
+  uint32_t id = mIds.Count();
+  mIds.PutEntry(key)->mId = id;
+  return id;
+}
+
+size_t
+CascadeIndexPool::SizeOfIncludingThis(const RuleHash* aOwner,
+                                      MallocSizeOf aMallocSizeOf) const
+{
+  if (mOwners.IsEmpty() || mOwners.LastElement() != aOwner) return 0;
+  return aMallocSizeOf(this) + mIds.ShallowSizeOfExcludingThis(aMallocSizeOf) +
+         mOwners.ShallowSizeOfExcludingThis(aMallocSizeOf);
+}
+
+RuleValue
+RuleHash::MakeValue(const RuleSelectorPair& aRule, int32_t aRank)
+{
+  if (!mPool) return RuleValue(aRule, aRank, mQuirksMode);
+  for (uint32_t occurrence = 0; ; ++occurrence) {
+    uint32_t id = mPool->RuleId(aRule.mRule, aRule.mSelector, occurrence);
+    MOZ_RELEASE_ASSERT(id < INT32_MAX);
+    if (mRanks.Length() <= id) {
+      size_t old = mRanks.Length();
+      mRanks.SetLength(size_t(id) + 1);
+      for (size_t i = old; i < mRanks.Length(); ++i) mRanks[i] = -1;
+    }
+    if (mRanks[id] == -1) {
+      mRanks[id] = aRank;
+      return RuleValue(aRule, int32_t(id), mQuirksMode);
+    }
+  }
+}
+
+static void
+FreezeRuleTable(PLDHashTable& aTable, CascadeIndexPool* aPool);
+template<class F> static void NormalizeRuleEntry(PLDHashEntryHdr* aEntry, F aTransform);
+
+void
+RuleHash::Freeze()
+{
+  if (!mPool || mFrozen) return;
+  mFrozen = true;
+  FreezeRuleTable(mIdTable, mPool);
+  FreezeRuleTable(mClassTable, mPool);
+  FreezeRuleTable(mTagTable, mPool);
+  FreezeRuleTable(mNameSpaceTable, mPool);
+  mUniversalRules.Freeze(mPool);
+  // Small pseudo/layer indexes can have widely separated IDs in their shared
+  // domain. Retain only actual entries rather than a mostly empty dense view.
+  size_t first = 0;
+  while (first < mRanks.Length() && mRanks[first] < 0) ++first;
+  if (mRanks.Length() - first > size_t(mRuleCount) * 4) {
+    for (size_t i = 0; i < mRanks.Length(); ++i) {
+      if (mRanks[i] >= 0) mSparseRanks.AppendElement(SparseRank{uint32_t(i), mRanks[i]});
+    }
+    mSparseRanks.Compact();
+    mRanks.Clear();
+  } else if (first) {
+    mRanks.RemoveElementsAt(0, first);
+    mRankBase = first;
+  }
+  mRanks.Compact();
+}
+
+void
+RuleHash::ShareIndexes(CascadeIndexPool* aPool)
+{
+  if (mPool) return;
+  mPool = aPool;
+  mPool->AddOwner(this);
+  // A tag selector may occur in both its cased and lower-case tag buckets.
+  // Both entries carry the SAME rank/identity, not a repeated source occurrence.
+  nsTArray<int32_t> ids;
+  ids.SetLength(mRuleCount);
+  for (int32_t& id : ids) id = -1;
+  auto normalize = [&](RuleValue& value) {
+    int32_t rank = value.mIndex;
+    if (ids[rank] < 0) ids[rank] = MakeValue(value, rank).mIndex;
+    value.mIndex = ids[rank];
+  };
+  for (PLDHashTable* table : { &mIdTable, &mClassTable, &mTagTable, &mNameSpaceTable }) {
+    for (auto iter = table->Iter(); !iter.Done(); iter.Next()) {
+      // Definition follows the entry declarations below.
+      NormalizeRuleEntry(iter.Get(), normalize);
+    }
+  }
+  mUniversalRules.TransformValues(normalize);
+}
+
 // ------------------------------
 // Rule hash table
 //
@@ -69,7 +165,7 @@ struct RuleHashTableEntry : public PLDHashEntryHdr
   // If you add members that have heap allocated memory be sure to change the
   // logic in SizeOfRuleHashTable().
   // Auto length 1, because we always have at least one entry in mRules.
-  AutoTArray<RuleValue, 1> mRules;
+  CascadeIndexList<RuleValue, 1> mRules;
 };
 
 struct RuleHashTagTableEntry : public RuleHashTableEntry
@@ -78,6 +174,20 @@ struct RuleHashTagTableEntry : public RuleHashTableEntry
   // logic in RuleHash::SizeOf{In,Ex}cludingThis.
   nsCOMPtr<nsIAtom> mTag;
 };
+
+template<class F> static void
+NormalizeRuleEntry(PLDHashEntryHdr* aEntry, F aTransform)
+{
+  static_cast<RuleHashTableEntry*>(aEntry)->mRules.TransformValues(aTransform);
+}
+
+static void
+FreezeRuleTable(PLDHashTable& aTable, CascadeIndexPool* aPool)
+{
+  for (auto iter = aTable.Iter(); !iter.Done(); iter.Next()) {
+    static_cast<RuleHashTableEntry*>(iter.Get())->mRules.Freeze(aPool);
+  }
+}
 
 static PLDHashNumber
 RuleHash_CIHashKey(const void* key)
@@ -295,7 +405,7 @@ RuleHash_NameSpaceTable_MatchEntry(const PLDHashEntryHdr* hdr, const void* key)
 #define RULE_HASH_STAT_INCREMENT(var_) PR_BEGIN_MACRO PR_END_MACRO
 #endif
 
-RuleHash::RuleHash(bool aQuirksMode)
+RuleHash::RuleHash(bool aQuirksMode, CascadeIndexPool* aPool)
   : mRuleCount(0)
   , mIdTable(aQuirksMode ? &RuleHash::IdTable_CIOps : &RuleHash::IdTable_CSOps,
              sizeof(RuleHashTableEntry))
@@ -304,10 +414,10 @@ RuleHash::RuleHash(bool aQuirksMode)
                 sizeof(RuleHashTableEntry))
   , mTagTable(&RuleHash::TagTable_Ops, sizeof(RuleHashTagTableEntry))
   , mNameSpaceTable(&RuleHash::NameSpaceTable_Ops, sizeof(RuleHashTableEntry))
-  , mUniversalRules(0)
   , mEnumList(nullptr)
   , mEnumListSize(0)
   , mQuirksMode(aQuirksMode)
+  , mPool(aPool)
 #ifdef RULE_HASH_STATS
   , mUniversalSelectors(0)
   , mNameSpaceSelectors(0)
@@ -323,11 +433,13 @@ RuleHash::RuleHash(bool aQuirksMode)
 #endif
 {
   MOZ_COUNT_CTOR(RuleHash);
+  if (mPool) mPool->AddOwner(this);
 }
 
 RuleHash::~RuleHash()
 {
   MOZ_COUNT_DTOR(RuleHash);
+  if (mPool) mPool->RemoveOwner(this);
 #ifdef RULE_HASH_STATS
   printf("RuleHash(%p):\n"
          "  Selectors: Universal (%u) NameSpace(%u) Tag(%u) Class(%u) Id(%u)\n"
@@ -381,7 +493,7 @@ RuleHash::AppendRuleToTable(PLDHashTable* aTable,
   auto entry = static_cast<RuleHashTableEntry*>(aTable->Add(aKey, fallible));
   if (!entry)
     return;
-  entry->mRules.AppendElement(RuleValue(aRuleInfo, mRuleCount++, mQuirksMode));
+  entry->mRules.AppendElement(MakeValue(aRuleInfo, mRuleCount++));
 }
 
 /* static */ void
@@ -401,7 +513,7 @@ void
 RuleHash::AppendUniversalRule(const RuleSelectorPair& aRuleInfo)
 {
   mUniversalRules.AppendElement(
-    RuleValue(aRuleInfo, mRuleCount++, mQuirksMode));
+    MakeValue(aRuleInfo, mRuleCount++));
 }
 
 static bool
@@ -437,7 +549,7 @@ RuleHash::AppendRule(const RuleSelectorPair& aRuleInfo)
     AppendRuleToTable(&mClassTable, selector->mClassList->mAtom, aRuleInfo);
     RULE_HASH_STAT_INCREMENT(mClassSelectors);
   } else if (selector->mLowercaseTag) {
-    RuleValue ruleValue(aRuleInfo, mRuleCount++, mQuirksMode);
+    RuleValue ruleValue = MakeValue(aRuleInfo, mRuleCount++);
     AppendRuleToTagTable(&mTagTable, selector->mLowercaseTag, ruleValue);
     RULE_HASH_STAT_INCREMENT(mTagSelectors);
     if (selector->mCasedTag && selector->mCasedTag != selector->mLowercaseTag) {
@@ -690,9 +802,9 @@ RuleHash::EnumerateAllRules(Element* aElement,
     // Merge the lists while there are still multiple lists to merge.
     while (valueCount > 1) {
       int32_t valueIndex = 0;
-      int32_t lowestRuleIndex = mEnumList[valueIndex].mCurValue->mIndex;
+      int32_t lowestRuleIndex = Rank(*mEnumList[valueIndex].mCurValue);
       for (int32_t index = 1; index < valueCount; ++index) {
-        int32_t ruleIndex = mEnumList[index].mCurValue->mIndex;
+        int32_t ruleIndex = Rank(*mEnumList[index].mCurValue);
         if (ruleIndex < lowestRuleIndex) {
           valueIndex = index;
           lowestRuleIndex = ruleIndex;
@@ -745,6 +857,10 @@ RuleHash::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   n += SizeOfRuleHashTable(mNameSpaceTable, aMallocSizeOf);
 
   n += mUniversalRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mRanks.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mSparseRanks.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mEnumList ? aMallocSizeOf(mEnumList) : 0;
+  if (mPool) n += mPool->SizeOfIncludingThis(this, aMallocSizeOf);
 
   return n;
 }
@@ -763,7 +879,7 @@ struct AtomSelectorEntry : public PLDHashEntryHdr
   nsIAtom* mAtom;
   // Auto length 2, because a decent fraction of these arrays ends up
   // with 2 elements, and each entry is cheap.
-  AutoTArray<SelectorPair, 2> mSelectors;
+  CascadeIndexList<SelectorPair, 2> mSelectors;
 };
 
 static void
@@ -819,8 +935,8 @@ AtomSelector_CIMatchEntry(const PLDHashEntryHdr* hdr, const void* key)
   AtomSelector_InitEntry
 };
 
-RuleCascadeData::RuleCascadeData(bool aQuirksMode)
-  : mRuleHash(aQuirksMode)
+RuleCascadeData::RuleCascadeData(bool aQuirksMode, CascadeIndexPool* aPool)
+  : mRuleHash(aQuirksMode, aPool)
   , mStateSelectors()
   , mSelectorDocumentStates(0)
   , mClassSelectors(aQuirksMode ? &AtomSelector_CIOps : &AtomSelector_CSOps,
@@ -837,6 +953,7 @@ RuleCascadeData::RuleCascadeData(bool aQuirksMode)
   , mKeyframesRuleTable()
   , mCounterStyleRuleTable()
   , mQuirksMode(aQuirksMode)
+  , mIndexPool(aPool)
 {
   memset(mPseudoElementRuleHashes, 0, sizeof(mPseudoElementRuleHashes));
 }
@@ -846,6 +963,34 @@ RuleCascadeData::~RuleCascadeData()
   for (uint32_t i = 0; i < ArrayLength(mPseudoElementRuleHashes); ++i) {
     delete mPseudoElementRuleHashes[i];
   }
+}
+
+void
+RuleCascadeData::Freeze()
+{
+  if (!mIndexPool) return;
+  mRuleHash.Freeze();
+  for (RuleHash* hash : mPseudoElementRuleHashes) if (hash) hash->Freeze();
+  for (PLDHashTable* table : { &mIdSelectors, &mClassSelectors, &mAttributeSelectors }) {
+    for (auto iter = table->Iter(); !iter.Done(); iter.Next()) {
+      static_cast<AtomSelectorEntry*>(iter.Get())->mSelectors.Freeze(mIndexPool);
+    }
+  }
+  mStateSelectors.Freeze(mIndexPool);
+  mPossiblyNegatedClassSelectors.Freeze(mIndexPool);
+  mPossiblyNegatedIDSelectors.Freeze(mIndexPool);
+  FreezeRuleTable(mAnonBoxRules, mIndexPool);
+  FreezeRuleTable(mXULTreeRules, mIndexPool);
+}
+
+void
+RuleCascadeData::ShareIndexes(CascadeIndexPool* aPool)
+{
+  if (mIndexPool) return;
+  mIndexPool = aPool;
+  mRuleHash.ShareIndexes(aPool);
+  for (RuleHash* hash : mPseudoElementRuleHashes) if (hash) hash->ShareIndexes(aPool);
+  Freeze();
 }
 
 static size_t
@@ -902,7 +1047,7 @@ RuleCascadeData::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
   return n;
 }
 
-nsTArray<SelectorPair>*
+CascadeIndexList<SelectorPair, 2>*
 RuleCascadeData::AttributeListFor(nsIAtom* aAttribute)
 {
   auto entry = static_cast<AtomSelectorEntry*>(
@@ -950,8 +1095,8 @@ RuleCascadeData::RulesMatching(AnonBoxRuleProcessorData* aData)
   auto entry = static_cast<RuleHashTagTableEntry*>(
     mAnonBoxRules.Search(aData->mPseudoTag));
   if (entry) {
-    nsTArray<RuleValue>& rules = entry->mRules;
-    for (RuleValue *value = rules.Elements(),
+    const auto& rules = entry->mRules;
+    for (const RuleValue *value = rules.Elements(),
                         *end = value + rules.Length();
           value != end;
           ++value) {
@@ -973,8 +1118,8 @@ RuleCascadeData::RulesMatching(XULTreeRuleProcessorData* aData)
   if (entry) {
     NodeMatchContext nodeContext(
       EventStates(), nsCSSRuleUtils::IsLink(aData->mElement));
-    nsTArray<RuleValue>& rules = entry->mRules;
-    for (RuleValue *value = rules.Elements(), *end = value + rules.Length();
+    const auto& rules = entry->mRules;
+    for (const RuleValue *value = rules.Elements(), *end = value + rules.Length();
           value != end;
           ++value) {
       if (aData->mComparator->PseudoMatches(value->mSelector)) {
@@ -1019,7 +1164,7 @@ RuleCascadeData::HasStateDependentStyle(
 {
   bool isPseudoElement = aPseudoType != CSSPseudoElementType::NotPseudo;
 
-  StateSelector *iter = mStateSelectors.Elements(),
+  const StateSelector *iter = mStateSelectors.Elements(),
                      *end = iter + mStateSelectors.Length();
   NodeMatchContext nodeContext(aStateMask, false);
   for (; iter != end; ++iter) {
@@ -1196,20 +1341,20 @@ AttributeEnumFunc(nsCSSSelector* aSelector,
 }
 
 static MOZ_ALWAYS_INLINE void
-EnumerateSelectors(nsTArray<SelectorPair>& aSelectors, AttributeEnumData* aData)
+EnumerateSelectors(const CascadeIndexList<SelectorPair, 2>& aSelectors, AttributeEnumData* aData)
 {
-  SelectorPair *iter = aSelectors.Elements(), *end = iter + aSelectors.Length();
+  const SelectorPair *iter = aSelectors.Elements(), *end = iter + aSelectors.Length();
   for (; iter != end; ++iter) {
     AttributeEnumFunc(iter->mSelector, iter->mRightmostSelector, aData);
   }
 }
 
 static MOZ_ALWAYS_INLINE void
-EnumerateSelectors(nsTArray<nsCSSSelector*>& aSelectors,
+EnumerateSelectors(const CascadeIndexList<nsCSSSelector*>& aSelectors,
                    AttributeEnumData* aData)
 {
-  nsCSSSelector **iter = aSelectors.Elements(),
-                **end = iter + aSelectors.Length();
+  nsCSSSelector* const* iter = aSelectors.Elements();
+  nsCSSSelector* const* end = iter + aSelectors.Length();
   for (; iter != end; ++iter) {
     AttributeEnumFunc(*iter, nullptr, aData);
   }
@@ -1343,7 +1488,7 @@ RuleCascadeData::AddSelector(
           break;
         }
         case CSSPseudoClassType::mozTableBorderNonzero: {
-          nsTArray<SelectorPair>* array =
+          CascadeIndexList<SelectorPair, 2>* array =
             AttributeListFor(nsGkAtoms::border);
           if (!array) {
             return false;
@@ -1397,7 +1542,7 @@ RuleCascadeData::AddSelector(
 
     // Build mAttributeSelectors.
     for (nsAttrSelector* attr = negation->mAttrList; attr; attr = attr->mNext) {
-      nsTArray<SelectorPair>* array = AttributeListFor(attr->mCasedAttr);
+      CascadeIndexList<SelectorPair, 2>* array = AttributeListFor(attr->mCasedAttr);
       if (!array) {
         return false;
       }
@@ -1444,7 +1589,7 @@ RuleCascadeData::AddRule(RuleSelectorPair* aRuleInfo)
       mPseudoElementRuleHashes[static_cast<CSSPseudoElementTypeBase>(
         pseudoType)];
     if (!ruleHash) {
-      ruleHash = new RuleHash(mQuirksMode);
+      ruleHash = new RuleHash(mQuirksMode, mIndexPool);
       if (!ruleHash) {
         // Out of memory; give up
         return false;
@@ -1648,7 +1793,8 @@ CascadeLayer::CascadeLayer(nsPresContext* aPresContext,
                            nsDocumentRuleResultCacheKey& aDocumentKey,
                            SheetType aSheetType,
                            bool aMustGatherDocumentRules,
-                           nsMediaQueryResultCacheKey& aCacheKey)
+                           nsMediaQueryResultCacheKey& aCacheKey,
+                           CascadeIndexPool* aIndexPool)
   : mPresContext(aPresContext)
   , mIsAnonymous(true)
 #ifdef DEBUG
@@ -1665,7 +1811,7 @@ CascadeLayer::CascadeLayer(nsPresContext* aPresContext,
   , mCacheKey(aCacheKey)
 {
   mData = new RuleCascadeData(eCompatibility_NavQuirks ==
-                              mPresContext->CompatibilityMode());
+                              mPresContext->CompatibilityMode(), aIndexPool);
 }
 
 CascadeLayer::~CascadeLayer()
@@ -1723,7 +1869,7 @@ CascadeLayer::CreateNamedChildLayer(const nsTArray<nsString>& aPath)
                                   mDocumentCacheKey,
                                   mSheetType,
                                   mMustGatherDocumentRules,
-                                  mCacheKey);
+                                  mCacheKey, mData->mIndexPool);
     childLayer->mName = name;
     childLayer->mIsAnonymous = false;
     mPreLayers.AppendElement(childLayer);
@@ -1752,7 +1898,7 @@ CascadeLayer::CreateAnonymousChildLayer()
                                               mDocumentCacheKey,
                                               mSheetType,
                                               mMustGatherDocumentRules,
-                                              mCacheKey);
+                                              mCacheKey, mData->mIndexPool);
   mPreLayers.AppendElement(childLayer);
   return childLayer;
 }
@@ -1799,6 +1945,7 @@ CascadeLayer::AddRules()
   }
 
   mRulesAdded = true;
+  mData->Freeze();
 }
 
 void

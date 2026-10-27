@@ -67,8 +67,18 @@ struct RuleValue : RuleSelectorPair
     CollectAncestorHashes(aQuirksMode);
   }
 
-  int32_t mIndex; // High index means high weight/order.
+  // A local weight/order rank before sharing; a stable identity after sharing.
+  // RuleHash::Rank resolves the latter through this media state's rank view.
+  int32_t mIndex;
   uint32_t mAncestorSelectorHashes[eMaxAncestorHashes];
+
+  bool operator==(const RuleValue& aOther) const {
+    if (mRule != aOther.mRule || mSelector != aOther.mSelector || mIndex != aOther.mIndex)
+      return false;
+    for (size_t i = 0; i < eMaxAncestorHashes; ++i)
+      if (mAncestorSelectorHashes[i] != aOther.mAncestorSelectorHashes[i]) return false;
+    return true;
+  }
 
 private:
   void CollectAncestorHashes(bool aQuirksMode)
@@ -152,6 +162,9 @@ struct SelectorPair
   SelectorPair(const SelectorPair& aOther) = default;
   nsCSSSelector* const mSelector;
   nsCSSSelector* const mRightmostSelector;
+  bool operator==(const SelectorPair& aOther) const {
+    return mSelector == aOther.mSelector && mRightmostSelector == aOther.mRightmostSelector;
+  }
 };
 
 struct StateSelector
@@ -164,17 +177,36 @@ struct StateSelector
 
   mozilla::EventStates mStates;
   nsCSSSelector* mSelector;
+  bool operator==(const StateSelector& aOther) const {
+    return mStates == aOther.mStates && mSelector == aOther.mSelector;
+  }
 };
+
+#include "CascadeIndex.h"
+
+inline uint32_t CascadeIndexHash(const RuleValue& aValue) {
+  uint32_t hash = HashGeneric(aValue.mRule, aValue.mSelector, aValue.mIndex);
+  for (uint32_t value : aValue.mAncestorSelectorHashes) hash = AddToHash(hash, value);
+  return hash;
+}
+inline uint32_t CascadeIndexHash(const SelectorPair& aValue) {
+  return HashGeneric(aValue.mSelector, aValue.mRightmostSelector);
+}
+inline uint32_t CascadeIndexHash(const StateSelector& aValue) {
+  return HashGeneric(aValue.mSelector, aValue.mStates.GetInternalValue());
+}
 
 class RuleHash
 {
 public:
-  explicit RuleHash(bool aQuirksMode);
+  explicit RuleHash(bool aQuirksMode, CascadeIndexPool* aPool = nullptr);
   ~RuleHash();
   void AppendRule(const RuleSelectorPair& aRuleInfo);
   void EnumerateAllRules(Element* aElement,
                          ElementDependentRuleProcessorData* aData,
                          NodeMatchContext& aNodeMatchContext);
+  void Freeze();
+  void ShareIndexes(CascadeIndexPool* aPool);
 
   size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
@@ -191,7 +223,20 @@ public:
   static const PLDHashTableOps NameSpaceTable_Ops;
 
 protected:
-  typedef nsTArray<RuleValue> RuleValueList;
+  typedef CascadeIndexList<RuleValue, 1> RuleValueList;
+  RuleValue MakeValue(const RuleSelectorPair& aRule, int32_t aRank);
+  int32_t Rank(const RuleValue& aValue) const {
+    if (!mPool) return aValue.mIndex;
+    if (mSparseRanks.IsEmpty()) return mRanks[uint32_t(aValue.mIndex) - mRankBase];
+    size_t lo = 0, hi = mSparseRanks.Length();
+    while (lo < hi) {
+      size_t mid = lo + (hi - lo) / 2;
+      if (mSparseRanks[mid].mId < uint32_t(aValue.mIndex)) lo = mid + 1;
+      else hi = mid;
+    }
+    MOZ_ASSERT(lo < mSparseRanks.Length() && mSparseRanks[lo].mId == uint32_t(aValue.mIndex));
+    return mSparseRanks[lo].mRank;
+  }
   void AppendRuleToTable(PLDHashTable* aTable,
                          const void* aKey,
                          const RuleSelectorPair& aRuleInfo);
@@ -214,6 +259,12 @@ protected:
   int32_t mEnumListSize;
 
   bool mQuirksMode;
+  RefPtr<CascadeIndexPool> mPool;
+  nsTArray<int32_t> mRanks;
+  uint32_t mRankBase = 0;
+  struct SparseRank { uint32_t mId; int32_t mRank; };
+  nsTArray<SparseRank> mSparseRanks;
+  bool mFrozen = false;
 
   inline EnumData ToEnumData(const RuleValueList& arr)
   {
@@ -255,7 +306,7 @@ struct AttributeEnumData
 
 struct RuleCascadeData
 {
-  RuleCascadeData(bool aQuirksMode);
+  RuleCascadeData(bool aQuirksMode, CascadeIndexPool* aPool = nullptr);
   ~RuleCascadeData();
 
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
@@ -263,12 +314,12 @@ struct RuleCascadeData
   RuleHash mRuleHash;
   RuleHash* mPseudoElementRuleHashes[static_cast<CSSPseudoElementTypeBase>(
     CSSPseudoElementType::Count)];
-  nsTArray<StateSelector> mStateSelectors;
+  CascadeIndexList<StateSelector> mStateSelectors;
   EventStates mSelectorDocumentStates;
   PLDHashTable mClassSelectors;
   PLDHashTable mIdSelectors;
-  nsTArray<nsCSSSelector*> mPossiblyNegatedClassSelectors;
-  nsTArray<nsCSSSelector*> mPossiblyNegatedIDSelectors;
+  CascadeIndexList<nsCSSSelector*> mPossiblyNegatedClassSelectors;
+  CascadeIndexList<nsCSSSelector*> mPossiblyNegatedIDSelectors;
   PLDHashTable mAttributeSelectors;
   PLDHashTable mAnonBoxRules;
   PLDHashTable mXULTreeRules;
@@ -285,7 +336,10 @@ struct RuleCascadeData
 
   // Looks up or creates the appropriate list in |mAttributeSelectors|.
   // Returns null only on allocation failure.
-  nsTArray<SelectorPair>* AttributeListFor(nsIAtom* aAttribute);
+  CascadeIndexList<SelectorPair, 2>* AttributeListFor(nsIAtom* aAttribute);
+  void Freeze();
+  void ShareIndexes(CascadeIndexPool* aPool);
+  RefPtr<CascadeIndexPool> mIndexPool;
 
   const bool mQuirksMode;
 
@@ -333,7 +387,8 @@ struct CascadeLayer
                nsDocumentRuleResultCacheKey& aDocumentKey,
                SheetType aSheetType,
                bool aMustGatherDocumentRules,
-               nsMediaQueryResultCacheKey& aCacheKey);
+               nsMediaQueryResultCacheKey& aCacheKey,
+               CascadeIndexPool* aIndexPool = nullptr);
   ~CascadeLayer();
 
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;

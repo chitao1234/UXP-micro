@@ -27,6 +27,7 @@ struct CascadeLayer;
 struct ElementDependentRuleProcessorData;
 struct nsFontFaceRuleContainer;
 struct RuleProcessorGroup;
+class CascadeIndexPool;
 class nsCSSKeyframesRule;
 class nsCSSPageRule;
 class nsCSSFontFeatureValuesRule;
@@ -174,6 +175,7 @@ private:
 
   // active first, then cached (most recent first)
   RuleProcessorGroup* mGroup;
+  RefPtr<CascadeIndexPool> mIndexPool;
 
   // If we cleared our mGroup or replaced a previous rule
   // processor, this is the media query result cache key that was used

@@ -477,6 +477,7 @@ nsCSSRuleProcessor::ClearGroup()
     delete data;
     data = next;
   }
+  mIndexPool = nullptr;
   return NS_OK;
 }
 
@@ -741,6 +742,17 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
   mPreviousCacheKey = nullptr;
 
   if (mSheets.Length() != 0) {
+    bool shareIndexes = Preferences::GetBool("layout.css.cascade-index.share", true);
+    // A single media state has nothing to share. Build its normal index first;
+    // only introduce identities/canonical buckets once another state is needed.
+    if (shareIndexes && !mIndexPool && mGroup) {
+      mIndexPool = new CascadeIndexPool;
+      for (RuleProcessorGroup* group = mGroup; group; group = group->mNext) {
+        for (auto& processor : group->mItems) {
+          static_cast<CascadeLayerRuleProcessor*>(processor.get())->ShareIndexes(mIndexPool);
+        }
+      }
+    }
     nsAutoPtr<RuleProcessorGroup> ruleProcessorSet(
       new RuleProcessorGroup(aPresContext->Medium()));
     CascadeLayer* implicitLayer(new CascadeLayer(aPresContext,
@@ -751,7 +763,8 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
                                                  mDocumentCacheKey,
                                                  mSheetType,
                                                  mMustGatherDocumentRules,
-                                                 ruleProcessorSet->mCacheKey));
+                                                 ruleProcessorSet->mCacheKey,
+                                                 shareIndexes ? mIndexPool.get() : nullptr));
     if (implicitLayer->mData) {
       for (uint32_t i = 0; i < mSheets.Length(); ++i) {
         if (!CascadeSheet(mSheets.ElementAt(i), implicitLayer)) {

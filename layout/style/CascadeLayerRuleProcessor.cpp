@@ -59,6 +59,12 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 
+void
+CascadeLayerRuleProcessor::ShareIndexes(CascadeIndexPool* aPool)
+{
+  if (mCascade) mCascade->ShareIndexes(aPool);
+}
+
 // -------------------------------
 // Cascade layer style rule processor implementation
 //
