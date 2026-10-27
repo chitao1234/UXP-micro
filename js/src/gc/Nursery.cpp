@@ -881,6 +881,14 @@ js::Nursery::updateNumChunksLocked(unsigned newCount,
             return;
         }
 
+        if (!newChunk->prepareForReuse()) {
+            // This was an initialized empty chunk from the pool. Leave its
+            // maps intact for a later retry and retain the current nursery.
+            runtime()->gc.recycleChunk(newChunk, lock);
+            chunks_.shrinkTo(i);
+            return;
+        }
+
         chunks_[i] = NurseryChunk::fromChunk(newChunk);
         chunk(i).poisonAndInit(runtime(), JS_FRESH_NURSERY_PATTERN);
     }

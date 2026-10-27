@@ -776,15 +776,19 @@ Chunk::decommitOneFreeArena(JSRuntime* rt, AutoLockGC& lock)
     updateChunkListAfterAlloc(rt, lock);
 
     bool ok;
+    bool hard = GCDecommitEnabled();
     {
         AutoUnlockGC unlock(lock);
-        ok = MarkPagesUnused(arena, ArenaSize);
+        ok = MarkPagesUnused(arena, ArenaSize, hard);
     }
 
-    if (ok)
+    if (ok) {
+        if (hard)
+            hardDecommittedArenas.set(Chunk::arenaIndex(arena->address()));
         addArenaToDecommittedList(rt, arena);
-    else
+    } else {
         addArenaToFreeList(rt, arena);
+    }
     updateChunkListAfterFree(rt, lock);
 
     return ok;
@@ -793,13 +797,23 @@ Chunk::decommitOneFreeArena(JSRuntime* rt, AutoLockGC& lock)
 void
 Chunk::decommitAllArenasWithoutUnlocking(const AutoLockGC& lock)
 {
-    for (size_t i = 0; i < ArenasPerChunk; ++i) {
-        if (decommittedArenas.get(i) || arenas[i].allocated())
-            continue;
-
-        if (MarkPagesUnused(&arenas[i], ArenaSize)) {
+    // Walk the free list, saving its link before the page becomes inaccessible.
+    // Failed decommits stay in the committed list, even after partial success.
+    bool hard = GCDecommitEnabled();
+    Arena** link = &info.freeArenasHead;
+    while (*link) {
+        Arena* arena = *link;
+        Arena* next = arena->next;
+        size_t i = Chunk::arenaIndex(arena->address());
+        if (MarkPagesUnused(arena, ArenaSize, hard)) {
+            *link = next;
             info.numArenasFreeCommitted--;
+            trailer.runtime->gc.updateOnArenaDecommit(1);
             decommittedArenas.set(i);
+            if (hard)
+                hardDecommittedArenas.set(i);
+        } else {
+            link = &arena->next;
         }
     }
 }

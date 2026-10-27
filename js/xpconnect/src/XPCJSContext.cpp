@@ -1400,6 +1400,16 @@ CompartmentPrivate::SizeOfIncludingThis(MallocSizeOf mallocSizeOf)
 #define JS_OPTIONS_DOT_STR "javascript.options."
 
 static void
+GCDecommitPrefsCallback(const char*, void*)
+{
+    // Preferences are read only on the main thread. SpiderMonkey publishes the
+    // process policy atomically for worker and background GC threads as well.
+    int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+    JS_SetGCDecommitEnabled(Preferences::GetBool(
+        "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
+}
+
+static void
 ReloadPrefsCallback(const char* pref, void* data)
 {
     XPCJSContext* xpccx = reinterpret_cast<XPCJSContext*>(data);
@@ -1541,6 +1551,9 @@ XPCJSContext::~XPCJSContext()
     mDyingWrappedNativeProtoMap = nullptr;
 
     Preferences::UnregisterCallback(ReloadPrefsCallback, JS_OPTIONS_DOT_STR, this);
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.mem.gc_decommit");
 }
 
 // If |*anonymizeID| is non-zero and this is a user compartment, the name will
@@ -3379,6 +3392,10 @@ XPCJSContext::Initialize()
     // Watch for the JS boolean options.
     ReloadPrefsCallback(nullptr, this);
     Preferences::RegisterCallback(ReloadPrefsCallback, JS_OPTIONS_DOT_STR, this);
+    GCDecommitPrefsCallback(nullptr, nullptr);
+    Preferences::RegisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.gc_decommit");
 
     return NS_OK;
 }

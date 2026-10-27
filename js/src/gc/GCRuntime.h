@@ -831,6 +831,11 @@ class GCRuntime
     inline void updateOnFreeArenaAlloc(const ChunkInfo& info);
     inline void updateOnArenaFree(const ChunkInfo& info);
 
+    void updateOnArenaDecommit(uint32_t count) {
+        MOZ_ASSERT(numArenasFreeCommitted >= count);
+        numArenasFreeCommitted -= count;
+    }
+
     ChunkPool& fullChunks(const AutoLockGC& lock) { return fullChunks_; }
     ChunkPool& availableChunks(const AutoLockGC& lock) { return availableChunks_; }
     ChunkPool& emptyChunks(const AutoLockGC& lock) { return emptyChunks_; }

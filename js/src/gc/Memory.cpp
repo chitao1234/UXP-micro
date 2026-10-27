@@ -9,7 +9,7 @@
 #include "mozilla/TaggedAnonymousMemory.h"
 
 #include "js/HeapAPI.h"
-#include "vm/Runtime.h"
+#include "jsutil.h"
 
 #if defined(XP_WIN)
 
@@ -38,6 +38,14 @@ static size_t pageSize = 0;
 // The OS allocation granularity may not match the page size.
 static size_t allocGranularity = 0;
 
+static mozilla::Atomic<bool, mozilla::Relaxed> gcDecommitEnabled(false);
+
+void
+SetGCDecommitEnabled(bool enabled)
+{
+    gcDecommitEnabled = enabled;
+}
+
 #if defined(XP_UNIX)
 // The addresses handed out by mmap may grow up or down.
 static mozilla::Atomic<int, mozilla::Relaxed> growthDirection(0);
@@ -63,6 +71,20 @@ static bool
 DecommitEnabled()
 {
     return pageSize == ArenaSize;
+}
+
+bool
+GCDecommitEnabled()
+{
+#if defined(XP_WIN)
+#  if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+    return DecommitEnabled() && gcDecommitEnabled;
+#  else
+    return false;
+#  endif
+#else
+    return false;
+#endif
 }
 
 /*
@@ -248,23 +270,26 @@ UnmapPages(void* p, size_t size)
 }
 
 bool
-MarkPagesUnused(void* p, size_t size)
+MarkPagesUnused(void* p, size_t size, bool decommit)
 {
     if (!DecommitEnabled())
         return true;
 
     MOZ_ASSERT(OffsetFromAligned(p, pageSize) == 0);
+    if (decommit)
+        return VirtualFree(p, size, MEM_DECOMMIT) != 0;
     LPVOID p2 = MapMemoryAt(p, size, MEM_RESET);
     return p2 == p;
 }
 
-void
-MarkPagesInUse(void* p, size_t size)
+bool
+MarkPagesInUse(void* p, size_t size, bool decommitted)
 {
     if (!DecommitEnabled())
-        return;
+        return !decommitted;
 
     MOZ_ASSERT(OffsetFromAligned(p, pageSize) == 0);
+    return !decommitted || MapMemoryAt(p, size, MEM_COMMIT) == p;
 }
 
 size_t
@@ -367,16 +392,17 @@ UnmapPages(void* p, size_t size)
 }
 
 bool
-MarkPagesUnused(void* p, size_t size)
+MarkPagesUnused(void* p, size_t size, bool decommit)
 {
     MOZ_ASSERT(OffsetFromAligned(p, pageSize) == 0);
     return true;
 }
 
 bool
-MarkPagesInUse(void* p, size_t size)
+MarkPagesInUse(void* p, size_t size, bool decommitted)
 {
     MOZ_ASSERT(OffsetFromAligned(p, pageSize) == 0);
+    return !decommitted;
 }
 
 size_t
@@ -678,7 +704,7 @@ UnmapPages(void* p, size_t size)
 }
 
 bool
-MarkPagesUnused(void* p, size_t size)
+MarkPagesUnused(void* p, size_t size, bool decommit)
 {
     if (!DecommitEnabled())
         return false;
@@ -692,13 +718,14 @@ MarkPagesUnused(void* p, size_t size)
     return result != -1;
 }
 
-void
-MarkPagesInUse(void* p, size_t size)
+bool
+MarkPagesInUse(void* p, size_t size, bool decommitted)
 {
     if (!DecommitEnabled())
-        return;
+        return !decommitted;
 
     MOZ_ASSERT(OffsetFromAligned(p, pageSize) == 0);
+    return !decommitted;
 }
 
 size_t

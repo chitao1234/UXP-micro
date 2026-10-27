@@ -421,6 +421,8 @@ GCRuntime::allocateArena(Chunk* chunk, Zone* zone, AllocKind thingKind,
         return nullptr;
 
     Arena* arena = chunk->allocateArena(rt, zone, thingKind, lock);
+    if (!arena)
+        return nullptr;
     zone->usage.addGCArena();
 
     // Trigger an incremental slice if needed.
@@ -436,6 +438,8 @@ Chunk::allocateArena(JSRuntime* rt, Zone* zone, AllocKind thingKind, const AutoL
     Arena* arena = info.numArenasFreeCommitted > 0
                    ? fetchNextFreeArena(rt)
                    : fetchNextDecommittedArena();
+    if (!arena)
+        return nullptr;
     arena->init(zone, thingKind);
     updateChunkListAfterAlloc(rt, lock);
     return arena;
@@ -470,12 +474,36 @@ Chunk::fetchNextDecommittedArena()
     MOZ_ASSERT(info.numArenasFree > 0);
 
     unsigned offset = findDecommittedArenaOffset();
+    Arena* arena = &arenas[offset];
+    if (hardDecommittedArenas.get(offset)) {
+        // Amortize Windows commitment calls over a bounded adjacent run. The
+        // other arenas remain logically free; committing does not touch their
+        // payloads. At most seven extra pages per chunk retain commitment.
+        unsigned count = 1;
+        while (count < 8 && offset + count < ArenasPerChunk &&
+               hardDecommittedArenas.get(offset + count)) {
+            MOZ_ASSERT(decommittedArenas.get(offset + count));
+            ++count;
+        }
+        if (!MarkPagesInUse(arena, count * ArenaSize, true)) {
+            // Lack of commitment for a batch must not reject an otherwise
+            // possible single-arena allocation.
+            if (count == 1 || !MarkPagesInUse(arena, ArenaSize, true))
+                return nullptr;
+            count = 1;
+        }
+        for (unsigned i = 0; i < count; ++i)
+            hardDecommittedArenas.unset(offset + i);
+    } else if (!MarkPagesInUse(arena, ArenaSize)) {
+        return nullptr;
+    }
+
+    // Recommit can fail under commit pressure. Do not consume the arena until
+    // its backing is usable; callers retain their normal OOM/retry behavior.
     info.lastDecommittedArenaOffset = offset + 1;
     --info.numArenasFree;
     decommittedArenas.unset(offset);
 
-    Arena* arena = &arenas[offset];
-    MarkPagesInUse(arena, ArenaSize);
     arena->setAsNotAllocated();
 
     return arena;
@@ -540,7 +568,15 @@ GCRuntime::pickChunk(const AutoLockGC& lock,
     if (!chunk)
         return nullptr;
 
-    chunk->init(rt);
+    if (!chunk->unused()) {
+        // A newly mapped chunk has not been initialized yet. Empty pooled
+        // tenured chunks already have valid metadata and backing-state maps.
+        chunk->init(rt);
+    } else {
+        // Keep hard-decommitted backing intact rather than recommitting and
+        // immediately decommitting an entire chunk just to initialize it.
+        chunk->bitmap.clear();
+    }
     MOZ_ASSERT(chunk->info.numArenasFreeCommitted == 0);
     MOZ_ASSERT(chunk->unused());
     MOZ_ASSERT(!fullChunks(lock).contains(chunk));
@@ -586,6 +622,8 @@ Chunk::allocate(JSRuntime* rt)
     Chunk* chunk = static_cast<Chunk*>(MapAlignedPages(ChunkSize, ChunkSize));
     if (!chunk)
         return nullptr;
+    chunk->info.numArenasFree = 0;
+    chunk->hardDecommittedArenas.clear(false);
     rt->gc.stats.count(gcstats::STAT_NEW_CHUNK);
     return chunk;
 }
@@ -600,6 +638,8 @@ Chunk::init(JSRuntime* rt)
      * on uninitialized data, which would happen before the first GC cycle.
      */
     bitmap.clear();
+    hardDecommittedArenas.clear(false);
+    info.numArenasFreeCommitted = 0;
 
     /*
      * Decommit the arenas. We do this after poisoning so that if the OS does
@@ -614,10 +654,36 @@ Chunk::init(JSRuntime* rt)
     /* The rest of info fields are initialized in pickChunk. */
 }
 
+bool
+Chunk::prepareForReuse()
+{
+    if (hardDecommittedArenas.isAllClear())
+        return true;
+    if (!MarkPagesInUse(&arenas[0], ArenasPerChunk * ArenaSize, true))
+        return false;
+    hardDecommittedArenas.clear(false);
+    return true;
+}
+
 void Chunk::decommitAllArenas(JSRuntime* rt)
 {
+    rt->gc.updateOnArenaDecommit(info.numArenasFreeCommitted);
+    // Some pages may already be hard-decommitted when the last live arena is
+    // freed or the policy changes. Never touch those pages to build a list.
+    if (GCDecommitEnabled() &&
+        MarkPagesUnused(&arenas[0], ArenasPerChunk * ArenaSize, true)) {
+        hardDecommittedArenas.clear(true);
+    } else {
+        // Preserve existing hard page state; reset the remaining contiguous
+        // ranges. A failed reset is harmless: the pages remain reusable.
+        for (size_t i = 0; i < ArenasPerChunk;) {
+            if (hardDecommittedArenas.get(i)) { ++i; continue; }
+            size_t start = i++;
+            while (i < ArenasPerChunk && !hardDecommittedArenas.get(i)) ++i;
+            MarkPagesUnused(&arenas[start], (i - start) * ArenaSize);
+        }
+    }
     decommittedArenas.clear(true);
-    MarkPagesUnused(&arenas[0], ArenasPerChunk * ArenaSize);
 
     info.freeArenasHead = nullptr;
     info.lastDecommittedArenaOffset = 0;

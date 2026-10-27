@@ -46,6 +46,11 @@ class InterpreterFrame;
 extern JS_FRIEND_API(void)
 JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data);
 
+// Select true Windows GC arena decommit for all runtimes in this process.
+// Existing page state remains valid when this policy changes.
+extern JS_FRIEND_API(void)
+JS_SetGCDecommitEnabled(bool enabled);
+
 extern JS_FRIEND_API(JSObject*)
 JS_FindCompilationScope(JSContext* cx, JS::HandleObject obj);
 

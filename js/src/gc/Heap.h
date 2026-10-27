@@ -972,7 +972,11 @@ struct Chunk
     Arena           arenas[ArenasPerChunk];
 
     /* Pad to full size to ensure cache alignment of ChunkInfo. */
-    uint8_t         padding[ChunkPadSize];
+    uint8_t         padding[ChunkPadSize - sizeof(PerArenaBitmap)];
+
+    // Windows MEM_DECOMMIT state, distinct from the logical free-arena bitmap.
+    // Carved out of padding so public mark/trailer offsets stay unchanged.
+    PerArenaBitmap  hardDecommittedArenas;
 
     ChunkBitmap     bitmap;
     PerArenaBitmap  decommittedArenas;
@@ -1026,7 +1030,12 @@ struct Chunk
     static Chunk* allocate(JSRuntime* rt);
     void init(JSRuntime* rt);
 
+    // Empty pooled chunks can become either tenured or nursery chunks. Restore
+    // backing before either consumer poisons or initializes the whole chunk.
+    [[nodiscard]] bool prepareForReuse();
+
   private:
+    friend struct GCDecommitTest;
     void decommitAllArenas(JSRuntime* rt);
 
     /* Search for a decommitted arena to allocate. */

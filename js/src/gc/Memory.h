@@ -22,13 +22,20 @@ void* MapAlignedPages(size_t size, size_t alignment);
 void UnmapPages(void* p, size_t size);
 
 // Tell the OS that the given pages are not in use, so they should not be
-// written to a paging file. This may be a no-op on some platforms.
-bool MarkPagesUnused(void* p, size_t size);
+// written to a paging file. With decommit=true, release Windows commitment;
+// callers must record success and recommit before touching those pages.
+// This may be a no-op on some platforms.
+bool MarkPagesUnused(void* p, size_t size, bool decommit = false);
 
 // Undo |MarkPagesUnused|: tell the OS that the given pages are of interest
 // and should be paged in and out normally. This may be a no-op on some
-// platforms.
-void MarkPagesInUse(void* p, size_t size);
+// platforms. A failed recommit leaves the range inaccessible and unchanged.
+[[nodiscard]] bool MarkPagesInUse(void* p, size_t size, bool decommitted = false);
+
+// Process-wide Windows policy, shared by main/worker/background GC threads.
+// Actual backing state belongs to each chunk, independently of this policy.
+void SetGCDecommitEnabled(bool enabled);
+bool GCDecommitEnabled();
 
 // Returns #(hard faults) + #(soft faults)
 size_t GetPageFaultCount();

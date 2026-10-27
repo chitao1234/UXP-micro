@@ -21,6 +21,7 @@
 
 #include "builtin/Promise.h"
 #include "builtin/TestingFunctions.h"
+#include "gc/Memory.h"
 #include "js/Proxy.h"
 #include "proxy/DeadObjectProxy.h"
 #include "vm/ArgumentsObject.h"
@@ -37,6 +38,12 @@ using namespace js;
 
 using mozilla::Move;
 using mozilla::PodArrayZero;
+
+JS_FRIEND_API(void)
+JS_SetGCDecommitEnabled(bool enabled)
+{
+    gc::SetGCDecommitEnabled(enabled);
+}
 
 js::ContextFriendFields::ContextFriendFields(bool isJSContext)
   : JS::RootingContext(isJSContext),
