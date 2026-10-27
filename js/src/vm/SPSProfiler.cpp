@@ -93,6 +93,9 @@ SPSProfiler::enable(bool enabled)
         rt->jitActivation->setLastProfilingCallSite(nullptr);
     }
 
+    for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next())
+        c->wasm.ensureProfilingLabels(enabled);
+
     enabled_ = enabled;
 
     /* Toggle SPS-related jumps on baseline jitcode.

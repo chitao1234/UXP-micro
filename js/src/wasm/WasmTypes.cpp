@@ -68,25 +68,20 @@ __aeabi_uidivmod(int, int);
 }
 #endif
 
-static void
-WasmReportOverRecursed()
+static WasmActivation*
+WasmHandleThrow()
 {
-    ReportOverRecursed(JSRuntime::innermostWasmActivation()->cx());
+    return JSRuntime::innermostWasmActivation();
 }
 
-static bool
+static void*
 WasmHandleExecutionInterrupt()
 {
     WasmActivation* activation = JSRuntime::innermostWasmActivation();
     bool success = CheckForInterrupt(activation->cx());
-
-    // Preserve the invariant that having a non-null resumePC means that we are
-    // handling an interrupt.  Note that resumePC has already been copied onto
-    // the stack by the interrupt stub, so we can clear it before returning
-    // to the stub.
+    void* resumePC = activation->resumePC();
     activation->setResumePC(nullptr);
-
-    return success;
+    return success ? resumePC : nullptr;
 }
 
 static void
@@ -254,15 +249,11 @@ FuncCast(F* pf, ABIFunctionType type)
 }
 
 void*
-wasm::AddressOf(SymbolicAddress imm, ExclusiveContext* cx)
+wasm::AddressOf(SymbolicAddress imm)
 {
     switch (imm) {
-      case SymbolicAddress::Context:
-        return cx->contextAddressForJit();
-      case SymbolicAddress::InterruptUint32:
-        return cx->runtimeAddressOfInterruptUint32();
-      case SymbolicAddress::ReportOverRecursed:
-        return FuncCast(WasmReportOverRecursed, Args_General0);
+      case SymbolicAddress::HandleThrow:
+        return FuncCast(WasmHandleThrow, Args_General0);
       case SymbolicAddress::HandleExecutionInterrupt:
         return FuncCast(WasmHandleExecutionInterrupt, Args_General0);
       case SymbolicAddress::ReportTrap:
@@ -603,11 +594,16 @@ Assumptions::operator==(const Assumptions& rhs) const
            PodEqual(buildId.begin(), rhs.buildId.begin(), buildId.length());
 }
 
+// Encode the code-generation ABI inside the existing build-id vector format.
+// This also invalidates native caches when a developer rebuilds with a fixed
+// application build id. Old engines see a different build id and reject it.
+static const char WasmCodeABI[] = "microgecko-wasm-shared-tls-v1";
+
 size_t
 Assumptions::serializedSize() const
 {
     return sizeof(uint32_t) +
-           SerializedPodVectorSize(buildId);
+           SerializedPodVectorSize(buildId) + sizeof(WasmCodeABI);
 }
 
 uint8_t*
@@ -618,7 +614,9 @@ Assumptions::serialize(uint8_t* cursor) const
     // assumptions of a different build-id.
 
     cursor = WriteScalar<uint32_t>(cursor, cpuId);
-    cursor = SerializePodVector(cursor, buildId);
+    cursor = WriteScalar<uint32_t>(cursor, buildId.length() + sizeof(WasmCodeABI));
+    cursor = WriteBytes(cursor, buildId.begin(), buildId.length());
+    cursor = WriteBytes(cursor, WasmCodeABI, sizeof(WasmCodeABI));
     return cursor;
 }
 
@@ -627,6 +625,12 @@ Assumptions::deserialize(const uint8_t* cursor, size_t remain)
 {
     (cursor = ReadScalarChecked<uint32_t>(cursor, &remain, &cpuId)) &&
     (cursor = DeserializePodVectorChecked(cursor, &remain, &buildId));
+    if (!cursor || buildId.length() < sizeof(WasmCodeABI) ||
+        memcmp(buildId.end() - sizeof(WasmCodeABI), WasmCodeABI, sizeof(WasmCodeABI)))
+    {
+        return nullptr;
+    }
+    buildId.shrinkBy(sizeof(WasmCodeABI));
     return cursor;
 }
 

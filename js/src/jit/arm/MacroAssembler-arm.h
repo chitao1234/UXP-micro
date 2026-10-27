@@ -1505,14 +1505,16 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM
         as_vmov(VFPRegister(dest).singleOverlay(), VFPRegister(src).singleOverlay(), cc);
     }
 
+    void loadInt32x4(const Address& addr, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeInt32x4(FloatRegister src, const Address& addr) { MOZ_CRASH("NYI"); }
+    void loadFloat32x4(const Address& addr, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeFloat32x4(FloatRegister src, const Address& addr) { MOZ_CRASH("NYI"); }
     void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
-        loadPtr(Address(GlobalReg, globalDataOffset - WasmGlobalRegBias), dest);
+        loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalArea) + globalDataOffset), dest);
     }
     void loadWasmPinnedRegsFromTls() {
         ScratchRegisterScope scratch(asMasm());
         ma_ldr(Address(WasmTlsReg, offsetof(wasm::TlsData, memoryBase)), HeapReg, scratch);
-        ma_ldr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalData)), GlobalReg, scratch);
-        ma_add(Imm32(WasmGlobalRegBias), GlobalReg, scratch);
     }
 
     // Instrumentation for entering and leaving the profiler.

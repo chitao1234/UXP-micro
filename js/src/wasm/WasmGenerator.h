@@ -76,7 +76,7 @@ class MOZ_STACK_CLASS ModuleGenerator
     typedef HashSet<uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> Uint32Set;
     typedef Vector<IonCompileTask, 0, SystemAllocPolicy> IonCompileTaskVector;
     typedef Vector<IonCompileTask*, 0, SystemAllocPolicy> IonCompileTaskPtrVector;
-    typedef EnumeratedArray<Trap, Trap::Limit, ProfilingOffsets> TrapExitOffsetArray;
+    typedef EnumeratedArray<Trap, Trap::Limit, CallableOffsets> TrapExitOffsetArray;
 
     // Constant parameters
     bool                            alwaysBaseline_;

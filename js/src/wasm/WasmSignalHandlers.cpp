@@ -25,6 +25,7 @@
 #include "jit/Disassembler.h"
 #include "vm/Runtime.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmFrameIterator.h"
 
 using namespace js;
 using namespace js::jit;
@@ -763,18 +764,11 @@ HandleFault(PEXCEPTION_POINTERS exception)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-    if (!instance)
+    const Code* code = activation->compartment()->wasm.lookupCode(pc);
+    if (!code)
         return false;
 
-    uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(record->ExceptionInformation[1]);
-
-    // This check isn't necessary, but, since we can, check anyway to make
-    // sure we aren't covering up a real bug.
-    if (!IsHeapAccessAddress(*instance, faultingAddress))
-        return false;
-
-    if (!instance->codeSegment().containsFunctionPC(pc)) {
+    if (!code->segment().containsFunctionPC(pc)) {
         // On Windows, it is possible for InterruptRunningCode to execute
         // between a faulting heap access and the handling of the fault due
         // to InterruptRunningCode's use of SuspendThread. When this happens,
@@ -784,9 +778,16 @@ HandleFault(PEXCEPTION_POINTERS exception)
         // always the logically-faulting pc). Fortunately, we can detect this
         // case and silence the exception ourselves (the exception will
         // retrigger after the interrupt jumps back to resumePC).
-        return pc == instance->codeSegment().interruptCode() &&
-               instance->codeSegment().containsFunctionPC(activation->resumePC());
+        return pc == code->segment().interruptCode() &&
+               code->segment().containsFunctionPC(activation->resumePC());
     }
+
+    const Instance* instance = LookupFaultingInstance(activation, pc);
+    if (!instance)
+        return false;
+    uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(record->ExceptionInformation[1]);
+    if (!IsHeapAccessAddress(*instance, faultingAddress))
+        return false;
 
     HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
     return true;
@@ -905,7 +906,7 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    const Instance* instance = LookupFaultingInstance(activation, pc);
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -1111,7 +1112,7 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    const Instance* instance = LookupFaultingInstance(activation, pc);
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -1208,17 +1209,17 @@ RedirectJitCodeToInterruptCheck(JSRuntime* rt, CONTEXT* context)
 
         void* pc = rt->simulator()->get_pc_as<void*>();
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc))
-            rt->simulator()->set_resume_pc(instance->codeSegment().interruptCode());
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc))
+            rt->simulator()->set_resume_pc(code->segment().interruptCode());
 #else
         uint8_t** ppc = ContextToPC(context);
         uint8_t* pc = *ppc;
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc)) {
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc)) {
             activation->setResumePC(pc);
-            *ppc = instance->codeSegment().interruptCode();
+            *ppc = code->segment().interruptCode();
             return true;
         }
 #endif
@@ -1420,5 +1421,5 @@ js::wasm::IsPCInWasmCode(void *pc)
     if (!activation)
         return false;
 
-    return !!activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    return !!activation->compartment()->wasm.lookupCode(pc);
 }

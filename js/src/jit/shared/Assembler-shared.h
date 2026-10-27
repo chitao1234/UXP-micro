@@ -661,6 +661,8 @@ class CodeLocationLabel
 
 namespace wasm {
 
+struct TlsData;
+
 // As an invariant across architectures, within wasm code:
 //   $sp % WasmStackAlignment = (sizeof(wasm::Frame) + masm.framePushed) % WasmStackAlignment
 // Thus, wasm::Frame represents the bytes pushed after the call (which occurred
@@ -669,19 +671,32 @@ namespace wasm {
 
 struct Frame
 {
-    // The caller's saved frame pointer. In non-profiling mode, internal
-    // wasm-to-wasm calls don't update fp and thus don't save the caller's
-    // frame pointer; the space is reserved, however, so that profiling mode can
-    // reuse the same function body without recompiling.
+    // The previous WasmActivation::fp. This must remain the first field:
+    // the epilogue publishes it before releasing any stack storage.
     uint8_t* callerFP;
+
+    // The callee's instance data, saved before either compiler can allocate
+    // WasmTlsReg for another value. Signal handlers recover the exact instance
+    // from this stable slot even when several instances share executable code.
+    TlsData* tls;
+
+    // Keep the local/spill origin aligned on all backends. In particular,
+    // x64 SIMD and ARM/MIPS double slots assume the fixed header has not
+    // shifted their existing alignment.
+    uintptr_t padding;
 
     // The return address pushed by the call (in the case of ARM/MIPS the return
     // address is pushed by the first instruction of the prologue).
     void* returnAddress;
 };
 
-static_assert(sizeof(Frame) == 2 * sizeof(void*), "?!");
-static const uint32_t FrameBytesAfterReturnAddress = sizeof(void*);
+static_assert(offsetof(Frame, callerFP) == 0, "callerFP must be first");
+static_assert(offsetof(Frame, tls) == sizeof(void*), "stable TLS slot");
+static_assert(sizeof(Frame) == 4 * sizeof(void*), "aligned fixed wasm header");
+static_assert(sizeof(Frame) % 16 == 0, "preserve local SIMD and double alignment");
+static_assert(sizeof(Frame) == offsetof(Frame, returnAddress) + sizeof(void*),
+              "return address must be last");
+static const uint32_t FrameBytesAfterReturnAddress = offsetof(Frame, returnAddress);
 
 // Represents an instruction to be patched and the intended pointee. These
 // links are accumulated in the MacroAssembler, but patching is done outside
@@ -756,6 +771,25 @@ struct GlobalAccess
 
 typedef Vector<GlobalAccess, 0, SystemAllocPolicy> GlobalAccessVector;
 
+// A CallFarJump records the offset of a jump that needs to be patched to a
+// call at the end of the module when all calls have been emitted.
+
+struct CallFarJump
+{
+    uint32_t funcIndex;
+    jit::CodeOffset jump;
+
+    CallFarJump(uint32_t funcIndex, jit::CodeOffset jump)
+      : funcIndex(funcIndex), jump(jump)
+    {}
+
+    void offsetBy(size_t delta) {
+        jump.offsetBy(delta);
+    }
+};
+
+typedef Vector<CallFarJump, 0, SystemAllocPolicy> CallFarJumpVector;
+
 // The TrapDesc struct describes a wasm trap that is about to be emitted. This
 // includes the logical wasm bytecode offset to report, the kind of instruction
 // causing the trap, and the stack depth right before control is transferred to
@@ -815,12 +849,10 @@ namespace jit {
 class AssemblerShared
 {
     wasm::CallSiteAndTargetVector callSites_;
+    wasm::CallFarJumpVector callFarJumps_;
     wasm::TrapSiteVector trapSites_;
     wasm::TrapFarJumpVector trapFarJumps_;
     wasm::MemoryAccessVector memoryAccesses_;
-    wasm::MemoryPatchVector memoryPatches_;
-    wasm::BoundsCheckVector boundsChecks_;
-    wasm::GlobalAccessVector globalAccesses_;
     wasm::SymbolicAccessVector symbolicAccesses_;
 
   protected:
@@ -852,15 +884,17 @@ class AssemblerShared
     }
 
     template <typename... Args>
-    void append(const wasm::CallSiteDesc& desc, CodeOffset retAddr, size_t framePushed,
-                Args&&... args)
+    void append(const wasm::CallSiteDesc& desc, CodeOffset retAddr, Args&&... args)
     {
-        // framePushed does not include sizeof(wasm:Frame), so add it in explicitly when
-        // setting the CallSite::stackDepth.
-        wasm::CallSite cs(desc, retAddr.offset(), framePushed + sizeof(wasm::Frame));
+        wasm::CallSite cs(desc, retAddr.offset());
         enoughMemory_ &= callSites_.emplaceBack(cs, mozilla::Forward<Args>(args)...);
     }
     wasm::CallSiteAndTargetVector& callSites() { return callSites_; }
+
+    void append(wasm::CallFarJump jmp) {
+        enoughMemory_ &= callFarJumps_.append(jmp);
+    }
+    const wasm::CallFarJumpVector& callFarJumps() const { return callFarJumps_; }
 
     void append(wasm::TrapSite trapSite) {
         enoughMemory_ &= trapSites_.append(trapSite);
@@ -895,15 +929,6 @@ class AssemblerShared
         }
     }
 
-    void append(wasm::MemoryPatch patch) { enoughMemory_ &= memoryPatches_.append(patch); }
-    wasm::MemoryPatchVector&& extractMemoryPatches() { return Move(memoryPatches_); }
-
-    void append(wasm::BoundsCheck check) { enoughMemory_ &= boundsChecks_.append(check); }
-    wasm::BoundsCheckVector&& extractBoundsChecks() { return Move(boundsChecks_); }
-
-    void append(wasm::GlobalAccess access) { enoughMemory_ &= globalAccesses_.append(access); }
-    const wasm::GlobalAccessVector& globalAccesses() const { return globalAccesses_; }
-
     void append(wasm::SymbolicAccess access) { enoughMemory_ &= symbolicAccesses_.append(access); }
     size_t numSymbolicAccesses() const { return symbolicAccesses_.length(); }
     wasm::SymbolicAccess symbolicAccess(size_t i) const { return symbolicAccesses_[i]; }
@@ -930,6 +955,11 @@ class AssemblerShared
 
         MOZ_ASSERT(other.trapSites_.empty(), "should have been cleared by wasmEmitTrapOutOfLineCode");
 
+        i = callFarJumps_.length();
+        enoughMemory_ &= callFarJumps_.appendAll(other.callFarJumps_);
+        for (; i < callFarJumps_.length(); i++)
+            callFarJumps_[i].offsetBy(delta);
+
         i = trapFarJumps_.length();
         enoughMemory_ &= trapFarJumps_.appendAll(other.trapFarJumps_);
         for (; i < trapFarJumps_.length(); i++)
@@ -939,21 +969,6 @@ class AssemblerShared
         enoughMemory_ &= memoryAccesses_.appendAll(other.memoryAccesses_);
         for (; i < memoryAccesses_.length(); i++)
             memoryAccesses_[i].offsetBy(delta);
-
-        i = memoryPatches_.length();
-        enoughMemory_ &= memoryPatches_.appendAll(other.memoryPatches_);
-        for (; i < memoryPatches_.length(); i++)
-            memoryPatches_[i].offsetBy(delta);
-
-        i = boundsChecks_.length();
-        enoughMemory_ &= boundsChecks_.appendAll(other.boundsChecks_);
-        for (; i < boundsChecks_.length(); i++)
-            boundsChecks_[i].offsetBy(delta);
-
-        i = globalAccesses_.length();
-        enoughMemory_ &= globalAccesses_.appendAll(other.globalAccesses_);
-        for (; i < globalAccesses_.length(); i++)
-            globalAccesses_[i].patchAt.offsetBy(delta);
 
         i = symbolicAccesses_.length();
         enoughMemory_ &= symbolicAccesses_.appendAll(other.symbolicAccesses_);

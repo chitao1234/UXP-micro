@@ -867,7 +867,8 @@ WasmInstanceObject::trace(JSTracer* trc, JSObject* obj)
 
 /* static */ WasmInstanceObject*
 WasmInstanceObject::create(JSContext* cx,
-                           UniqueCode code,
+                           SharedCode code,
+                           UniqueGlobalSegment globals,
                            HandleWasmMemoryObject memory,
                            SharedTableVector&& tables,
                            Handle<FunctionVector> funcImports,
@@ -894,6 +895,7 @@ WasmInstanceObject::create(JSContext* cx,
     auto* instance = cx->new_<Instance>(cx,
                                         obj,
                                         Move(code),
+                                        Move(globals),
                                         memory,
                                         Move(tables),
                                         funcImports,

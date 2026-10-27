@@ -28,8 +28,7 @@ using namespace wasm;
 
 Compartment::Compartment(Zone* zone)
   : mutatingInstances_(false),
-    activationCount_(0),
-    profilingEnabled_(false)
+    activationCount_(0)
 {}
 
 Compartment::~Compartment()
@@ -47,9 +46,12 @@ struct InstanceComparator
     int operator()(const Instance* instance) const {
         if (instance == &target)
             return 0;
-        MOZ_ASSERT(!target.codeSegment().containsCodePC(instance->codeBase()));
-        MOZ_ASSERT(!instance->codeSegment().containsCodePC(target.codeBase()));
-        return target.codeBase() < instance->codeBase() ? -1 : 1;
+        if (target.codeBase() != instance->codeBase())
+            return uintptr_t(target.codeBase()) < uintptr_t(instance->codeBase()) ? -1 : 1;
+        // Multiple instances of one module have the same immutable code. Keep
+        // a distinct registration for each object for tracing and removal.
+        MOZ_ASSERT(&target.code() == &instance->code());
+        return uintptr_t(&target) < uintptr_t(instance) ? -1 : 1;
     }
 };
 
@@ -72,7 +74,7 @@ Compartment::registerInstance(JSContext* cx, HandleWasmInstanceObject instanceOb
     Instance& instance = instanceObj->instance();
     MOZ_ASSERT(this == &instance.compartment()->wasm);
 
-    if (!instance.ensureProfilingState(cx, profilingEnabled_))
+    if (!instance.code().ensureProfilingLabels(cx, cx->spsProfiler.enabled()))
         return false;
 
     size_t index;
@@ -117,14 +119,7 @@ struct PCComparator
 Code*
 Compartment::lookupCode(const void* pc) const
 {
-    Instance* instance = lookupInstanceDeprecated(pc);
-    return instance ? &instance->code() : nullptr;
-}
-
-Instance*
-Compartment::lookupInstanceDeprecated(const void* pc) const
-{
-    // lookupInstanceDeprecated can be called asynchronously from the interrupt
+    // lookupCode can be called asynchronously from the interrupt
     // signal handler. In that case, the signal handler is just asking whether
     // the pc is in wasm code. If instances_ is being mutated then we can't be
     // executing wasm code so returning nullptr is fine.
@@ -135,41 +130,17 @@ Compartment::lookupInstanceDeprecated(const void* pc) const
     if (!BinarySearchIf(instances_, 0, instances_.length(), PCComparator(pc), &index))
         return nullptr;
 
-    return instances_[index];
+    return &instances_[index]->code();
 }
 
-bool
-Compartment::ensureProfilingState(JSContext* cx)
+void
+Compartment::ensureProfilingLabels(bool enabled)
 {
-    bool newProfilingEnabled = cx->spsProfiler.enabled();
-    if (profilingEnabled_ == newProfilingEnabled)
-        return true;
-
-    // Since one Instance can call another Instance in the same compartment
-    // directly without calling through Instance::callExport(), when profiling
-    // is enabled, enable it for the entire compartment at once. It is only safe
-    // to enable profiling when the wasm is not on the stack, so delay enabling
-    // profiling until there are no live WasmActivations in this compartment.
-
-    if (activationCount_ > 0)
-        return true;
-
+    JSContext* cx = instances_.empty() ? nullptr : instances_[0]->cx();
     for (Instance* instance : instances_) {
-        if (!instance->ensureProfilingState(cx, newProfilingEnabled))
-            return false;
+        if (!instance->code().ensureProfilingLabels(cx, enabled))
+            cx->recoverFromOutOfMemory();
     }
-
-    profilingEnabled_ = newProfilingEnabled;
-    return true;
-}
-
-bool
-Compartment::profilingEnabled() const
-{
-    // Profiling can asynchronously interrupt the mutation of the instances_
-    // vector which is used by lookupCode() during stack-walking. To handle
-    // this rare case, disable profiling during mutation.
-    return profilingEnabled_ && !mutatingInstances_;
 }
 
 void

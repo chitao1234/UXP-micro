@@ -1889,13 +1889,10 @@ class MacroAssemblerLOONGARCH64Compat : public MacroAssemblerLOONGARCH64 {
   static void calculateAlignedStackPointer(void** stackPointer);
 
   void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
-    loadPtr(Address(GlobalReg, globalDataOffset - WasmGlobalRegBias), dest);
+    loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalArea) + globalDataOffset), dest);
   }
   void loadWasmPinnedRegsFromTls() {
     loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, memoryBase)), HeapReg);
-    loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalData)),
-            GlobalReg);
-    ma_add_d(GlobalReg, GlobalReg, Imm32(WasmGlobalRegBias));
   }
 
   void cmpPtrSet(Assembler::Condition cond, Address lhs, ImmPtr rhs,

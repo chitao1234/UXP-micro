@@ -270,6 +270,8 @@ struct StatsClosure
     RuntimeStats* rtStats;
     ObjectPrivateVisitor* opv;
     SourceSet seenSources;
+    wasm::Module::SeenSet wasmSeenModules;
+    wasm::Code::SeenSet wasmSeenCode;
     wasm::Metadata::SeenSet wasmSeenMetadata;
     wasm::ShareableBytes::SeenSet wasmSeenBytes;
     wasm::Table::SeenSet wasmSeenTables;
@@ -283,6 +285,8 @@ struct StatsClosure
 
     bool init() {
         return seenSources.init() &&
+               wasmSeenModules.init() &&
+               wasmSeenCode.init() &&
                wasmSeenMetadata.init() &&
                wasmSeenBytes.init() &&
                wasmSeenTables.init();
@@ -469,8 +473,10 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
             if (ScriptSource* ss = module.metadata().maybeScriptSource())
                 CollectScriptSourceStats<granularity>(closure, ss);
             module.addSizeOfMisc(rtStats->mallocSizeOf_,
+                                 &closure->wasmSeenModules,
                                  &closure->wasmSeenMetadata,
                                  &closure->wasmSeenBytes,
+                                 &closure->wasmSeenCode,
                                  &info.objectsNonHeapCodeWasm,
                                  &info.objectsMallocHeapMisc);
         } else if (obj->is<WasmInstanceObject>()) {
@@ -480,6 +486,7 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
             instance.addSizeOfMisc(rtStats->mallocSizeOf_,
                                    &closure->wasmSeenMetadata,
                                    &closure->wasmSeenBytes,
+                                   &closure->wasmSeenCode,
                                    &closure->wasmSeenTables,
                                    &info.objectsNonHeapCodeWasm,
                                    &info.objectsMallocHeapMisc);

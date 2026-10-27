@@ -2825,6 +2825,13 @@ MacroAssembler::wasmEmitTrapOutOfLineCode()
             if (size_t dec = StackDecrementForCall(ABIStackAlignment, alreadyPushed, toPush))
                 reserveStack(dec);
 
+            // A trap can be reached after Baseline repurposed WasmTlsReg or
+            // an indirect call loaded a null callee TLS. The normal frame is
+            // already complete here: restore the caller's stable TLS before
+            // the shared trap stub tries to find the current activation.
+            loadPtr(Address(getStackPointer(), framePushed() + offsetof(wasm::Frame, tls)),
+                    WasmTlsReg);
+
             // Call the trap's exit, using the bytecode offset of the trap site.
             // Note that this code is inside the same CodeRange::Function as the
             // trap site so it's as if the trapping instruction called the

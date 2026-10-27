@@ -4227,37 +4227,59 @@ LIRGenerator::visitWasmAddOffset(MWasmAddOffset* ins)
 }
 
 void
+LIRGenerator::visitWasmLoadTls(MWasmLoadTls* ins)
+{
+#ifdef WASM_HUGE_MEMORY
+    // This will disappear once we remove HeapReg and replace it with a load
+    // from Tls, but in the mean time it keeps us sane.
+    MOZ_CRASH("No WasmLoadTls here at the moment");
+#endif
+    auto* lir = new(alloc()) LWasmLoadTls(useRegisterAtStart(ins->tlsPtr()));
+    define(lir, ins);
+}
+
+void
 LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 {
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No bounds checking on huge memory");
+#else
     if (ins->isRedundant()) {
         if (MOZ_LIKELY(!JitOptions.wasmAlwaysCheckBounds))
             return;
     }
 
-    MDefinition* input = ins->input();
-    MOZ_ASSERT(input->type() == MIRType::Int32);
+    MDefinition* index = ins->index();
+    MOZ_ASSERT(index->type() == MIRType::Int32);
 
-    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(input));
+    MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
+    MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
+
+    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(index),
+                                              useRegisterAtStart(boundsCheckLimit));
     add(lir, ins);
+#endif
 }
 
 void
 LIRGenerator::visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins)
 {
+    LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
     if (ins->type() == MIRType::Int64)
-        defineInt64(new(alloc()) LWasmLoadGlobalVarI64, ins);
+        defineInt64(new(alloc()) LWasmLoadGlobalVarI64(tlsPtr), ins);
     else
-        define(new(alloc()) LWasmLoadGlobalVar, ins);
+        define(new(alloc()) LWasmLoadGlobalVar(tlsPtr), ins);
 }
 
 void
 LIRGenerator::visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins)
 {
     MDefinition* value = ins->value();
+    LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
     if (value->type() == MIRType::Int64)
-        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value)), ins);
+        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value), tlsPtr), ins);
     else
-        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value)), ins);
+        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value), tlsPtr), ins);
 }
 
 void

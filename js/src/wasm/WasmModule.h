@@ -19,6 +19,7 @@
 #define wasm_module_h
 
 #include "js/TypeDecls.h"
+#include "threading/ExclusiveData.h"
 
 #include "wasm/WasmCode.h"
 #include "wasm/WasmTable.h"
@@ -135,16 +136,23 @@ typedef Vector<ElemSegment, 0, SystemAllocPolicy> ElemSegmentVector;
 // any number of times such that the serialized bytes can be deserialized later
 // to produce a new, equivalent Module.
 //
-// Since fully linked-and-instantiated code (represented by CodeSegment) cannot
-// be shared between instances, Module stores an unlinked, uninstantiated copy
-// of the code (represented by the Bytes) and creates a new CodeSegment each
-// time it is instantiated. In the future, Module will store a shareable,
-// immutable CodeSegment that can be shared by all its instances.
+// Executable code is independent of instance TLS/globals. In shared mode the
+// first instantiation publishes one immutable Code and releases the unlinked
+// template. Serialization unlinks a copy directly in the caller's buffer.
+
+bool SharedCodeEnabled();
 
 class Module : public JS::WasmModule
 {
     const Assumptions       assumptions_;
-    const Bytes             code_;
+    struct CodeStorage {
+        Bytes unlinked;
+        SharedCode linked;
+        explicit CodeStorage(Bytes&& bytes) : unlinked(Move(bytes)) {}
+    };
+    const bool sharedCode_;
+    const uint32_t codeLength_;
+    ExclusiveData<CodeStorage> code_;
     const LinkData          linkData_;
     const ImportVector      imports_;
     const ExportVector      exports_;
@@ -152,6 +160,8 @@ class Module : public JS::WasmModule
     const ElemSegmentVector elemSegments_;
     const SharedMetadata    metadata_;
     const SharedBytes       bytecode_;
+
+    SharedCode getCode(JSContext* cx) const;
 
     bool instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) const;
     bool instantiateMemory(JSContext* cx, MutableHandleWasmMemoryObject memory) const;
@@ -175,7 +185,9 @@ class Module : public JS::WasmModule
            const Metadata& metadata,
            const ShareableBytes& bytecode)
       : assumptions_(Move(assumptions)),
-        code_(Move(code)),
+        sharedCode_(SharedCodeEnabled()),
+        codeLength_(code.length()),
+        code_(mutexid::WasmModuleCode, Move(code)),
         linkData_(Move(linkData)),
         imports_(Move(imports)),
         exports_(Move(exports)),
@@ -184,7 +196,9 @@ class Module : public JS::WasmModule
         metadata_(&metadata),
         bytecode_(&bytecode)
     {}
-    ~Module() override { /* Note: can be called on any thread */ }
+    ~Module() override; // Can be called on any thread.
+
+    using SeenSet = HashSet<const Module*, DefaultHasher<const Module*>, SystemAllocPolicy>;
 
     const Metadata& metadata() const { return *metadata_; }
     const ImportVector& imports() const { return imports_; }
@@ -215,8 +229,10 @@ class Module : public JS::WasmModule
     // about:memory reporting:
 
     void addSizeOfMisc(MallocSizeOf mallocSizeOf,
+                       SeenSet* seenModules,
                        Metadata::SeenSet* seenMetadata,
                        ShareableBytes::SeenSet* seenBytes,
+                       Code::SeenSet* seenCode,
                        size_t* code, size_t* data) const;
 
     // Generated code analysis support:

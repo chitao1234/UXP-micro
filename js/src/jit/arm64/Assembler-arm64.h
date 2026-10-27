@@ -82,7 +82,6 @@ static constexpr Register IntArgReg4 = { Registers::x4 };
 static constexpr Register IntArgReg5 = { Registers::x5 };
 static constexpr Register IntArgReg6 = { Registers::x6 };
 static constexpr Register IntArgReg7 = { Registers::x7 };
-static constexpr Register GlobalReg =  { Registers::x20 };
 static constexpr Register HeapReg = { Registers::x21 };
 static constexpr Register HeapLenReg = { Registers::x22 };
 
@@ -126,6 +125,7 @@ static constexpr Register WasmIonExitRegE1 = r1;
 // None of these may be the second scratch register.
 static constexpr Register WasmIonExitRegReturnData = r2;
 static constexpr Register WasmIonExitRegReturnType = r3;
+static constexpr Register WasmIonExitTlsReg = r17;
 static constexpr Register WasmIonExitRegD0 = r0;
 static constexpr Register WasmIonExitRegD1 = r1;
 static constexpr Register WasmIonExitRegD2 = r4;
@@ -169,7 +169,6 @@ static_assert(CodeAlignment % SimdMemoryAlignment == 0,
   "alignment for SIMD constants.");
 
 static const uint32_t WasmStackAlignment = SimdMemoryAlignment;
-static const int32_t WasmGlobalRegBias = 1024;
 
 // Does this architecture support SIMD conversions between Uint32x4 and Float32x4?
 static constexpr bool SupportsUint32x4FloatConversions = false;
