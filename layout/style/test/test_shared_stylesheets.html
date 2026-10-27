@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Independent CSSOM and cascade context for shared external sheets</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+SimpleTest.waitForExplicitFinish();
+(async function() {
+  function frame(imports, extra) {
+    return new Promise(function(resolve) {
+      var f = document.createElement('iframe');
+      f.onload = function() { resolve(f); };
+      f.srcdoc = '<!DOCTYPE html><link rel="preload" as="style" href="' +
+        (imports ? 'shared-sheet-import.css' : 'shared-sheet.css') + '">' +
+        '<style>' + (extra || '') + '</style>' +
+        '<link rel="stylesheet" href="' +
+        (imports ? 'shared-sheet-import.css' : 'shared-sheet.css') + '">' +
+        '<div class="target">text</div>';
+      document.body.appendChild(f);
+    });
+  }
+  function style(f) {
+    return f.contentWindow.getComputedStyle(f.contentDocument.querySelector('.target'));
+  }
+  function sheet(f) { return f.contentDocument.styleSheets[1]; }
+  function check(f, label) {
+    is(style(f).color, 'rgb(12, 34, 56)', label + ' layer/variable revert');
+    is(style(f).paddingLeft, '13px', label + ' variable value');
+    is(style(f).marginLeft, '7px', label + ' namespace rule');
+    is(style(f).borderLeftWidth, '4px', label + ' media rule');
+    is(style(f).display, 'grid', label + ' supports rule');
+  }
+  var a = await frame(false);
+  var b = await frame(false, '@layer unrelated1, unrelated2;');
+  check(a, 'first'); check(b, 'second');
+  ok(sheet(a) !== sheet(b), 'distinct stylesheet outer objects');
+  is(sheet(a).ownerNode.ownerDocument, a.contentDocument, 'first owner');
+  is(sheet(b).ownerNode.ownerDocument, b.contentDocument, 'second owner');
+  // Rule access detaches before any rule or declaration can escape to JS.
+  var ar = sheet(a).cssRules;
+  var br = sheet(b).cssRules;
+  ok(ar[2] !== br[2], 'distinct group rules');
+  is(ar[2].parentStyleSheet, sheet(a), 'first rule parent');
+  is(br[2].parentStyleSheet, sheet(b), 'second rule parent');
+  sheet(a).insertRule('.target { padding-left: 29px; }', ar.length);
+  is(style(a).paddingLeft, '29px', 'insertRule applies locally');
+  is(style(b).paddingLeft, '13px', 'insertRule leaves peer intact');
+  sheet(a).deleteRule(sheet(a).cssRules.length - 1);
+  check(a, 'after deletion');
+  var targetRule = Array.from(br).filter(function(r) { return r.selectorText == '.target'; })[0];
+  targetRule.style.setProperty('--local', '23px');
+  is(style(b).paddingLeft, '23px', 'declaration mutation applies locally');
+  is(style(a).paddingLeft, '13px', 'declaration mutation leaves peer intact');
+  sheet(b).disabled = true;
+  is(style(b).paddingLeft, '0px', 'disable applies locally');
+  is(style(a).paddingLeft, '13px', 'disable leaves peer intact');
+  sheet(b).disabled = false;
+  sheet(b).media.mediaText = 'not all';
+  is(style(b).paddingLeft, '0px', 'outer media change applies locally');
+  is(style(a).paddingLeft, '13px', 'outer media change leaves peer intact');
+  sheet(b).media.mediaText = 'all';
+  await a.contentDocument.fonts.load('12px SharedSheetFont');
+  await b.contentDocument.fonts.load('12px SharedSheetFont');
+  ok(a.contentDocument.fonts.check('12px SharedSheetFont'), 'first font set loads');
+  ok(b.contentDocument.fonts.check('12px SharedSheetFont'), 'second font set loads');
+  var c = await frame(true);
+  var d = await frame(true, '@layer extra;');
+  check(c, 'imported first'); check(d, 'imported second');
+  is(style(c).width, '37px', 'import owner rules');
+  var cr = sheet(c).cssRules[0], dr = sheet(d).cssRules[0];
+  ok(cr.styleSheet !== dr.styleSheet, 'distinct imported sheet outers');
+  is(cr.styleSheet.parentStyleSheet, sheet(c), 'first import parent');
+  is(dr.styleSheet.parentStyleSheet, sheet(d), 'second import parent');
+  is(cr.styleSheet.ownerRule, cr, 'first import owner rule');
+  is(dr.styleSheet.ownerRule, dr, 'second import owner rule');
+  cr.styleSheet.insertRule('.target { padding-left: 41px; }', cr.styleSheet.cssRules.length);
+  is(style(c).paddingLeft, '41px', 'imported mutation applies locally');
+  is(style(d).paddingLeft, '13px', 'imported mutation leaves peer intact');
+  // Destroy the primary owner while a peer remains, then use and mutate it.
+  var e = await frame(false), f = await frame(false);
+  e.remove(); e = null;
+  check(f, 'after primary removal');
+  sheet(f).insertRule('.target { padding-left: 53px; }', sheet(f).cssRules.length);
+  is(style(f).paddingLeft, '53px', 'mutation after primary removal');
+  for (var item of [a, b, c, d, f]) item.remove();
+})().catch(function(e) { ok(false, String(e) + '\n' + e.stack); })
+  .then(function() { SimpleTest.finish(); });
+</script>

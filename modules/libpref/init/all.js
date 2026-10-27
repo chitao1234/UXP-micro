@@ -2693,6 +2693,8 @@ pref("layout.css.nesting.enabled", true);
 // style sheet? Otherwise, they are added before rules preceding
 // @import are processed, which is problematic for cascade layers.
 pref("layout.css.load-imported-sheets-in-order", true);
+// Canonicalize independently loaded, identical external parsed sheet backing.
+pref("layout.css.shared-sheets.enabled", true);
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction

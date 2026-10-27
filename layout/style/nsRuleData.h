@@ -18,6 +18,7 @@
 #include "nsCSSProps.h"
 #include "nsCSSValue.h"
 #include "nsStyleStructFwd.h"
+#include "nsTArray.h"
 
 class nsPresContext;
 class nsStyleContext;
@@ -50,6 +51,36 @@ struct nsRuleData
   size_t mValueOffsets[nsStyleStructID_Length];
 
   nsAutoPtr<mozilla::CSSVariableDeclarations> mVariables;
+
+  // Cascade provenance belongs to the matched declaration in this rule walk,
+  // not to the (potentially shared) parsed token stream.
+  struct TokenStreamContext {
+    nsCSSValue* mValue;
+    mozilla::SheetType mLevel;
+    bool mImportant;
+    int32_t mLayerIndex;
+  };
+  AutoTArray<TokenStreamContext, 4> mTokenStreamContexts;
+
+  void RecordTokenStream(nsCSSValue* aValue) {
+    for (auto& context : mTokenStreamContexts) {
+      if (context.mValue == aValue) {
+        context = { aValue, mLevel, mIsImportantRule, mLayerIndex };
+        return;
+      }
+    }
+    mTokenStreamContexts.AppendElement(
+      TokenStreamContext{ aValue, mLevel, mIsImportantRule, mLayerIndex });
+  }
+
+  const TokenStreamContext& ContextFor(nsCSSValue* aValue) const {
+    for (const auto& context : mTokenStreamContexts) {
+      if (context.mValue == aValue) {
+        return context;
+      }
+    }
+    MOZ_CRASH("Token stream without cascade provenance");
+  }
 
   nsRuleData(uint32_t aSIDs, nsCSSValue* aValueStorage,
              nsPresContext* aContext, nsStyleContext* aStyleContext);

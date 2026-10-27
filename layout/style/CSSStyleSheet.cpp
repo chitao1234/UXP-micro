@@ -12,6 +12,13 @@
 #include "nsIAtom.h"
 #include "nsCSSRuleProcessor.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/HashFunctions.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/Logging.h"
+#include "nsDataHashtable.h"
+#include "nsHashKeys.h"
+#include "nsThreadUtils.h"
+#include "zlib.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/MediaListBinding.h"
 #include "mozilla/css/NameSpaceRule.h"
@@ -1003,6 +1010,200 @@ namespace mozilla {
 // CSS Style Sheet Inner Data Container
 //
 
+// This is a canonicalization registry, not a URL/load cache. Every document
+// still fetches, validates and parses its own response. Only import-free
+// inners, before becoming applicable or observable, can join it. Keeping import
+// owners local preserves their child/owner/document identities and independent
+// dependency loads, including failures and cycles.
+struct SharedCSSSheetSource {
+  nsTArray<uint8_t> mCompressed;
+  nsCOMPtr<nsIPrincipal> mLoaderPrincipal;
+  nsCString mCharset;
+  nsCompatibility mCompatMode;
+  css::SheetParsingMode mParsingMode;
+  uint32_t mHash;
+  CSSStyleSheetInner* mNext = nullptr; // weak, same hash bucket
+};
+
+static nsDataHashtable<nsUint32HashKey, CSSStyleSheetInner*>* sSharedSheets;
+static LazyLogModule sSharedSheetLog("SharedStyleSheets");
+// Keep this opt-in trace available in the optimized measurement build too.
+#define SHARED_SHEET_LOG(args) \
+  PR_BEGIN_MACRO \
+    if (detail::log_test(sSharedSheetLog, LogLevel::Debug)) { \
+      detail::log_print(sSharedSheetLog, LogLevel::Debug, MOZ_LOG_EXPAND_ARGS args); \
+    } \
+  PR_END_MACRO
+
+static void
+InvalidateSharedSheets(const char* aPref, void*)
+{
+  // Invalidate on parser/property/selector feature changes. Unrelated browser
+  // bookkeeping (notably the delayed slow-startup prefs) must not evict every
+  // source identity between two tab loads. These cover the preference names in
+  // nsCSSParser/Props, the property/alias and pseudo class/element lists.
+  if (strncmp(aPref, "layout.css.", 11) &&
+      strncmp(aPref, "svg.", 4) &&
+      strcmp(aPref, "gfx.font_rendering.opentype_svg.enabled") &&
+      strcmp(aPref, "dom.webcomponents.enabled")) {
+    return;
+  }
+  // Existing owners keep their backing, but old parsed data is no longer
+  // eligible for a new load under the changed parser settings.
+  MOZ_ASSERT(NS_IsMainThread());
+  SHARED_SHEET_LOG(("invalidate: %s", aPref));
+  while (sSharedSheets) {
+    CSSStyleSheetInner* inner;
+    {
+      auto iter = sSharedSheets->Iter();
+      inner = iter.Data();
+    }
+    inner->UnregisterSharedSource();
+  }
+}
+
+void
+CSSStyleSheetInner::UnregisterSharedSource()
+{
+  if (!mSharedSource) {
+    return;
+  }
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(sSharedSheets);
+  uint32_t hash = mSharedSource->mHash;
+  CSSStyleSheetInner* head = sSharedSheets->Get(hash);
+  if (head == this) {
+    if (mSharedSource->mNext) {
+      sSharedSheets->Put(hash, mSharedSource->mNext);
+    } else {
+      sSharedSheets->Remove(hash);
+    }
+  } else {
+    while (head && head->mSharedSource->mNext != this) {
+      head = head->mSharedSource->mNext;
+    }
+    MOZ_RELEASE_ASSERT(head, "Missing weak stylesheet registry member");
+    head->mSharedSource->mNext = mSharedSource->mNext;
+  }
+  mSharedSource = nullptr;
+  if (sSharedSheets->Count() == 0) {
+    Preferences::UnregisterCallback(InvalidateSharedSheets, "");
+    delete sSharedSheets;
+    sSharedSheets = nullptr;
+  }
+}
+
+static bool
+SameSheetURI(nsIURI* aLeft, nsIURI* aRight)
+{
+  bool equal = false;
+  return aLeft == aRight ||
+    (aLeft && aRight && NS_SUCCEEDED(aLeft->Equals(aRight, &equal)) && equal);
+}
+
+static bool
+SameSheetPrincipal(nsIPrincipal* aLeft, nsIPrincipal* aRight)
+{
+  // Principal equality includes origin attributes (private/container context).
+  return aLeft == aRight || (aLeft && aRight && aLeft->Equals(aRight));
+}
+
+void
+CSSStyleSheet::ShareParsedSheet(const nsAString& aSource,
+                               nsIPrincipal* aLoaderPrincipal,
+                               nsCompatibility aCompatMode,
+                               const nsACString& aCharset)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(!IsComplete());
+  SHARED_SHEET_LOG(("consider %s length %u dirty %d", mInner->mSheetURI->GetSpecOrDefault().get(),
+                    aSource.Length(), mDirty));
+  if (!Preferences::GetBool("layout.css.shared-sheets.enabled", true) ||
+      mDirty || mInner->mFirstChild || mInner->mSharedSource ||
+      aSource.IsEmpty() || aSource.Length() > UINT32_MAX / sizeof(char16_t)) {
+    return;
+  }
+  for (size_t i = 0; i < mInner->mOrderedRules.Length(); ++i) {
+    if (mInner->mOrderedRules[i]->GetType() == css::Rule::IMPORT_RULE) {
+      return; // also exclude failed/empty/cyclic imports
+    }
+  }
+
+  // Deterministic, lossless compression permits exact source comparison,
+  // including UTF-16 code units, without retaining full decoded source text.
+  // A hash match alone can never establish equality.
+  UniquePtr<SharedCSSSheetSource> source(new SharedCSSSheetSource);
+  uLong bytes = aSource.Length() * sizeof(char16_t);
+  uLongf length = compressBound(bytes);
+  if (length < bytes || !source->mCompressed.SetLength(length, fallible) ||
+      compress2(source->mCompressed.Elements(), &length,
+                reinterpret_cast<const Bytef*>(aSource.BeginReading()),
+                bytes, Z_BEST_SPEED) != Z_OK) {
+    return;
+  }
+  source->mCompressed.SetLength(length);
+  source->mCompressed.Compact();
+  source->mLoaderPrincipal = aLoaderPrincipal;
+  source->mCharset = aCharset;
+  source->mCompatMode = aCompatMode;
+  source->mParsingMode = ParsingMode();
+  uint32_t bits = std::min(32u, Preferences::GetUint(
+    "layout.css.shared-sheets.hash-bits", 32));
+  source->mHash = HashBytes(source->mCompressed.Elements(), length);
+  if (bits < 32) {
+    source->mHash &= (uint32_t(1) << bits) - 1;
+  }
+
+  CSSStyleSheetInner* candidate = sSharedSheets
+    ? sSharedSheets->Get(source->mHash) : nullptr;
+  for (; candidate; candidate = candidate->mSharedSource->mNext) {
+    const auto& other = *candidate->mSharedSource;
+    if (!candidate->mComplete ||
+        source->mCompatMode != other.mCompatMode ||
+        source->mParsingMode != other.mParsingMode ||
+        source->mCharset != other.mCharset ||
+        source->mCompressed != other.mCompressed ||
+        !SameSheetPrincipal(aLoaderPrincipal, other.mLoaderPrincipal) ||
+        !SameSheetPrincipal(mInner->mPrincipal, candidate->mPrincipal) ||
+        !SameSheetURI(mInner->mSheetURI, candidate->mSheetURI) ||
+        !SameSheetURI(mInner->mOriginalSheetURI, candidate->mOriginalSheetURI) ||
+        !SameSheetURI(mInner->mBaseURI, candidate->mBaseURI) ||
+        mInner->mCORSMode != candidate->mCORSMode ||
+        mInner->mReferrerPolicy != candidate->mReferrerPolicy ||
+        mInner->mIntegrity.GetIntegrityString() !=
+          candidate->mIntegrity.GetIntegrityString()) {
+      continue;
+    }
+    // The new inner can have same-document loading aliases. Move all of those
+    // outers together before any sheet is completed; no style processor/CSSOM
+    // can yet hold references to its parsed rules.
+    CSSStyleSheetInner* previous = mInner;
+    for (CSSStyleSheet* sheet : previous->mSheets) {
+      MOZ_ASSERT(!sheet->mDirty && !sheet->IsComplete());
+      sheet->mInner = candidate;
+      candidate->AddSheet(sheet);
+    }
+    previous->mSheets.Clear();
+    delete previous;
+    SHARED_SHEET_LOG(("shared %p owners %u", candidate, candidate->mSheets.Length()));
+    return;
+  }
+
+  if (!sSharedSheets) {
+    sSharedSheets = new nsDataHashtable<nsUint32HashKey, CSSStyleSheetInner*>;
+    if (NS_FAILED(Preferences::RegisterCallback(InvalidateSharedSheets, ""))) {
+      delete sSharedSheets;
+      sSharedSheets = nullptr;
+      return;
+    }
+  }
+  source->mNext = sSharedSheets->Get(source->mHash);
+  mInner->mSharedSource = Move(source);
+  sSharedSheets->Put(mInner->mSharedSource->mHash, mInner);
+  SHARED_SHEET_LOG(("register %p compressed %u", mInner,
+                    mInner->mSharedSource->mCompressed.Length()));
+}
+
 
 CSSStyleSheetInner::CSSStyleSheetInner(CSSStyleSheet* aPrimarySheet,
                                        CORSMode aCORSMode,
@@ -1133,6 +1334,7 @@ CSSStyleSheetInner::CSSStyleSheetInner(CSSStyleSheetInner& aCopy,
 
 CSSStyleSheetInner::~CSSStyleSheetInner()
 {
+  UnregisterSharedSource();
   MOZ_COUNT_DTOR(CSSStyleSheetInner);
   mOrderedRules.EnumerateForwards(SetStyleSheetReference, nullptr);
 }
@@ -1221,6 +1423,18 @@ size_t
 CSSStyleSheetInner::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
+  n += mSheets.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  if (mSharedSource) {
+    n += aMallocSizeOf(mSharedSource.get());
+    n += mSharedSource->mCompressed.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    n += mSharedSource->mCharset.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+    // Attribute the weak table once, alongside one of its live members.
+    auto iter = sSharedSheets->Iter();
+    if (iter.Data() == this) {
+      n += aMallocSizeOf(sSharedSheets);
+      n += sSharedSheets->ShallowSizeOfExcludingThis(aMallocSizeOf);
+    }
+  }
   n += mOrderedRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
   for (size_t i = 0; i < mOrderedRules.Length(); i++) {
     n += mOrderedRules[i]->SizeOfIncludingThis(aMallocSizeOf);
@@ -1359,6 +1573,7 @@ CSSStyleSheet::UnlinkInner()
     return;
   }
 
+  mInner->UnregisterSharedSource();
   mInner->mOrderedRules.EnumerateForwards(SetStyleSheetReference, nullptr);
   mInner->mOrderedRules.Clear();
 
@@ -1634,6 +1849,7 @@ CSSStyleSheet::EnsureUniqueInner()
   MOZ_ASSERT(mInner->mSheets.Length() != 0,
              "unexpected number of outers");
   if (mInner->mSheets.Length() == 1) {
+    mInner->UnregisterSharedSource();
     // already unique
     return;
   }

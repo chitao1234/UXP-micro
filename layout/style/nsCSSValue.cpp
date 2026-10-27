@@ -3521,9 +3521,6 @@ nsCSSValueGradient::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) con
 nsCSSValueTokenStream::nsCSSValueTokenStream()
   : mPropertyID(eCSSProperty_UNKNOWN)
   , mShorthandPropertyID(eCSSProperty_UNKNOWN)
-  , mLevel(SheetType::Count)
-  , mIsImportant(false)
-  , mLayerIndex(0)
 {
   MOZ_COUNT_CTOR(nsCSSValueTokenStream);
 }

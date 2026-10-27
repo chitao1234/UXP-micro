@@ -3024,15 +3024,13 @@ nsRuleNode::ResolveVariableReferences(const nsStyleStructID aSID,
       &aContext->StyleVariables()->mVariables;
     nsCSSValueTokenStream* tokenStream = value->GetTokenStreamValue();
 
-    MOZ_ASSERT(tokenStream->mLevel != SheetType::Count,
-               "Token stream should have a defined level");
-
+    const auto& context = aRuleData->ContextFor(value);
     AutoRestore<SheetType> saveLevel(aRuleData->mLevel);
     AutoRestore<bool> saveImportant(aRuleData->mIsImportantRule);
     AutoRestore<int32_t> saveLayerIndex(aRuleData->mLayerIndex);
-    aRuleData->mLevel = tokenStream->mLevel;
-    aRuleData->mIsImportantRule = tokenStream->mIsImportant;
-    aRuleData->mLayerIndex = tokenStream->mLayerIndex;
+    aRuleData->mLevel = context.mLevel;
+    aRuleData->mIsImportantRule = context.mImportant;
+    aRuleData->mLayerIndex = context.mLayerIndex;
 
     // Note that ParsePropertyWithVariableReferences relies on the fact
     // that the nsCSSValue in aRuleData for the property we are re-parsing
@@ -3136,6 +3134,16 @@ nsRuleNode::ResolveRevertLayerValues(const nsStyleStructID aSID,
       }
 
       *target = tempValues[index];
+      if (target->GetUnit() == eCSSUnit_TokenStream) {
+        const auto& context = tempRuleData.ContextFor(&tempValues[index]);
+        AutoRestore<SheetType> saveLevel(aRuleData->mLevel);
+        AutoRestore<bool> saveImportant(aRuleData->mIsImportantRule);
+        AutoRestore<int32_t> saveLayer(aRuleData->mLayerIndex);
+        aRuleData->mLevel = context.mLevel;
+        aRuleData->mIsImportantRule = context.mImportant;
+        aRuleData->mLayerIndex = context.mLayerIndex;
+        aRuleData->RecordTokenStream(target);
+      }
       aRuleData->mConditions.SetUncacheable();
       resolvedThisPass = true;
       resolvedAny = true;

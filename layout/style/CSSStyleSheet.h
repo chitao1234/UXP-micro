@@ -13,11 +13,13 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/StyleSheetInfo.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/css/SheetParsingMode.h"
 #include "mozilla/dom/Element.h"
 
 #include "nscore.h"
 #include "nsCOMPtr.h"
+#include "nsCompatibility.h"
 #include "nsAutoPtr.h"
 #include "nsICSSLoaderObserver.h"
 #include "nsTArrayForwardDeclare.h"
@@ -39,6 +41,7 @@ class nsXMLNameSpaceMap;
 namespace mozilla {
 struct ChildSheetListBuilder;
 class CSSStyleSheet;
+struct SharedCSSSheetSource;
 
 namespace css {
 class Rule;
@@ -73,6 +76,11 @@ struct CSSStyleSheetInner : public StyleSheetInfo
   nsresult CreateNamespaceMap();
 
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
+
+  // Main-thread weak registry membership. Cloned/modified inners are never
+  // members; this metadata owns no sheet or document.
+  UniquePtr<SharedCSSSheetSource> mSharedSource;
+  void UnregisterSharedSource();
 
   AutoTArray<CSSStyleSheet*, 8> mSheets;
   IncrementalClearCOMRuleArray mOrderedRules;
@@ -164,6 +172,12 @@ public:
                                         nsINode* aCloneOwningNode) const;
 
   bool IsModified() const { return mDirty; }
+
+  // Called after independently fetching/checking/parsing an external sheet,
+  // before it becomes applicable. Import-owning inners remain document-local;
+  // imported leaves can share independently without changing parent links.
+  void ShareParsedSheet(const nsAString& aSource, nsIPrincipal* aLoaderPrincipal,
+                        nsCompatibility aCompatMode, const nsACString& aCharset);
 
   void SetModifiedByChildRule() {
     NS_ASSERTION(mDirty,

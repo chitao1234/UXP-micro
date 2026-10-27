@@ -108,19 +108,28 @@ ImageLoader::MaybeRegisterCSSImage(ImageLoader::Image* aImage)
     return;
   }
 
-  imgRequestProxy* canonicalRequest = aImage->mRequests.GetWeak(nullptr);
-  if (!canonicalRequest) {
-    // The image was blocked or something.
-    return;
-  }
-
   RefPtr<imgRequestProxy> request;
-
-  // Ignore errors here.  If cloning fails for some reason we'll put a null
-  // entry in the hash and we won't keep trying to clone.
-  mInClone = true;
-  canonicalRequest->Clone(this, getter_AddRefs(request));
-  mInClone = false;
+  if (mDocument->GetOriginalDocument()) {
+    // Static/print clones cannot initiate loads. Preserve their existing
+    // association with the original document's checked request.
+    imgRequestProxy* canonicalRequest = aImage->mRequests.GetWeak(nullptr);
+    if (canonicalRequest) {
+      mInClone = true;
+      canonicalRequest->Clone(this, getter_AddRefs(request));
+      mInClone = false;
+    }
+  } else if (aImage->GetURI()) {
+    // Shared parsed rules do not imply shared load permissions. Go through
+    // the target document's CSP/content policy, referrer policy and load group
+    // even when another document already loaded (or blocked) this image.
+    mInClone = true;
+    nsContentUtils::LoadImage(aImage->GetURI(), mDocument, mDocument,
+                             aImage->mOriginPrincipal, aImage->mReferrer,
+                             mDocument->GetReferrerPolicy(), this,
+                             nsIRequest::LOAD_NORMAL, NS_LITERAL_STRING("css"),
+                             getter_AddRefs(request));
+    mInClone = false;
+  }
 
   aImage->mRequests.Put(mDocument, request);
 

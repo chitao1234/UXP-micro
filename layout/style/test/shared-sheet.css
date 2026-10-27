@@ -1,0 +1,21 @@
+@namespace url(http://www.w3.org/1999/xhtml);
+@layer sharedBase, sharedTop;
+@layer sharedBase {
+  .target { color: rgb(12, 34, 56); margin-left: 7px; }
+}
+@layer sharedTop {
+  .target { color: var(--missing-color, revert-layer); }
+}
+.target {
+  --local: 13px;
+  padding-left: var(--local);
+  background-color: rgb(90, 80, 70);
+}
+@media (min-width: 1px) {
+  .target { border-left: 4px solid rgb(1, 2, 3); }
+}
+@supports (display: grid) {
+  .target { display: grid; }
+}
+@keyframes sharedMotion { from { opacity: 0.5; } to { opacity: 1; } }
+@font-face { font-family: SharedSheetFont; src: local("Arial"); }

@@ -195,15 +195,11 @@ TryToStartImageLoadOnValue(const nsCSSValue& aValue, nsIDocument* aDocument,
     }
   }
   else if (aValue.GetUnit() == eCSSUnit_Image) {
-    // If we already have a request, see if this document needs to clone it.
-    imgIRequest* request = aValue.GetImageValue(nullptr);
-
-    if (request) {
-      ImageValue* imageValue = aValue.GetImageStructValue();
-      aDocument->StyleImageLoader()->MaybeRegisterCSSImage(imageValue);
-      if (aForTokenStream && aContext) {
-        CSSVariableImageTable::Add(aContext, aProperty, imageValue);
-      }
+    // A failure in another document must not suppress this document's load.
+    ImageValue* imageValue = aValue.GetImageStructValue();
+    aDocument->StyleImageLoader()->MaybeRegisterCSSImage(imageValue);
+    if (aForTokenStream && aContext) {
+      CSSVariableImageTable::Add(aContext, aProperty, imageValue);
     }
   }
   else if (aValue.EqualsFunction(eCSSKeyword__moz_image_rect)) {
@@ -283,6 +279,9 @@ MapSinglePropertyInto(nsCSSPropertyID aTargetProp,
                         aTargetValue->GetUnit() == eCSSUnit_TokenStream);
   }
   *aTargetValue = *aSrcValue;
+  if (aTargetValue->GetUnit() == eCSSUnit_TokenStream) {
+    aRuleData->RecordTokenStream(aTargetValue);
+  }
   if (nsCSSProps::PropHasFlags(aTargetProp,
         CSS_PROPERTY_IGNORED_WHEN_COLORS_DISABLED) &&
       ShouldIgnoreColors(aRuleData))
@@ -470,17 +469,7 @@ nsCSSCompressedDataBlock::MapRuleInfoInto(nsRuleData *aRuleData) const
         continue;
       }
       const nsCSSValue* val = ValueAtIndex(i);
-      // In order for variable resolution to have the right information
-      // about the stylesheet level of a value, that level needs to be
-      // stored on the token stream. We can't do that at creation time
-      // because the CSS parser (which creates the object) has no idea
-      // about the stylesheet level, so we do it here instead, where
-      // the rule walking will have just updated aRuleData.
-      if (val->GetUnit() == eCSSUnit_TokenStream) {
-        val->GetTokenStreamValue()->mLevel = aRuleData->mLevel;
-        val->GetTokenStreamValue()->mIsImportant = aRuleData->mIsImportantRule;
-        val->GetTokenStreamValue()->mLayerIndex = aRuleData->mLayerIndex;
-      } else if (val->GetUnit() == eCSSUnit_Revert) {
+      if (val->GetUnit() == eCSSUnit_Revert) {
         aRuleData->mConditions.SetUncacheable();
       } else if (val->GetUnit() == eCSSUnit_RevertLayer) {
         nsCSSValue revertLayer;
@@ -931,11 +920,10 @@ nsCSSExpandedDataBlock::MapRuleInfoInto(nsCSSPropertyID aPropID,
              dest->GetTokenStreamValue()->mPropertyID == aPropID);
 
   if (src->GetUnit() == eCSSUnit_RevertLayer) {
-    nsCSSValueTokenStream* tokenStream = dest->GetTokenStreamValue();
     nsCSSValue revertLayer;
-    revertLayer.SetRevertLayerValue(tokenStream->mLevel,
-                                    tokenStream->mIsImportant,
-                                    tokenStream->mLayerIndex);
+    revertLayer.SetRevertLayerValue(aRuleData->mLevel,
+                                    aRuleData->mIsImportantRule,
+                                    aRuleData->mLayerIndex);
     aRuleData->mConditions.SetUncacheable();
     MapSinglePropertyInto(physicalProp, &revertLayer, dest, aRuleData);
     return;

@@ -427,7 +427,8 @@ StyleSheet::SubjectSubsumesInnerPrincipal(nsIPrincipal& aSubjectPrincipal,
 
   WillDirty();
 
-  info.mPrincipal = &aSubjectPrincipal;
+  // WillDirty may have replaced the inner. Do not write through the old ref.
+  SheetInfo().mPrincipal = &aSubjectPrincipal;
 
   DidDirty();
 }

@@ -1844,9 +1844,6 @@ public:
     return mPropertyID == aOther.mPropertyID &&
            mShorthandPropertyID == aOther.mShorthandPropertyID &&
            mTokenStream.Equals(aOther.mTokenStream) &&
-           mLevel == aOther.mLevel &&
-           mIsImportant == aOther.mIsImportant &&
-           mLayerIndex == aOther.mLayerIndex &&
            (mBaseURI == aOther.mBaseURI ||
             (mBaseURI && aOther.mBaseURI &&
              NS_SUCCEEDED(mBaseURI->Equals(aOther.mBaseURI, &eq)) &&
@@ -1895,9 +1892,6 @@ public:
   // mozilla::CSSStyleSheet* mSheet;
   uint32_t mLineNumber;
   uint32_t mLineOffset;
-  mozilla::SheetType mLevel;
-  bool mIsImportant;
-  int32_t mLayerIndex;
 
 private:
   nsCSSValueTokenStream(const nsCSSValueTokenStream& aOther) = delete;

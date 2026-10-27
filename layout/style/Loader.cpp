@@ -1729,6 +1729,15 @@ Loader::ParseSheet(const nsAString& aInput,
   NS_ASSERTION(aLoadData->mPendingChildren == 0 || !aLoadData->mSyncLoad,
                "Sync load has leftover pending children!");
 
+  // Speculative/preload document CSS also uses InternalLoadNonDocumentSheet.
+  // Its data is checked by this document's channel and is eligible too; the
+  // flag describes loader notification/lifetime behavior, not security scope.
+  if (mDocument && aLoadData->mURI && !aLoadData->mUseSystemPrincipal &&
+      aLoadData->mSheet->ParsingMode() == eAuthorSheetFeatures) {
+    aLoadData->mSheet->AsConcrete()->ShareParsedSheet(
+      aInput, aLoadData->mLoaderPrincipal, mCompatMode, aLoadData->mCharset);
+  }
+
   if (aLoadData->mPendingChildren == 0) {
     LOG(("  No pending kids from parse"));
     aCompleted = true;
