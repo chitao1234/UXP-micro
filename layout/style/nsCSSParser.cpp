@@ -129,7 +129,8 @@ enum class SelectorParsingFlags {
   eInheritNamespace        = 1 << 4,
   eForceEmptyList          = 1 << 5,
   eIsRelativeSelector      = 1 << 6,
-  eInsideHas               = 1 << 7
+  eInsideHas               = 1 << 7,
+  eNestingParent           = 1 << 8
 };
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(SelectorParsingFlags)
 
@@ -995,7 +996,7 @@ protected:
 
   // returns true when the stop symbol is found, and false for EOF
   bool SkipUntil(char16_t aStopSymbol);
-  void SkipUntilOneOf(const char16_t* aStopSymbolChars);
+  bool SkipUntilOneOf(const char16_t* aStopSymbolChars);
   // For each character in aStopSymbolChars from the end of the array
   // to the start, calls SkipUntil with that character.
   typedef AutoTArray<char16_t, 16> StopSymbolCharStack;
@@ -1811,6 +1812,11 @@ protected:
   // Our scanner.
   nsCSSScanner* mScanner;
 
+  // Only present while parsing one flattened sheet; generated :is() groups
+  // validate their parent rule lists before applying contextual filtering.
+  const nsTArray<uint32_t>* mNestingParentOffsets;
+  nsCSSScanner* mNestingParentScanner;
+
   // Our error reporter.
   css::ErrorReporter* mReporter;
 
@@ -1992,6 +1998,8 @@ static void AppendRuleToSheet(css::Rule* aRule, void* aParser)
 CSSParserImpl::CSSParserImpl()
   : mToken(),
     mScanner(nullptr),
+    mNestingParentOffsets(nullptr),
+    mNestingParentScanner(nullptr),
     mReporter(nullptr),
     mChildLoader(nullptr),
     mReusableSheets(nullptr),
@@ -2122,13 +2130,23 @@ CSSParserImpl::ParseSheet(const nsAString& aInput,
 #endif
 
   nsAutoString flattenedInput;
+  nsTArray<uint32_t> nestingParentOffsets;
+  AutoRestore<const nsTArray<uint32_t>*> restoreNestingParents(mNestingParentOffsets);
+  AutoRestore<nsCSSScanner*> restoreNestingScanner(mNestingParentScanner);
+  mNestingParentOffsets = nullptr;
+  mNestingParentScanner = nullptr;
   const nsAString* input = &aInput;
   if (sNestingEnabled &&
-      mozilla::css::FlattenBasicCSSNesting(aInput, flattenedInput)) {
+      mozilla::css::FlattenBasicCSSNesting(aInput, flattenedInput,
+                                          nestingParentOffsets)) {
     input = &flattenedInput;
+    mNestingParentOffsets = &nestingParentOffsets;
   }
 
   nsCSSScanner scanner(*input, aLineNumber);
+  if (mNestingParentOffsets) {
+    mNestingParentScanner = &scanner;
+  }
   css::ErrorReporter reporter(scanner, mSheet, mChildLoader, aSheetURI);
   InitScanner(scanner, reporter, aSheetURI, aBaseURI, aSheetPrincipal);
 
@@ -6163,19 +6181,19 @@ CSSParserImpl::SkipBalancedContentUntil(char16_t aStopSymbol)
   }
 }
 
-void
+bool
 CSSParserImpl::SkipUntilOneOf(const char16_t* aStopSymbolChars)
 {
   nsCSSToken* tk = &mToken;
   nsDependentString stopSymbolChars(aStopSymbolChars);
   for (;;) {
     if (!GetToken(true)) {
-      break;
+      return false;
     }
     if (eCSSToken_Symbol == tk->mType) {
       char16_t symbol = tk->mSymbol;
       if (stopSymbolChars.FindChar(symbol) != -1) {
-        break;
+        return true;
       } else if ('{' == symbol) {
         SkipUntil('}');
       } else if ('[' == symbol) {
@@ -6367,17 +6385,55 @@ CSSParserImpl::ParseSelectorList(nsCSSSelectorList*& aListHead,
                                  char16_t aStopChar,
                                  SelectorParsingFlags& aFlags)
 {
-  nsCSSSelectorList* list = nullptr;
-  if (! ParseSelectorGroup(list, aFlags)) {
-    if (aFlags & SelectorParsingFlags::eIsForgiving) {
-      // Initialize to an empty list if the first selector group was invalid
-      // and we're a forgiving selector list.
-      list = new nsCSSSelectorList();
-    } else {
-      // must have at least one selector group
-      aListHead = nullptr;
-      return false;
+  if (aFlags & SelectorParsingFlags::eIsForgiving) {
+    MOZ_ASSERT(aStopChar);
+    nsAutoPtr<nsCSSSelectorList> head;
+    nsCSSSelectorList* tail = nullptr;
+    for (;;) {
+      CSSParserInputState start;
+      SaveInputState(start);
+      nsAutoPtr<nsCSSSelectorList> group;
+      SelectorParsingFlags branchFlags = aFlags;
+      bool valid = ParseSelectorGroup(*getter_Transfers(group), branchFlags);
+      if (valid) {
+        valid = GetToken(true) && mToken.mType == eCSSToken_Symbol &&
+                (mToken.mSymbol == ',' || mToken.mSymbol == aStopChar);
+      }
+      if (!valid) {
+        // Retry from the branch start so commas/closing parentheses inside
+        // invalid functional selectors cannot terminate the outer list.
+        // In particular, !& becomes !:is(parent) during nesting flattening.
+        group = nullptr;
+        RestoreSavedInputState(start);
+        const char16_t stops[] = { ',', aStopChar, 0 };
+        if (!SkipUntilOneOf(stops)) {
+          aListHead = nullptr;
+          return false;
+        }
+      }
+      if (group) {
+        if (tail) {
+          tail->mNext = group.forget();
+          tail = tail->mNext;
+        } else {
+          head = group.forget();
+          tail = head;
+        }
+      }
+      if (mToken.IsSymbol(aStopChar)) {
+        UngetToken();
+        aListHead = head ? head.forget() : new nsCSSSelectorList();
+        return true;
+      }
     }
+  }
+
+  nsCSSSelectorList* list = nullptr;
+  SelectorParsingFlags firstFlags = aFlags;
+  if (! ParseSelectorGroup(list, firstFlags)) {
+    // An ordinary selector list must have at least one valid selector group.
+    aListHead = nullptr;
+    return false;
   }
   NS_ASSERTION(nullptr != list, "no selector list");
   aListHead = list;
@@ -6399,23 +6455,11 @@ CSSParserImpl::ParseSelectorList(nsCSSSelectorList*& aListHead,
       if (',' == tk->mSymbol) {
         nsCSSSelectorList* newList = nullptr;
         // Another selector group must follow
-        if (! ParseSelectorGroup(newList, aFlags)) {
-          // Ignore invalid selectors if we're a forgiving selector list.
-          if (aFlags & SelectorParsingFlags::eIsForgiving) {
-            continue;
-          }
+        SelectorParsingFlags branchFlags = aFlags;
+        if (! ParseSelectorGroup(newList, branchFlags)) {
           break;
         }
-        // Replace the list head if: it's empty and we're a forgiving selector
-        // list. Otherwise, add the new list to the end of the selector list.
-        if ((aFlags & SelectorParsingFlags::eIsForgiving) &&
-            !aListHead->mSelectors) {
-          MOZ_ASSERT(newList->mSelectors,
-                     "replacing empty list head with an empty selector list?");
-          aListHead = newList;
-        } else {
-          list->mNext = newList;
-        }
+        list->mNext = newList;
         list = newList;
         continue;
       } else if (aStopChar == tk->mSymbol && aStopChar != char16_t(0)) {
@@ -6424,11 +6468,9 @@ CSSParserImpl::ParseSelectorList(nsCSSSelectorList*& aListHead,
       }
     }
     
-    if (!(aFlags & SelectorParsingFlags::eIsForgiving)) {
-      REPORT_UNEXPECTED_TOKEN(PESelectorListExtra);
-      UngetToken();
-      break;
-    }
+    REPORT_UNEXPECTED_TOKEN(PESelectorListExtra);
+    UngetToken();
+    break;
   }
 
   delete aListHead;
@@ -6988,6 +7030,20 @@ CSSParserImpl::ParsePseudoSelector(int32_t&              aDataMask,
     nsCSSPseudoElements::IsTreeAbidingPseudoElement(pseudoElementType);
   CSSPseudoClassType pseudoClassType =
     nsCSSPseudoClasses::GetPseudoType(pseudo, enabledState);
+  bool nestingParent = mNestingParentOffsets && mScanner == mNestingParentScanner &&
+    mNestingParentOffsets->BinaryIndexOf(mScanner->GetTokenOffset()) !=
+      nsTArray<uint32_t>::NoIndex;
+  if (nestingParent) {
+    MOZ_ASSERT(buffer.EqualsLiteral(":is"));
+    // Nesting has its own feature flag; generated groups do not depend on
+    // whether public :is() syntax is enabled.
+    pseudoClassType = CSSPseudoClassType::is;
+    if (!(aDataMask & (SEL_MASK_NSPACE | SEL_MASK_ELEM))) {
+      // An unqualified nesting selector adds no default-namespace constraint
+      // outside the constraints already parsed in its parent selector list.
+      aSelector.SetNameSpace(kNameSpaceID_Unknown);
+    }
+  }
   bool pseudoClassIsUserAction =
     nsCSSPseudoClasses::IsUserActionPseudoClass(pseudoClassType);
   bool pseudoClassHasForgivingSelectorListArg =
@@ -7146,6 +7202,9 @@ CSSParserImpl::ParsePseudoSelector(int32_t&              aDataMask,
 
       // Pass only a few parsing flags down the chain.
       SelectorParsingFlags flags = SelectorParsingFlags::eNone;
+      if (nestingParent) {
+        flags |= SelectorParsingFlags::eNestingParent;
+      }
       if (aFlags & SelectorParsingFlags::eDisallowCombinators) {
         flags |= SelectorParsingFlags::eDisallowCombinators;
       }
@@ -7596,6 +7655,7 @@ CSSParserImpl::ParsePseudoClassWithSelectorListArg(nsCSSSelector& aSelector,
 {
   bool isSingleSelector =
     nsCSSPseudoClasses::HasSingleSelectorArg(aType);
+  bool nestingParent = !!(aFlags & SelectorParsingFlags::eNestingParent);
 
   if (aType == CSSPseudoClassType::has) {
     // :has() takes an unforgiving <relative-selector-list>, cannot be nested,
@@ -7605,14 +7665,17 @@ CSSParserImpl::ParsePseudoClassWithSelectorListArg(nsCSSSelector& aSelector,
     }
     aFlags |= SelectorParsingFlags::eIsRelativeSelector |
               SelectorParsingFlags::eInsideHas;
-  } else if (nsCSSPseudoClasses::HasForgivingSelectorListArg(aType)) {
+  } else if (!nestingParent &&
+             nsCSSPseudoClasses::HasForgivingSelectorListArg(aType)) {
     aFlags |= SelectorParsingFlags::eIsForgiving;
   } else if (isSingleSelector || aType == CSSPseudoClassType::mozAny) {
     aFlags |= SelectorParsingFlags::eDisallowCombinators;
   } else if (aType == CSSPseudoClassType::negation) {
     aFlags |= SelectorParsingFlags::eInheritNamespace;
   }
-  aFlags |= SelectorParsingFlags::eDisallowPseudoElements;
+  if (!nestingParent) {
+    aFlags |= SelectorParsingFlags::eDisallowPseudoElements;
+  }
 
   nsAutoPtr<nsCSSSelectorList> slist;
   if (! ParseSelectorList(*getter_Transfers(slist),
@@ -7623,6 +7686,32 @@ CSSParserImpl::ParsePseudoClassWithSelectorListArg(nsCSSSelector& aSelector,
 
   if (isSingleSelector && slist->mNext) {
     return eSelectorParsingStatus_Error; // our caller calls SkipUntil(')')
+  }
+
+  if (nestingParent) {
+    // Parent style-rule lists are unforgiving. Only after validating the whole
+    // list may nesting exclude contextually invalid pseudo-element branches;
+    // those branches neither match an element nor contribute specificity.
+    nsCSSSelectorList* head = slist.forget();
+    nsCSSSelectorList** link = &head;
+    while (*link) {
+      bool hasPseudoElement = false;
+      for (nsCSSSelector* selector = (*link)->mSelectors; selector;
+           selector = selector->mNext) {
+        hasPseudoElement |= selector->IsPseudoElement() ||
+                            selector->IsHybridPseudoElement();
+      }
+      if (hasPseudoElement) {
+        nsCSSSelectorList* removed = *link;
+        *link = removed->mNext;
+        removed->mNext = nullptr;
+        delete removed;
+      } else {
+        link = &(*link)->mNext;
+      }
+    }
+    // :is() with no valid branches matches nothing and has zero specificity.
+    slist = head ? head : new nsCSSSelectorList();
   }
 
   // Special handling for the :not() pseudo-class.

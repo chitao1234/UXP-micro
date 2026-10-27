@@ -16,7 +16,24 @@ namespace {
 
 class CSSNestingFlattener final
 {
-  using SelectorList = nsTArray<nsString>;
+  struct Text {
+    nsString mText;
+    nsTArray<uint32_t> mParentGroups;
+
+    void Append(const nsAString& aText) { mText.Append(aText); }
+    void Append(char16_t aChar) { mText.Append(aChar); }
+    template<size_t N> void AppendLiteral(const char (&aText)[N]) {
+      mText.AppendLiteral(aText);
+    }
+    void Append(const Text& aText) {
+      uint32_t offset = mText.Length();
+      for (uint32_t group : aText.mParentGroups) {
+        mParentGroups.AppendElement(offset + group);
+      }
+      mText.Append(aText.mText);
+    }
+  };
+  using SelectorList = nsTArray<Text>;
 
 public:
   explicit CSSNestingFlattener(const nsAString& aInput)
@@ -26,9 +43,9 @@ public:
   {
   }
 
-  bool Flatten(nsAString& aOutput)
+  bool Flatten(nsAString& aOutput, nsTArray<uint32_t>& aParentGroupOffsets)
   {
-    nsAutoString flattened;
+    Text flattened;
     if (!ProcessStylesheet(flattened, false)) {
       return false;
     }
@@ -38,7 +55,8 @@ public:
       return false;
     }
 
-    aOutput.Assign(flattened);
+    aOutput.Assign(flattened.mText);
+    aParentGroupOffsets.SwapElements(flattened.mParentGroups);
     return true;
   }
 
@@ -141,6 +159,14 @@ private:
       ++start;
     }
     while (end > start && IsCSSWhitespace(aText.CharAt(end - 1))) {
+      // A trailing escaped space is part of an identifier, not formatting.
+      uint32_t slashes = 0;
+      for (uint32_t i = end - 1; i > start && aText.CharAt(i - 1) == '\\'; --i) {
+        ++slashes;
+      }
+      if (slashes & 1) {
+        break;
+      }
       --end;
     }
 
@@ -183,6 +209,11 @@ private:
         continue;
       }
 
+      if (c == '\\' && i + 1 < aSelectorText.Length()) {
+        ++i;
+        continue;
+      }
+
       if (c == '/' && i + 1 < aSelectorText.Length() &&
           aSelectorText.CharAt(i + 1) == '*') {
         inComment = true;
@@ -216,9 +247,9 @@ private:
         nsAutoString selector;
         selector.Assign(Substring(aSelectorText, itemStart, i - itemStart));
         TrimWhitespace(selector);
-        if (!selector.IsEmpty()) {
-          aSelectors.AppendElement(selector);
-        }
+        // Preserve empty list entries so the native parser rejects an invalid
+        // ordinary selector list instead of silently salvaging other branches.
+        aSelectors.AppendElement()->mText.Assign(selector);
         itemStart = i + 1;
       }
     }
@@ -226,9 +257,7 @@ private:
     nsAutoString selector;
     selector.Assign(Substring(aSelectorText, itemStart));
     TrimWhitespace(selector);
-    if (!selector.IsEmpty()) {
-      aSelectors.AppendElement(selector);
-    }
+    aSelectors.AppendElement()->mText.Assign(selector);
 
     return !aSelectors.IsEmpty();
   }
@@ -238,6 +267,7 @@ private:
   {
     bool inComment = false;
     char16_t stringQuote = 0;
+    uint32_t bracketDepth = 0;
 
     for (uint32_t i = 0; i < aSelector.Length(); ++i) {
       char16_t c = aSelector.CharAt(i);
@@ -262,6 +292,11 @@ private:
         continue;
       }
 
+      if (c == '\\' && i + 1 < aSelector.Length()) {
+        ++i;
+        continue;
+      }
+
       if (c == '/' && i + 1 < aSelector.Length() &&
           aSelector.CharAt(i + 1) == '*') {
         inComment = true;
@@ -274,7 +309,11 @@ private:
         continue;
       }
 
-      if (c == '&') {
+      if (c == '[') {
+        ++bracketDepth;
+      } else if (c == ']' && bracketDepth) {
+        --bracketDepth;
+      } else if (c == '&' && !bracketDepth) {
         return true;
       }
     }
@@ -284,11 +323,12 @@ private:
 
   void
   ReplaceAmpersands(const nsAString& aSelector,
-                    const nsAString& aParent,
-                    nsAString& aOutput) const
+                    const Text& aParent,
+                    Text& aOutput) const
   {
     bool inComment = false;
     char16_t stringQuote = 0;
+    uint32_t bracketDepth = 0;
 
     for (uint32_t i = 0; i < aSelector.Length(); ++i) {
       char16_t c = aSelector.CharAt(i);
@@ -317,6 +357,12 @@ private:
         continue;
       }
 
+      if (c == '\\' && i + 1 < aSelector.Length()) {
+        aOutput.Append(c);
+        aOutput.Append(aSelector.CharAt(++i));
+        continue;
+      }
+
       if (c == '/' && i + 1 < aSelector.Length() &&
           aSelector.CharAt(i + 1) == '*') {
         aOutput.AppendLiteral("/*");
@@ -331,7 +377,11 @@ private:
         continue;
       }
 
-      if (c == '&') {
+      if (c == '[') {
+        ++bracketDepth;
+      } else if (c == ']' && bracketDepth) {
+        --bracketDepth;
+      } else if (c == '&' && !bracketDepth) {
         aOutput.Append(aParent);
         continue;
       }
@@ -350,23 +400,23 @@ private:
       return false;
     }
 
-    for (const nsString& nestedSelector : nestedSelectors) {
-      bool hasAmpersand = SelectorHasAmpersand(nestedSelector);
-      for (const nsString& parentSelector : aParents) {
-        nsAutoString combined;
-        if (hasAmpersand) {
-          ReplaceAmpersands(nestedSelector, parentSelector, combined);
-        } else {
-          combined.Assign(parentSelector);
-          if (!combined.IsEmpty()) {
-            combined.Append(' ');
-          }
-          combined.Append(nestedSelector);
-        }
-        TrimWhitespace(combined);
-        if (!combined.IsEmpty()) {
-          aSelectors.AppendElement(combined);
-        }
+    // A nesting selector matches the parent list as one group and has that
+    // list's maximum specificity. Distributing parent branches changes the
+    // cascade and builds a Cartesian product for every nesting level.
+    Text parent;
+    parent.mParentGroups.AppendElement(1); // Function token follows ':'.
+    parent.AppendLiteral(":is(");
+    AppendSelectors(aParents, parent);
+    parent.Append(')');
+
+    for (const Text& nestedSelector : nestedSelectors) {
+      Text* combined = aSelectors.AppendElement();
+      if (SelectorHasAmpersand(nestedSelector.mText)) {
+        ReplaceAmpersands(nestedSelector.mText, parent, *combined);
+      } else {
+        combined->Append(parent);
+        combined->Append(' ');
+        combined->Append(nestedSelector);
       }
     }
 
@@ -374,7 +424,7 @@ private:
   }
 
   static void
-  AppendSelectors(const SelectorList& aSelectors, nsAString& aOutput)
+  AppendSelectors(const SelectorList& aSelectors, Text& aOutput)
   {
     for (uint32_t i = 0; i < aSelectors.Length(); ++i) {
       if (i) {
@@ -437,6 +487,11 @@ private:
           ++pos;
         }
         ++pos;
+        continue;
+      }
+
+      if (c == '\\' && pos + 1 < mInput.Length()) {
+        pos += 2;
         continue;
       }
 
@@ -533,7 +588,7 @@ private:
   void
   FlushDeclarations(const SelectorList& aSelectors,
                     nsAString& aDeclarations,
-                    nsAString& aOutput)
+                    Text& aOutput)
   {
     nsAutoString declarations;
     declarations.Assign(aDeclarations);
@@ -558,6 +613,10 @@ private:
 
     while (!AtEnd()) {
       char16_t c = Peek();
+      if (c == '\\' && mPos + 1 < mInput.Length()) {
+        mPos += 2;
+        continue;
+      }
       if (c == '"' || c == '\'') {
         if (!SkipString(c)) {
           return false;
@@ -600,6 +659,10 @@ private:
 
     while (!AtEnd()) {
       char16_t c = Peek();
+      if (c == '\\' && mPos + 1 < mInput.Length()) {
+        mPos += 2;
+        continue;
+      }
       if (c == '"' || c == '\'') {
         if (!SkipString(c)) {
           return false;
@@ -666,6 +729,10 @@ private:
     int32_t bracketDepth = 0;
     while (!AtEnd()) {
       char16_t c = Peek();
+      if (c == '\\' && mPos + 1 < mInput.Length()) {
+        mPos += 2;
+        continue;
+      }
       if (c == '"' || c == '\'') {
         if (!SkipString(c)) {
           return false;
@@ -730,6 +797,10 @@ private:
 
     while (!AtEnd()) {
       char16_t c = Peek();
+      if (c == '\\' && mPos + 1 < mInput.Length()) {
+        mPos += 2;
+        continue;
+      }
       if (c == '"' || c == '\'') {
         if (!SkipString(c)) {
           return false;
@@ -797,7 +868,7 @@ private:
   }
 
   bool
-  ParseAtRule(nsAString& aOutput, const SelectorList* aParents)
+  ParseAtRule(Text& aOutput, const SelectorList* aParents)
   {
     nsAutoString prelude;
     nsAutoCString name;
@@ -824,7 +895,7 @@ private:
       return true;
     }
 
-    nsAutoString inner;
+    Text inner;
     if (aParents) {
       mSawNesting = true;
       if (!ProcessStyleContext(*aParents, inner)) {
@@ -844,7 +915,7 @@ private:
   }
 
   bool
-  ParseQualifiedRule(nsAString& aOutput, const SelectorList* aParents)
+  ParseQualifiedRule(Text& aOutput, const SelectorList* aParents)
   {
     nsAutoString prelude;
     if (!ReadQualifiedRulePrelude(prelude)) {
@@ -865,7 +936,7 @@ private:
   }
 
   bool
-  ProcessStyleContext(const SelectorList& aSelectors, nsAString& aOutput)
+  ProcessStyleContext(const SelectorList& aSelectors, Text& aOutput)
   {
     nsAutoString declarations;
 
@@ -912,7 +983,7 @@ private:
   }
 
   bool
-  ProcessStylesheet(nsAString& aOutput, bool aStopAtBlockEnd)
+  ProcessStylesheet(Text& aOutput, bool aStopAtBlockEnd)
   {
     while (!AtEnd()) {
       SkipWhitespaceAndComments();
@@ -950,10 +1021,11 @@ private:
 } // namespace
 
 bool
-FlattenBasicCSSNesting(const nsAString& aInput, nsAString& aOutput)
+FlattenBasicCSSNesting(const nsAString& aInput, nsAString& aOutput,
+                      nsTArray<uint32_t>& aParentGroupOffsets)
 {
   CSSNestingFlattener flattener(aInput);
-  return flattener.Flatten(aOutput);
+  return flattener.Flatten(aOutput, aParentGroupOffsets);
 }
 
 } // namespace css

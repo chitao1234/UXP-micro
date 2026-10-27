@@ -6,12 +6,18 @@
 #ifndef CSSNestingFlattener_h
 #define CSSNestingFlattener_h
 
+#include "nsTArray.h"
+
 class nsAString;
 
 namespace mozilla {
 namespace css {
 
-bool FlattenBasicCSSNesting(const nsAString& aInput, nsAString& aOutput);
+// Offsets identify only the :is() functions introduced for nesting parents.
+// Their lists must first be validated as ordinary (unforgiving) rule lists.
+// This provenance is transient parser input, never stored with a stylesheet.
+bool FlattenBasicCSSNesting(const nsAString& aInput, nsAString& aOutput,
+                           nsTArray<uint32_t>& aParentGroupOffsets);
 
 } // namespace css
 } // namespace mozilla

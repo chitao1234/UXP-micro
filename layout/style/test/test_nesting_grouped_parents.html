@@ -1,0 +1,201 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Grouped nesting parents: specificity, validation and matching</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+"use strict";
+SimpleTest.waitForExplicitFinish();
+SpecialPowers.pushPrefEnv({set:[["layout.css.nesting.enabled", true]]}, function() {
+  function check(css, markup, selector, expected, message, pseudo) {
+    const host = document.createElement("div");
+    host.innerHTML = markup;
+    document.body.appendChild(host);
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+    is(getComputedStyle(host.querySelector(selector), pseudo || null).color,
+       expected, message);
+    style.remove();
+    host.remove();
+  }
+  const red = "rgb(1, 2, 3)", blue = "rgb(4, 5, 6)";
+  check(".p, #absent { & .c {color:"+red+"} } .p .c {color:"+blue+"}",
+        '<div class="p"><b class="c"></b></div>', ".c", red,
+        "explicit nesting uses maximum parent-list specificity");
+  check(".p, #absent { .c {color:"+red+"} } .p .c {color:"+blue+"}",
+        '<div class="p"><b class="c"></b></div>', ".c", red,
+        "implicit descendant uses maximum parent-list specificity");
+  check(".p, #absent { & {color:"+red+"} } .p.p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", red,
+        "bare nesting group retains maximum parent-list specificity");
+  check(".a, .b { &.a + &.b {color:"+red+"} }",
+        '<i class="a"></i><i class="b"></i>', ".b", red,
+        "multiple ampersands can match distinct parent-list branches");
+  check("main > .p, #absent { section & {color:"+red+"} }",
+        '<section><main><i class="p"></i></main></section>', ".p", red,
+        "complex parent is one group when preceded by a nested ancestor");
+  check("main > .p { div& {color:"+red+"} }",
+        '<main><div class="p"></div></main>', ".p", red,
+        "type selector before ampersand qualifies the parent subject");
+  check(".p, #absent { :where(&) {color:"+red+"} } .p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", blue,
+        "where zeroes nesting specificity");
+  check(".missing { :is(.alternate, !&) {color:"+red+"} }",
+        '<div class="alternate"></div>', ".alternate", red,
+        "ampersand in an invalid forgiving branch still suppresses implicit prefix");
+  check(".missing { :is(.alternate, :unknown(div,&)) {color:"+red+"} }",
+        '<div class="alternate"></div>', ".alternate", red,
+        "unknown nested functional branch does not constrain another is branch");
+  check(":is(!:is(.missing), .alternate, :unknown(a,b)) {color:"+red+"}",
+        '<div class="alternate"></div>', ".alternate", red,
+        "forgiving selector recovery skips entire balanced invalid functions");
+  check(":is(.alternate, ???, .missing) {color:"+red+"}",
+        '<div class="alternate"></div>', ".alternate", red,
+        "forgiving selector recovery retains an earlier valid branch");
+  check(":is(::slotted(.bad), .p .c) {color:"+red+"}",
+        '<div class="p"><i class="c"></i></div>', ".c", red,
+        "invalid slotted branch cannot disable combinators in later is branch");
+  check(":where(::slotted(.bad), .p .c) {color:"+red+"}",
+        '<div class="p"><i class="c"></i></div>', ".c", red,
+        "invalid slotted branch cannot disable combinators in later where branch");
+  check("::slotted(.bad), .p .c { & {color:"+red+"} }",
+        '<div class="p"><i class="c"></i></div>', ".c", red,
+        "filtered pseudo-element parent cannot disable another complex parent");
+  check("li:has(strong) { :has(> &) {color:"+red+"} } ul {color:"+blue+"}",
+        '<ul><li><strong></strong></li></ul>', "ul", blue,
+        "grouping does not make nested has selectors valid");
+
+  check(".p, #absent::before { & {color:"+red+"} } .p.p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", blue,
+        "contextually invalid parent pseudo-element branch has zero specificity");
+  check(".p {color:"+blue+"} .p::before { content:'x';color:"+blue+"; & {color:"+red+"} color:"+blue+"}",
+        '<div class="p"></div>', ".p", blue,
+        "explicit nesting cannot match the originating element of a pseudo-element");
+  check(".p::before { content:'x';color:"+red+"; & {color:"+blue+"} color:"+red+"}",
+        '<div class="p"></div>', ".p", red,
+        "bare declarations around nesting still match parent pseudo-elements", "::before");
+  check(".p,#absent { @media all {color:"+red+"} } .p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", blue,
+        "bare declarations in nested group keep branch-specific parent specificity");
+  check(".p,#absent { @media all { & {color:"+red+"} } } .p.p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", red,
+        "explicit nesting through media still uses maximum parent specificity");
+  check(".p,#absent { @supports (color:red) { & {color:"+red+"} } } .p.p {color:"+blue+"}",
+        '<div class="p"></div>', ".p", red,
+        "group provenance survives conditional-rule output offsets");
+  check("@layer nested { .p,#absent { @media all { & {color:"+red+"} } } .p.p {color:"+blue+"} }",
+        '<div class="p"></div>', ".p", red,
+        "group provenance survives layer and media nesting");
+  check('@namespace "http://www.w3.org/2000/svg"; @namespace h "http://www.w3.org/1999/xhtml";'
+        +'h|div,#absent { &.p {color:'+red+'} }',
+        '<div class="p"></div>', ".p", red,
+        "nesting parent does not add an unrelated default namespace constraint");
+  check('@namespace h "http://www.w3.org/1999/xhtml"; h|div,#absent { h|span {color:'+red+'} }',
+        '<div><span></span></div>', "span", red,
+        "parent and child namespace selectors use the sheet namespace map");
+
+  check(".p {color:"+blue+"} .p,:unknown { & {color:"+red+"} }",
+        '<div class="p"></div>', ".p", blue,
+        "generated is cannot salvage an invalid ordinary parent list");
+  check(".p {color:"+blue+"} .p,,#absent { & {color:"+red+"} }",
+        '<div class="p"></div>', ".p", blue,
+        "empty ordinary parent-list entry remains invalid");
+  check(".p .c {color:"+blue+"} .p { .c,:unknown { & {color:"+red+"} } }",
+        '<div class="p"><i class="c"></i></div>', ".c", blue,
+        "invalid nested selector list cannot be salvaged by deeper grouping");
+  check(".p .c {color:"+blue+"} .p { &.c,:unknown {color:"+red+"} .c {color:"+blue+"} }",
+        '<div class="p"><i class="c"></i></div>', ".c", blue,
+        "invalid nested list does not damage following nested rules");
+  check(".p, #absent { .amp\\&ersand {color:"+red+"} }",
+        '<div class="p"><i class="amp&amp;ersand"></i></div>', "i", red,
+        "escaped ampersand is an identifier and gets implicit descendant prefix");
+  check(".comma\\,name,#absent { & .c {color:"+red+"} }",
+        '<div class="comma,name"><i class="c"></i></div>', ".c", red,
+        "escaped comma does not split the parent selector list");
+  check(".brace\\{name,#absent { & {color:"+red+"} }",
+        '<div class="brace{name"></div>', "div", red,
+        "escaped brace does not terminate the parent selector prelude");
+  check(".p { [data-value='&'] {color:"+red+"} }",
+        '<div class="p"><i data-value="&amp;"></i></div>', "i", red,
+        "attribute value ampersand is preserved");
+  check(".p { /* & */ .c {color:"+red+"} }",
+        '<div class="p"><i class="c"></i></div>', ".c", red,
+        "comment ampersand does not change nesting detection");
+
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(".a,.b,#absent { &.a + &.b { color:"+red+" } }");
+  is(sheet.cssRules.length, 1, "existing flat CSSOM contains one nested declaration rule");
+  const rule = sheet.cssRules[0];
+  ok(rule.selectorText.indexOf(":is(") >= 0, "flat CSSOM exposes standard grouped selectors");
+  const serialized = rule.selectorText;
+  rule.selectorText = serialized;
+  is(rule.selectorText, serialized, "grouped selectorText roundtrips through ordinary parser");
+  document.adoptedStyleSheets = [sheet];
+  const pair = document.createElement("div");
+  pair.innerHTML = '<i class="a"></i><i class="b"></i>';
+  document.body.appendChild(pair);
+  is(getComputedStyle(pair.lastChild).color, red, "CSSOM-reparsed grouped selector still matches");
+  pair.firstChild.className = "neither";
+  ok(getComputedStyle(pair.lastChild).color !== red, "parent-list mutation invalidates grouped match");
+  pair.firstChild.className = "a";
+  is(getComputedStyle(pair.lastChild).color, red, "parent-list mutation restores grouped match");
+  document.adoptedStyleSheets = [];
+  pair.remove();
+
+  const namespaceTarget = document.createElement("div");
+  namespaceTarget.className = "namespace-roundtrip";
+  document.body.appendChild(namespaceTarget);
+  const namespaceStyle = document.createElement("style");
+  namespaceStyle.textContent = '@namespace "http://www.w3.org/2000/svg";'
+    +'@namespace h "http://www.w3.org/1999/xhtml";'
+    +'h|div,#absent { &.namespace-roundtrip {color:'+red+'} }';
+  document.head.appendChild(namespaceStyle);
+  const namespaceRule = namespaceStyle.sheet.cssRules[2];
+  is(getComputedStyle(namespaceTarget).color, red, "namespaced grouped selector matches before CSSOM roundtrip");
+  ok(namespaceRule.selectorText.indexOf("*|") >= 0,
+     "CSSOM serializer preserves wildcard namespace outside the parent group");
+  namespaceRule.selectorText = namespaceRule.selectorText;
+  is(getComputedStyle(namespaceTarget).color, red,
+     "default-namespace grouped selector matches after CSSOM roundtrip");
+  namespaceStyle.remove();
+  namespaceTarget.remove();
+
+  for (const truncated of [":is(.p,", ":is(.p,!foo", ":is(.p,:unknown(", ":where(,,)"]) {
+    sheet.replaceSync(truncated);
+    is(sheet.cssRules.length, 0, "truncated forgiving list terminates without stale delimiter: "+truncated);
+  }
+
+  // Each level has four branches: the old distribution serialized 4^4=256
+  // outer selectors in the final rule. Grouping keeps four outer branches.
+  sheet.replaceSync(".p0,.p1,.p2,.p3 { .a0,.a1,.a2,.a3 { .b0,.b1,.b2,.b3 { .c0,.c1,.c2,.c3 {color:red} } } }");
+  const grouped = sheet.cssRules[0].selectorText;
+  let depth = 0, branches = 1;
+  for (const c of grouped) {
+    if (c === "(") ++depth;
+    if (c === ")") --depth;
+    if (c === "," && depth === 0) ++branches;
+  }
+  is(branches, 4, "nested selector list no longer expands parent-child Cartesian products");
+  ok(grouped.length < 9000, "bounded fixture serialized selector size stays below distributed control");
+  // Count the inner repeated conditions too: grouping is not DAG sharing and
+  // still duplicates parent text in each child branch. Do not infer linear
+  // memory growth from the number of outer branches alone.
+  const distributed = [];
+  for (let p=0;p<4;++p) for (let a=0;a<4;++a)
+    for (let b=0;b<4;++b) for (let c=0;c<4;++c)
+      distributed.push(".p"+p+" .a"+a+" .b"+b+" .c"+c);
+  window.nestingCensus = {
+    groupedBytes: grouped.length * 2,
+    groupedLeafConditions: (grouped.match(/\.[pabc][0-3]/g) || []).length,
+    groupedOuterBranches: branches,
+    distributedBytes: distributed.join(", ").length * 2,
+    distributedLeafConditions: distributed.length * 4,
+    distributedOuterBranches: distributed.length
+  };
+  ok(window.nestingCensus.groupedLeafConditions < window.nestingCensus.distributedLeafConditions,
+     "fixture reduces total leaf conditions as well as outer branches");
+  SimpleTest.finish();
+});
+</script>
