@@ -2228,9 +2228,8 @@ CSSStyleSheet::ReplaceSyncInternal(const nsAString& aText, ErrorResult& aRv)
                                   parsedSheet->GetBaseURI(),
                                   parsedSheet->Principal(), 1);
   if (NS_FAILED(rv)) {
-    parsedSheet->mInner->mOrderedRules.EnumerateForwards(SetStyleSheetReference,
-                                                         nullptr);
-    parsedSheet->mInner->mOrderedRules.Clear();
+    aRv.Throw(rv);
+    return;
   }
 
   for (int32_t index = parsedSheet->mInner->mOrderedRules.Count() - 1;
@@ -2267,16 +2266,13 @@ CSSStyleSheet::ReplaceSyncInternal(const nsAString& aText, ErrorResult& aRv)
   mInner->mFirstChild = nullptr;
   mInner->mNameSpaceMap = nullptr;
 
-  for (int32_t index = 0; index < parsedSheet->mInner->mOrderedRules.Count();
-       ++index) {
-    RefPtr<css::Rule> rule = parsedSheet->mInner->mOrderedRules.ObjectAt(index);
-    if (!mInner->mOrderedRules.AppendObject(rule)) {
-      aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
-      return;
-    }
+  // Transfer the already parsed rules without a fallible append after removing
+  // the old ones. Keep the existing CSSRuleList object live across replacement.
+  mInner->mOrderedRules.SwapElements(parsedSheet->mInner->mOrderedRules);
+  for (int32_t index = 0; index < mInner->mOrderedRules.Count(); ++index) {
+    RefPtr<css::Rule> rule = mInner->mOrderedRules.ObjectAt(index);
     rule->SetStyleSheet(this);
   }
-  parsedSheet->mInner->mOrderedRules.Clear();
   parsedSheet->mInner->mNameSpaceMap = nullptr;
 
   mInner->RebuildNameSpaces();

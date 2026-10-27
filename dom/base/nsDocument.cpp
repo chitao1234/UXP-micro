@@ -3901,9 +3901,15 @@ nsDocument::AdoptedStyleSheetsChanged(
 
   for (size_t i = 0; i < aOldSheets.Length(); ++i) {
     CSSStyleSheet* sheet = aOldSheets[i];
-    if (styleSet && sheet->IsApplicable() &&
-        aOldSheets.IndexOf(sheet) == i) {
-      styleSet->RemoveStyleSheet(SheetType::Doc, sheet);
+    if (aOldSheets.IndexOf(sheet) == i) {
+      if (styleSet && sheet->IsApplicable()) {
+        styleSet->RemoveStyleSheet(SheetType::Doc, sheet);
+      }
+      // Dirtying the rule processors alone does not invalidate already styled
+      // elements. Use the normal document observer path so EndUpdate also
+      // schedules restyles and rebuilds font/counter-style data. Adopted sheets
+      // are not members of document.styleSheets.
+      NotifyStyleSheetRemoved(sheet, false);
     }
     sheet->RemoveAdopter(this);
   }
@@ -3911,9 +3917,11 @@ nsDocument::AdoptedStyleSheetsChanged(
   for (size_t i = 0; i < aNewSheets.Length(); ++i) {
     CSSStyleSheet* sheet = aNewSheets[i];
     sheet->AddAdopter(this);
-    if (styleSet && sheet->IsApplicable() &&
-        aNewSheets.IndexOf(sheet) == i) {
-      styleSet->AppendStyleSheet(SheetType::Doc, sheet);
+    if (aNewSheets.IndexOf(sheet) == i) {
+      if (styleSet && sheet->IsApplicable()) {
+        styleSet->AppendStyleSheet(SheetType::Doc, sheet);
+      }
+      NotifyStyleSheetAdded(sheet, false);
     }
   }
 

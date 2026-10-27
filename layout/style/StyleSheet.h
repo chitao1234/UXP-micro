@@ -27,6 +27,7 @@ struct StyleSheetInfo;
 
 namespace dom {
 class CSSRuleList;
+class Promise;
 class ShadowRoot;
 class SRIMetadata;
 } // namespace dom
@@ -162,6 +163,7 @@ public:
   void DeleteRule(uint32_t aIndex,
                   nsIPrincipal& aSubjectPrincipal,
                   ErrorResult& aRv);
+  already_AddRefed<dom::Promise> Replace(const nsAString& aText, ErrorResult& aRv);
   void ReplaceSync(const nsAString& aText, ErrorResult& aRv);
   int32_t AddRule(const nsAString& aSelector, const nsAString& aBlock,
                   const dom::Optional<uint32_t>& aIndex,

@@ -7,6 +7,7 @@
 
 #include "mozilla/dom/BindingDeclarations.h" // for Optional<>
 #include "mozilla/dom/CSSRuleList.h"
+#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/StyleSheetInlines.h"
 #include "mozilla/CSSStyleSheet.h"
@@ -14,8 +15,10 @@
 #include "mozAutoDocUpdate.h"
 #include "nsContentUtils.h"
 #include "nsIMediaList.h"
+#include "nsIGlobalObject.h"
 #include "nsNullPrincipal.h"
 #include "nsPIDOMWindow.h"
+#include "nsThreadUtils.h"
 
 using namespace mozilla::dom;
 
@@ -342,6 +345,10 @@ StyleSheet::InsertRule(const nsAString& aRule, uint32_t aIndex,
   if (!AreRulesAvailable(aSubjectPrincipal, aRv)) {
     return 0;
   }
+  if (IsModificationDisallowed()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_ALLOWED_ERR);
+    return 0;
+  }
   return AsConcrete()->InsertRuleInternal(aRule, aIndex, aRv);
 }
 
@@ -353,7 +360,60 @@ StyleSheet::DeleteRule(uint32_t aIndex,
   if (!AreRulesAvailable(aSubjectPrincipal, aRv)) {
     return;
   }
+  if (IsModificationDisallowed()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_ALLOWED_ERR);
+    return;
+  }
   AsConcrete()->DeleteRuleInternal(aIndex, aRv);
+}
+
+already_AddRefed<Promise>
+StyleSheet::Replace(const nsAString& aText, ErrorResult& aRv)
+{
+  // A Promise-returning WebIDL operation turns these exceptions into rejected
+  // promises, including when a non-constructed sheet has no associated document.
+  if (!IsConstructed() || IsModificationDisallowed()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_ALLOWED_ERR);
+    return nullptr;
+  }
+
+  nsCOMPtr<nsIGlobalObject> global =
+    do_QueryInterface(mConstructorDocument->GetScopeObject());
+  if (!global) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return nullptr;
+  }
+  RefPtr<Promise> promise = Promise::Create(global, aRv);
+  if (aRv.Failed()) {
+    return nullptr;
+  }
+
+  // The parser is main-thread-only. Queue the work so replace() does not parse
+  // or change the rules in the caller's task. Keep only this operation's text,
+  // sheet and promise alive, with no permanent loader or cache allocation.
+  mDisallowModification = true;
+  RefPtr<StyleSheet> self = this;
+  nsString text(aText);
+  nsresult rv = NS_DispatchToMainThread(NS_NewRunnableFunction(
+    [self, promise, text]() {
+      ErrorResult error;
+      self->AsConcrete()->ReplaceSyncInternal(text, error);
+
+      // Promise resolution looks up a possible user-defined then getter on the
+      // sheet. Unlock before resolving so reentrant replace() starts a new,
+      // independent operation that this one cannot accidentally unlock.
+      self->mDisallowModification = false;
+      if (error.Failed()) {
+        promise->MaybeReject(error);
+      } else {
+        promise->MaybeResolve(self);
+      }
+    }));
+  if (NS_FAILED(rv)) {
+    mDisallowModification = false;
+    promise->MaybeReject(rv);
+  }
+  return promise.forget();
 }
 
 void
@@ -373,6 +433,10 @@ StyleSheet::AddRule(const nsAString& aSelector, const nsAString& aBlock,
                     nsIPrincipal& aSubjectPrincipal, ErrorResult& aRv)
 {
   if (!AreRulesAvailable(aSubjectPrincipal, aRv)) {
+    return -1;
+  }
+  if (IsModificationDisallowed()) {
+    aRv.Throw(NS_ERROR_DOM_NOT_ALLOWED_ERR);
     return -1;
   }
 

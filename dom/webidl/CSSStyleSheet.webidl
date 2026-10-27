@@ -25,6 +25,8 @@ interface CSSStyleSheet : StyleSheet {
   unsigned long insertRule(DOMString rule, optional unsigned long index = 0);
   [Throws, NeedsSubjectPrincipal]
   void deleteRule(unsigned long index);
+  [NewObject, Throws]
+  Promise<CSSStyleSheet> replace(DOMString text);
   [Throws]
   void replaceSync(DOMString text);
 

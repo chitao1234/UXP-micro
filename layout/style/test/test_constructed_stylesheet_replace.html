@@ -1,0 +1,174 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Constructed stylesheet asynchronous replacement</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="replace-target"></div>
+<div id="replace-shadow-host"></div>
+<script>
+"use strict";
+SimpleTest.waitForExplicitFinish();
+
+function throwsNotAllowed(action, description) {
+  try {
+    action();
+    ok(false, description);
+  } catch (error) {
+    is(error.name, "NotAllowedError", description);
+  }
+}
+
+async function rejectsNotAllowed(promise, description) {
+  ok(promise instanceof Promise, description + " returns a promise");
+  try {
+    await promise;
+    ok(false, description);
+  } catch (error) {
+    is(error.name, "NotAllowedError", description);
+  }
+}
+
+(async function() {
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync("#replace-target { color: rgb(1, 2, 3) }");
+  const rules = sheet.cssRules;
+  const oldRule = rules[0];
+  let settled = false;
+  const pending = sheet.replace("#replace-target { color: rgb(4, 5, 6) }");
+  pending.then(() => { settled = true; });
+  ok(pending instanceof Promise, "replace returns a promise");
+  is(rules[0], oldRule, "replace keeps old rules during the caller's task");
+  throwsNotAllowed(() => sheet.replaceSync("p {}"), "replaceSync is blocked while pending");
+  throwsNotAllowed(() => sheet.insertRule("p {}", 0), "insertRule is blocked while pending");
+  throwsNotAllowed(() => sheet.deleteRule(0), "deleteRule is blocked while pending");
+  throwsNotAllowed(() => sheet.addRule("p", "color:red"), "legacy addRule is blocked while pending");
+  const blocked = sheet.replace("p {}");
+  await rejectsNotAllowed(blocked, "second replace is rejected while pending");
+  is(rules[0], oldRule, "rejected concurrent replacement does not disturb old rules");
+  is(await pending, sheet, "replace resolves with exactly the original stylesheet");
+  ok(settled, "replacement settles");
+  is(sheet.cssRules, rules, "cssRules object survives replacement");
+  is(rules[0].style.color, "rgb(4, 5, 6)", "live list exposes new rules");
+  is(oldRule.parentStyleSheet, null, "replacement detaches previous rules");
+  is(oldRule.parentRule, null, "previous top-level rule has no parent rule");
+  is(oldRule.style.removeProperty("color"), "rgb(1, 2, 3)",
+     "detached rule keeps its own mutable declaration");
+  is(oldRule.style.color, "", "removing detached declaration updates old rule");
+  is(rules[0].style.color, "rgb(4, 5, 6)", "mutating detached rule does not mutate replacement");
+
+  const target = document.getElementById("replace-target");
+  const unadoptedColor = getComputedStyle(target).color;
+  document.adoptedStyleSheets = [sheet];
+  is(getComputedStyle(document.getElementById("replace-target")).color,
+     "rgb(4, 5, 6)", "new rules apply to document adopter");
+  const host = document.getElementById("replace-shadow-host");
+  const root = host.attachShadow({mode:"open"});
+  root.innerHTML = "<span>shadow</span>";
+  root.adoptedStyleSheets = [sheet];
+  await sheet.replace("#replace-target, span { color: rgb(7, 8, 9) }");
+  is(getComputedStyle(document.getElementById("replace-target")).color,
+     "rgb(7, 8, 9)", "replacement updates document adopter");
+  is(getComputedStyle(root.firstChild).color, "rgb(7, 8, 9)",
+     "replacement updates shadow adopter");
+
+  const later = new CSSStyleSheet();
+  later.replaceSync("#replace-target { color: rgb(10, 11, 12) }");
+  document.adoptedStyleSheets = [sheet, later];
+  is(getComputedStyle(target).color, "rgb(10, 11, 12)",
+     "adding an adopted sheet restyles an existing target");
+  document.adoptedStyleSheets = [later, sheet];
+  is(getComputedStyle(target).color, "rgb(7, 8, 9)",
+     "reordering adopted sheets restyles the cascade");
+  document.adoptedStyleSheets = [later];
+  is(getComputedStyle(target).color, "rgb(10, 11, 12)",
+     "removing the winning adopted sheet restyles the target");
+  document.adoptedStyleSheets = [];
+  is(getComputedStyle(target).color, unadoptedColor,
+     "removing all adopted sheets clears their style from existing target");
+  document.adoptedStyleSheets = [sheet];
+
+  const oldGroup = (await sheet.replace("@media all { p { color: red } }")).cssRules[0];
+  const oldChild = oldGroup.cssRules[0];
+  const groupReplacement = sheet.replace("div { color: blue }");
+  oldGroup.insertRule("b { color: green }", 1);
+  is(oldGroup.cssRules.length, 2,
+     "pending replacement does not block mutation of existing grouping rules");
+  await groupReplacement;
+  is(oldGroup.parentStyleSheet, null, "old group is detached");
+  is(oldChild.parentStyleSheet, null, "old group's descendants are detached");
+  is(oldChild.parentRule, oldGroup, "detached nested rule retains its detached group");
+
+  await sheet.replace('@import url("must-not-load-replace.css"); p { color: green }');
+  is(sheet.cssRules.length, 1, "replace discards import rules");
+  is(sheet.cssRules[0].selectorText, "p", "replace preserves rules after import");
+  is(performance.getEntriesByType("resource").filter(entry =>
+       entry.name.indexOf("must-not-load-replace.css") >= 0).length, 0,
+     "replace does not load imports");
+  await sheet.replace("!@#$%garbage");
+  is(sheet.cssRules.length, 0, "invalid CSS replaces with an empty ruleset");
+  await sheet.replace("p { color: red } @invalid; div { color: blue }");
+  is(sheet.cssRules.length, 2, "valid rules survive parse recovery");
+  await sheet.replace("");
+  is(sheet.cssRules.length, 0, "empty string clears existing rules");
+
+  let reentrant;
+  Object.defineProperty(sheet, "then", {configurable:true, get() {
+    delete sheet.then;
+    reentrant = sheet.replace("b { color: blue }");
+    return undefined;
+  }});
+  await sheet.replace("a { color: red }");
+  ok(reentrant instanceof Promise, "then getter can start another replacement");
+  await reentrant;
+  is(sheet.cssRules[0].selectorText, "b", "reentrant replacement settles independently");
+  sheet.replaceSync("c {}");
+  is(sheet.cssRules[0].selectorText, "c", "sheet remains modifiable after reentrancy");
+
+  const ordinaryStyle = document.createElement("style");
+  ordinaryStyle.textContent = "i { color: red }";
+  document.head.appendChild(ordinaryStyle);
+  const ordinary = ordinaryStyle.sheet;
+  await rejectsNotAllowed(ordinary.replace("b {}"), "ordinary sheet cannot be replaced");
+  ordinaryStyle.remove();
+  await rejectsNotAllowed(ordinary.replace("b {}"), "detached ordinary sheet cannot be replaced");
+  is(ordinary.cssRules[0].selectorText, "i", "rejected replacement leaves ordinary rules intact");
+
+  const iframe = document.createElement("iframe");
+  document.body.appendChild(iframe);
+  const foreign = new iframe.contentWindow.CSSStyleSheet();
+  const foreignReplacement = foreign.replace("p { color: red }");
+  // Attach active parent callbacks before removal. This engine suppresses jobs
+  // belonging to dying globals, including cross-realm await assimilation; that
+  // generic Promise lifetime behavior is separate from the sheet's queued job.
+  const detachedReplacement = new Promise((resolve, reject) =>
+    Promise.prototype.then.call(foreignReplacement, resolve, reject));
+  iframe.remove();
+  is(await detachedReplacement, foreign, "replacement completes after constructor iframe detaches");
+  is(foreign.cssRules[0].selectorText, "p", "detached constructor sheet retains parsed rules");
+
+  const namespaceSheet = new CSSStyleSheet();
+  await namespaceSheet.replace('@namespace svg "http://www.w3.org/2000/svg"; svg|circle { fill: red }');
+  is(namespaceSheet.cssRules.length, 2, "namespace declarations survive replacement");
+  is(namespaceSheet.cssRules[1].selectorText, "svg|circle", "namespace selector survives replacement");
+  namespaceSheet.insertRule("svg|rect { fill: blue }", 2);
+  is(namespaceSheet.cssRules[2].selectorText, "svg|rect", "new rules use replaced namespace map");
+
+  const independent = [new CSSStyleSheet(), new CSSStyleSheet(), new CSSStyleSheet()];
+  const results = await Promise.all(independent.map((value, index) =>
+    value.replace(".independent" + index + " { color: blue }")));
+  independent.forEach((value, index) => {
+    is(results[index], value, "independent replacement promise keeps sheet identity " + index);
+    is(value.cssRules[0].selectorText, ".independent" + index,
+       "independent replacement does not share another job's text " + index);
+  });
+  for (let i = 0; i < 20; ++i) {
+    await sheet.replace(".repeat" + i + " { color: red }");
+    is(sheet.cssRules.length, 1, "repeated replacement does not accumulate rules " + i);
+    is(sheet.cssRules[0].selectorText, ".repeat" + i, "repeated replacement stays usable " + i);
+  }
+
+  document.adoptedStyleSheets = [];
+  root.adoptedStyleSheets = [];
+})().catch(error => ok(false, String(error) + " " + error.stack))
+  .then(() => SimpleTest.finish());
+</script>
