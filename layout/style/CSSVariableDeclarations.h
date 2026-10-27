@@ -24,6 +24,9 @@ namespace mozilla {
 class CSSVariableDeclarations
 {
 public:
+  // This Gecko style-engine representation is confined to the main thread,
+  // including copies, reads, memory reporting and destruction.  Data uses
+  // non-atomic reference counting; its weak cache does not extend its lifetime.
   CSSVariableDeclarations();
   CSSVariableDeclarations(const CSSVariableDeclarations& aOther);
   ~CSSVariableDeclarations();
@@ -142,11 +145,13 @@ public:
   bool IsInterned() const;
 
   /**
-   * Diagnostics for the shared authored-variable store.
+   * Count every live Data allocation once, including uninterned copies and
+   * transient cascade accumulators, plus the weak sharing table.  Wrappers
+   * are counted by SizeOfIncludingThis in their owning declarations.
    */
-  static void GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
-                             size_t* aBytes, size_t* aUniqueBlocks,
-                             size_t* aReferences);
+  static void GetMemoryStats(mozilla::MallocSizeOf aMallocSizeOf,
+                            size_t* aBytes, size_t* aUniqueBlocks,
+                            size_t* aReferences);
 
   /**
    * Copies each variable value from this object into aRuleData, unless that
@@ -167,9 +172,12 @@ public:
   void ResolveRevertLayerFallbacks(const CSSVariableValues* aInherited,
                                    CSSVariableValues* aOutput) const;
 
+  // Data is reported globally by GetMemoryStats, since even an uninterned
+  // block can be shared by multiple wrappers through copy-on-write.
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 
 private:
+  friend class CSSVariableDeclarationsTest;
   struct RevertLayerFallback
   {
     nsString mValue;
@@ -191,6 +199,7 @@ private:
   Data* EnsureWritableData();
   const Data* GetData() const { return mData; }
   void EnsureHashOrder();
+  void InternWithHash(uint64_t aHash);
   static void RemoveInternedData(void* aData);
 
   RefPtr<Data> mData;

@@ -10,10 +10,11 @@
 #include "CSSVariableResolver.h"
 #include "CSSVariableValues.h"
 #include "nsCSSScanner.h"
-#include "mozilla/Mutex.h"
+#include "mozilla/LinkedList.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RefCounted.h"
 #include "nsHashKeys.h"
+#include "nsThreadUtils.h"
 #include <cstring>
 #include "nsRuleData.h"
 
@@ -234,7 +235,8 @@ IsComputedRevertLayerValue(const nsString& aValue)
   return trimmed.EqualsLiteral("revert-layer");
 }
 
-struct CSSVariableDeclarations::Data : public RefCounted<Data>
+struct CSSVariableDeclarations::Data : public RefCounted<Data>,
+                                       public LinkedListElement<Data>
 {
   struct Entry
   {
@@ -244,7 +246,33 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>
     uint32_t mValueLength;
   };
 
-  MOZ_DECLARE_REFCOUNTED_TYPENAME(Data)
+  MOZ_DECLARE_REFCOUNTED_TYPENAME(CSSVariableDeclarations::Data)
+
+  // The registry is weak and main-thread-only, just like the interning table.
+  // Keep its sentinel alive through late stylesheet destruction at shutdown.
+  static LinkedList<Data>& LiveData()
+  {
+    static auto* list = new LinkedList<Data>();
+    return *list;
+  }
+
+  Data()
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    LiveData().insertBack(this);
+  }
+
+  void AddRef() const
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    RefCounted<Data>::AddRef();
+  }
+
+  void Release() const
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    RefCounted<Data>::Release();
+  }
 
   nsTArray<char16_t> mStrings;
   nsTArray<Entry> mEntries;
@@ -269,9 +297,11 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>
 
   ~Data()
   {
+    MOZ_ASSERT(NS_IsMainThread());
     if (mInterned) {
       RemoveInternedData(this);
     }
+    remove();
     delete mOrderIndex;
   }
 
@@ -541,31 +571,46 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>
     return copy.forget();
   }
 
-  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                            nsTHashtable<nsPtrHashKey<nsStringBuffer>>& aSeen) const
   {
     size_t n = aMallocSizeOf(this);
     n += mStrings.ShallowSizeOfExcludingThis(aMallocSizeOf);
     n += mEntries.ShallowSizeOfExcludingThis(aMallocSizeOf);
     n += mIndex.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    auto stringSize = [&](const nsAString& aString) -> size_t {
+      nsStringBuffer* buffer = nsStringBuffer::FromString(aString);
+      if (buffer) {
+        if (aSeen.Contains(buffer)) {
+          return 0;
+        }
+        aSeen.PutEntry(buffer);
+      }
+      return aString.SizeOfExcludingThisEvenIfShared(aMallocSizeOf);
+    };
     if (mOrderIndex) {
+      n += aMallocSizeOf(mOrderIndex);
       n += mOrderIndex->ShallowSizeOfExcludingThis(aMallocSizeOf);
+      for (auto iter = mOrderIndex->ConstIter(); !iter.Done(); iter.Next()) {
+        n += stringSize(iter.Key());
+      }
     }
     n += mRevertLayerSources.ShallowSizeOfExcludingThis(aMallocSizeOf);
     for (auto iter = mRevertLayerSources.ConstIter(); !iter.Done();
          iter.Next()) {
-      n += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
-      n += iter.Data().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+      n += stringSize(iter.Key());
+      n += stringSize(iter.Data());
     }
     n += mRevertLayerFallbacks.ShallowSizeOfExcludingThis(aMallocSizeOf);
     for (auto iter = mRevertLayerFallbacks.ConstIter(); !iter.Done();
          iter.Next()) {
-      n += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+      n += stringSize(iter.Key());
       const RevertLayerFallbackList* list = iter.UserData();
       n += aMallocSizeOf(list);
       n += list->mItems.ShallowSizeOfExcludingThis(aMallocSizeOf);
       for (uint32_t i = 0, len = list->mItems.Length(); i < len; i++) {
-        n += list->mItems[i].mValue.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
-        n += list->mItems[i].mSource.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+        n += stringSize(list->mItems[i].mValue);
+        n += stringSize(list->mItems[i].mSource);
       }
     }
     return n;
@@ -574,15 +619,16 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>
 
 // Weak cache of immutable authored variable sets.  Entries are removed by the
 // Data destructor, so the cache never owns data that no declaration uses.
-static Mutex* sAuthoredCacheMutex = new Mutex("CSSVariableDeclarationsData");
+// All accesses and Data reference-count operations are confined to the main
+// thread.  A table mutex alone would not protect a weak pointer from destruction.
 static nsDataHashtable<nsUint64HashKey, void*>* sAuthoredCache =
   new nsDataHashtable<nsUint64HashKey, void*>();
 
 /* static */ void
 CSSVariableDeclarations::RemoveInternedData(void* aData)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   Data* data = static_cast<Data*>(aData);
-  MutexAutoLock lock(*sAuthoredCacheMutex);
   void* cached = nullptr;
   if (sAuthoredCache->Get(data->mHash, &cached) && cached == data) {
     sAuthoredCache->Remove(data->mHash);
@@ -591,6 +637,7 @@ CSSVariableDeclarations::RemoveInternedData(void* aData)
 
 CSSVariableDeclarations::CSSVariableDeclarations()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_COUNT_CTOR(CSSVariableDeclarations);
 }
 
@@ -598,17 +645,20 @@ CSSVariableDeclarations::CSSVariableDeclarations(
     const CSSVariableDeclarations& aOther)
   : mData(aOther.mData)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_COUNT_CTOR(CSSVariableDeclarations);
 }
 
 CSSVariableDeclarations::~CSSVariableDeclarations()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_COUNT_DTOR(CSSVariableDeclarations);
 }
 
 CSSVariableDeclarations&
 CSSVariableDeclarations::operator=(const CSSVariableDeclarations& aOther)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (this != &aOther) {
     mData = aOther.mData;
   }
@@ -618,6 +668,7 @@ CSSVariableDeclarations::operator=(const CSSVariableDeclarations& aOther)
 CSSVariableDeclarations::Data*
 CSSVariableDeclarations::EnsureWritableData()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mData) {
     mData = new Data();
   } else if (mData->refCount() > 1 || mData->mInterned) {
@@ -644,20 +695,33 @@ CSSVariableDeclarations::EnsureHashOrder()
 uint32_t
 CSSVariableDeclarations::Count() const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   return mData ? mData->mEntries.Length() : 0;
 }
 
 bool
 CSSVariableDeclarations::IsInterned() const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   return mData && mData->mInterned;
 }
 
 void
 CSSVariableDeclarations::Intern()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mData || mData->mInterned ||
       !Preferences::GetBool("layout.css.vars.authored.intern", true)) {
+    return;
+  }
+  InternWithHash(mData->Hash());
+}
+
+void
+CSSVariableDeclarations::InternWithHash(uint64_t aHash)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!mData || mData->mInterned || mData->mOrderIndex) {
     return;
   }
   // The revert-layer side tables are rare and have their own lifetime rules;
@@ -667,34 +731,36 @@ CSSVariableDeclarations::Intern()
     return;
   }
 
-  uint64_t hash = mData->Hash();
-  MutexAutoLock lock(*sAuthoredCacheMutex);
   void* cached = nullptr;
-  if (sAuthoredCache->Get(hash, &cached) &&
-      static_cast<Data*>(cached)->Equals(*mData)) {
-    mData = static_cast<Data*>(cached);
+  if (sAuthoredCache->Get(aHash, &cached)) {
+    if (static_cast<Data*>(cached)->Equals(*mData)) {
+      mData = static_cast<Data*>(cached);
+    }
+    // Keep the original cache member on a collision.  The unequal block stays
+    // uninterned (and is still in LiveData for unique memory accounting).
     return;
   }
-  mData->mHash = hash;
+  mData->mHash = aHash;
+  sAuthoredCache->Put(aHash, mData);
   mData->mInterned = true;
-  sAuthoredCache->Put(hash, mData);
 }
 
 /* static */ void
-CSSVariableDeclarations::GetInternStats(mozilla::MallocSizeOf aMallocSizeOf,
+CSSVariableDeclarations::GetMemoryStats(mozilla::MallocSizeOf aMallocSizeOf,
                                         size_t* aBytes, size_t* aUniqueBlocks,
                                         size_t* aReferences)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   size_t bytes = 0, blocks = 0, refs = 0;
-  MutexAutoLock lock(*sAuthoredCacheMutex);
-  for (auto iter = sAuthoredCache->ConstIter(); !iter.Done(); iter.Next()) {
-    Data* data = static_cast<Data*>(iter.UserData());
-    bytes += data->SizeOfExcludingThis(aMallocSizeOf);
+  nsTHashtable<nsPtrHashKey<nsStringBuffer>> seen;
+  for (Data* data = Data::LiveData().getFirst(); data; data = data->getNext()) {
+    bytes += data->SizeOfIncludingThis(aMallocSizeOf, seen);
     blocks++;
     refs += data->refCount();
   }
   bytes += sAuthoredCache->ShallowSizeOfExcludingThis(aMallocSizeOf);
   bytes += aMallocSizeOf(sAuthoredCache);
+  bytes += aMallocSizeOf(&Data::LiveData());
   *aBytes = bytes;
   *aUniqueBlocks = blocks;
   *aReferences = refs;
@@ -728,6 +794,7 @@ CSSVariableDeclarations::CopyVariablesFrom(
 bool
 CSSVariableDeclarations::Has(const nsAString& aName) const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   return mData && mData->Find(aName) != nsTArray<Data::Entry>::NoIndex;
 }
 
@@ -736,6 +803,7 @@ CSSVariableDeclarations::Get(const nsAString& aName,
                              Type& aType,
                              nsString& aTokenStream) const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mData) {
     return false;
   }
@@ -811,6 +879,7 @@ CSSVariableDeclarations::PutRevertLayer(const nsAString& aName)
 void
 CSSVariableDeclarations::Remove(const nsAString& aName)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (mData) {
     EnsureWritableData()->Remove(aName);
   }
@@ -819,6 +888,7 @@ CSSVariableDeclarations::Remove(const nsAString& aName)
 void
 CSSVariableDeclarations::MapRuleInfoInto(nsRuleData* aRuleData)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!(aRuleData->mSIDs & NS_STYLE_INHERIT_BIT(Variables)) || !mData) {
     return;
   }
@@ -874,6 +944,7 @@ void
 CSSVariableDeclarations::AddVariablesToResolver(
                                            CSSVariableResolver* aResolver) const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mData) {
     return;
   }
@@ -930,6 +1001,7 @@ CSSVariableDeclarations::ResolveRevertLayerFallbacks(
                                              const CSSVariableValues* aInherited,
                                              CSSVariableValues* aOutput) const
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mData) {
     return;
   }
@@ -1010,10 +1082,7 @@ size_t
 CSSVariableDeclarations::SizeOfIncludingThis(
                                       mozilla::MallocSizeOf aMallocSizeOf) const
 {
-  size_t n = aMallocSizeOf(this);
-  if (mData && !mData->mInterned) {
-    n += mData->SizeOfExcludingThis(aMallocSizeOf);
-  }
-  return n;
+  MOZ_ASSERT(NS_IsMainThread());
+  return aMallocSizeOf(this);
 }
 } // namespace mozilla

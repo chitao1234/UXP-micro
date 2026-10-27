@@ -59,18 +59,20 @@ public:
                             nsISupports* aData, bool aAnonymize) override
   {
     size_t bytes = 0, blocks = 0, refs = 0;
-    CSSVariableDeclarations::GetInternStats(MallocSizeOf, &bytes, &blocks,
+    CSSVariableDeclarations::GetMemoryStats(MallocSizeOf, &bytes, &blocks,
                                             &refs);
     MOZ_COLLECT_REPORT(
       "explicit/layout/style/authored-variable-declarations", KIND_HEAP,
       UNITS_BYTES, bytes,
-      "Heap memory used by shared authored custom-property declaration "
-      "sets, including the sharing table.");
+      "Heap memory used by all live authored custom-property declaration "
+      "data, including shared sets, transient cascade data and the weak "
+      "sharing table. Each data block is counted once; wrappers are counted "
+      "with their owning declarations.");
     MOZ_COLLECT_REPORT(
       "explicit/layout/style/authored-variable-declaration-refs", KIND_OTHER,
       UNITS_COUNT, refs,
-      "Number of declarations referring to shared authored custom-property "
-      "declaration sets.");
+      "Number of references to live authored custom-property declaration "
+      "data, including shared and uninterned sets.");
     return NS_OK;
   }
 };

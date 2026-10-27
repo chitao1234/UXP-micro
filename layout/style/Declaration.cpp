@@ -1974,10 +1974,10 @@ Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
   n += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += mData          ? mData         ->SizeOfIncludingThis(aMallocSizeOf) : 0;
   n += mImportantData ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  if (mVariables && !mVariables->IsInterned()) {
+  if (mVariables) {
     n += mVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
-  if (mImportantVariables && !mImportantVariables->IsInterned()) {
+  if (mImportantVariables) {
     n += mImportantVariables->SizeOfIncludingThis(aMallocSizeOf);
   }
   return n;
