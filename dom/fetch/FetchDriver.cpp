@@ -535,7 +535,15 @@ FetchDriver::OnStartRequest(nsIRequest* aRequest,
     // Cancel request.
     return rv;
   }
-  response->SetBody(pipeInputStream, contentLength);
+  // HEAD and null-body status responses have no body, even though the
+  // channel plumbing uses a pipe for a uniform stream listener lifetime.
+  nsAutoCString requestMethod;
+  mRequest->GetMethod(requestMethod);
+  uint16_t status = response->GetStatus();
+  if (!requestMethod.EqualsLiteral("HEAD") && status != 101 && status != 204 &&
+      status != 205 && status != 304) {
+    response->SetBody(pipeInputStream, contentLength);
+  }
 
   response->InitChannelInfo(channel);
 
@@ -912,6 +920,9 @@ FetchDriver::SetRequestHeaders(nsIHttpChannel* aChannel) const
 
 void FetchDriver::Aborted()
 {
+  // Synchronous observer callbacks can drop the last owner or reenter signal
+  // cancellation. Keep the driver alive until the channel is cancelled.
+  RefPtr<FetchDriver> pinThis = this;
   if (mObserver) {
 #ifdef DEBUG
     mResponseAvailableCalled = true;

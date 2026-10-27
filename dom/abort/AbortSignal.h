@@ -7,11 +7,14 @@
 #define mozilla_dom_AbortSignal_h
 
 #include "mozilla/DOMEventTargetHelper.h"
+#include "nsTObserverArray.h"
+#include "mozilla/ErrorResult.h"
 
 namespace mozilla {
 namespace dom {
 
 class AbortSignal;
+class Promise;
 
 class AbortSignal final : public DOMEventTargetHelper
 {
@@ -36,7 +39,7 @@ public:
   };
 
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(AbortSignal, DOMEventTargetHelper)
+  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(AbortSignal, DOMEventTargetHelper)
 
   AbortSignal(nsIGlobalObject* aGlobalObject, bool aAborted);
   explicit AbortSignal(bool aAborted);
@@ -47,14 +50,22 @@ public:
   bool
   Aborted() const;
 
-  void Abort();
-  void Timeout();
+  // Native cancellation transports can signal without a JS context. Default
+  // exceptions are materialized lazily by GetReason on the owning thread.
+  void Abort(nsresult aDefaultReason = NS_ERROR_DOM_ABORT_ERR);
+  void SignalAbort(JS::Handle<JS::Value> aReason);
+  void GetReason(JSContext* aCx, JS::MutableHandle<JS::Value> aReason,
+                 ErrorResult& aRv);
+  void ThrowIfAborted(ErrorResult& aRv);
+  void RejectPromise(Promise* aPromise);
 
   IMPL_EVENT_HANDLER(abort);
-  IMPL_EVENT_HANDLER(timeout);
 
-  static already_AddRefed<AbortSignal> Abort(GlobalObject& aGlobal);
-  static already_AddRefed<AbortSignal> Timeout(GlobalObject& aGlobal, uint64_t aMilliseconds);
+  static already_AddRefed<AbortSignal> Abort(GlobalObject& aGlobal,
+                                             JS::Handle<JS::Value> aReason);
+  static already_AddRefed<AbortSignal> Timeout(GlobalObject& aGlobal,
+                                               uint64_t aMilliseconds,
+                                               ErrorResult& aRv);
 
   void
   AddFollower(Follower* aFollower);
@@ -63,10 +74,16 @@ public:
   RemoveFollower(Follower* aFollower);
 
 private:
-  ~AbortSignal() = default;
+  friend class AbortController;
+  ~AbortSignal();
+  void SetAbortedReason(JS::Handle<JS::Value> aReason);
+  void RunAbortSteps();
 
   // Raw pointers. Follower unregisters itself in the DTOR.
-  nsTArray<Follower*> mFollowers;
+  nsTObserverArray<Follower*> mFollowers;
+
+  JS::Heap<JS::Value> mReason;
+  nsresult mDefaultReason;
 
   bool mAborted;
 };

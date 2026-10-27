@@ -64,20 +64,24 @@ public:
   FetchStreamWorkerHolderShutdown(WorkerPrivate* aWorkerPrivate,
                                   UniquePtr<WorkerHolder>&& aHolder,
                                   nsCOMPtr<nsIGlobalObject>&& aGlobal,
-                                  RefPtr<FetchStreamHolder>&& aStreamHolder)
+                                  RefPtr<FetchStreamHolder>&& aStreamHolder,
+                                  FetchStream* aStream)
     : WorkerControlRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
     , mHolder(Move(aHolder))
     , mGlobal(Move(aGlobal))
     , mStreamHolder(Move(aStreamHolder))
+    , mStream(aStream)
   {}
 
   bool
   WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
   {
+    mStream->ReleaseInputStreams();
+    mStream = nullptr;
     mHolder = nullptr;
     mGlobal = nullptr;
 
-    mStreamHolder->NullifyStream();
+    mStreamHolder->StopFollowingSignal();
     mStreamHolder = nullptr;
 
     return true;
@@ -100,6 +104,7 @@ private:
   UniquePtr<WorkerHolder> mHolder;
   nsCOMPtr<nsIGlobalObject> mGlobal;
   RefPtr<FetchStreamHolder> mStreamHolder;
+  RefPtr<FetchStream> mStream;
 };
 
 } // anonymous
@@ -368,8 +373,9 @@ FetchStream::ErroredCallback(JSContext* aCx, JS::HandleObject aStream,
   FetchStream* stream = static_cast<FetchStream*>(aUnderlyingSource);
   stream->AssertIsOnOwningThread();
 
-  if (stream->mState == eInitializing) {
-    // The stream has been used for the first time.
+  if (stream->mState == eInitializing && JS::ReadableStreamIsDisturbed(aStream)) {
+    // An abort can error an idle stream. Erroring alone does not disturb it;
+    // only mark a body as used once a read/cancel actually disturbed it.
     stream->mStreamHolder->MarkAsRead();
   }
 
@@ -428,19 +434,28 @@ FetchStream::ErrorPropagation(JSContext* aCx,
     return;
   }
 
-  // Let's close the stream.
-  if (aError == NS_BASE_STREAM_CLOSED) {
+  // An abort can close the pipe before the read callback runs. Preserve its
+  // reason rather than reporting EOF in that case.
+  AbortSignal* signal = mStreamHolder->GetSignal();
+  if (aError == NS_BASE_STREAM_CLOSED && !(signal && signal->Aborted())) {
     CloseAndReleaseObjects(aCx, aProofOfLock, aStream);
     return;
   }
 
   nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(mGlobal);
 
-  // Let's use a generic error.
-  RefPtr<DOMError> error = new DOMError(window, NS_ERROR_DOM_TYPE_ERR);
-
   JS::Rooted<JS::Value> errorValue(aCx);
-  if (ToJSValue(aCx, error, &errorValue)) {
+  bool haveReason = false;
+  if (signal && signal->Aborted()) {
+    ErrorResult rv;
+    signal->GetReason(aCx, &errorValue, rv);
+    haveReason = !rv.Failed();
+    rv.SuppressException();
+  } else {
+    RefPtr<DOMError> error = new DOMError(window, NS_ERROR_DOM_TYPE_ERR);
+    haveReason = ToJSValue(aCx, error, &errorValue);
+  }
+  if (haveReason) {
     MutexAutoUnlock unlock(mMutex);
     JS::ReadableStreamError(aCx, aStream, errorValue);
   }
@@ -563,6 +578,21 @@ FetchStream::CloseAndReleaseObjects(JSContext* aCx,
 }
 
 void
+FetchStream::ReleaseInputStreams()
+{
+  AssertIsOnOwningThread();
+  MutexAutoLock lock(mMutex);
+  if (mInputStream) {
+    mInputStream->CloseWithStatus(NS_BASE_STREAM_CLOSED);
+    mInputStream = nullptr;
+  }
+  if (mOriginalInputStream) {
+    mOriginalInputStream->Close();
+    mOriginalInputStream = nullptr;
+  }
+}
+
+void
 FetchStream::ReleaseObjects()
 {
   MutexAutoLock lock(mMutex);
@@ -588,19 +618,20 @@ FetchStream::ReleaseObjects(const MutexAutoLock& aProofOfLock)
     RefPtr<FetchStreamWorkerHolderShutdown> r =
       new FetchStreamWorkerHolderShutdown(
         static_cast<FetchStreamWorkerHolder*>(mWorkerHolder.get())->GetWorkerPrivate(),
-        Move(mWorkerHolder), Move(mGlobal), Move(mStreamHolder));
+        Move(mWorkerHolder), Move(mGlobal), Move(mStreamHolder), this);
     r->Dispatch();
   } else {
     RefPtr<FetchStream> self = this;
     RefPtr<Runnable> r = NS_NewRunnableFunction(
       [self] () {
+        self->ReleaseInputStreams();
         nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
         if (os) {
           os->RemoveObserver(self, DOM_WINDOW_DESTROYED_TOPIC);
         }
         self->mGlobal = nullptr;
 
-        self->mStreamHolder->NullifyStream();
+        self->mStreamHolder->StopFollowingSignal();
         self->mStreamHolder = nullptr;
       });
 

@@ -7,10 +7,13 @@
 [Exposed=(Window,Worker),
  Func="AbortController::IsEnabled"]
 interface AbortSignal : EventTarget {
-  [NewObject] static AbortSignal abort();
-  [NewObject] static AbortSignal timeout(unsigned long long milliseconds);
+  [NewObject] static AbortSignal abort(optional any reason);
+  [NewObject, Throws]
+  static AbortSignal timeout([EnforceRange] unsigned long long milliseconds);
   
   readonly attribute boolean aborted;
+  [Throws] readonly attribute any reason;
+  [Throws] void throwIfAborted();
 
   attribute EventHandler onabort;
 };

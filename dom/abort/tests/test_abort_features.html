@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abort reasons and deadlines</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script src="abort_features.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+(async function() {
+  await new Promise(resolve => SpecialPowers.pushPrefEnv({set: [["dom.abortController.enabled", true], ["dom.fetchObserver.enabled", true]]}, resolve));
+  const base = new URL("slow.sjs", location.href).href;
+  const result = await runAbortDeadlineTests(base);
+  is(result.fail.length, 0, JSON.stringify(result));
+  const source = "(" + runAbortDeadlineTests.toString() + ")(" + JSON.stringify(base) + ").then(r=>postMessage(r));";
+  const url = URL.createObjectURL(new Blob([source], {type:"application/javascript"}));
+  const worker = new Worker(url);
+  const workerResult = await new Promise((resolve,reject) => {worker.onmessage=e=>resolve(e.data);worker.onerror=reject;});
+  is(workerResult.fail.length,0,JSON.stringify(workerResult));
+  worker.terminate();URL.revokeObjectURL(url);
+})().catch(e=>ok(false,String(e))).then(()=>SimpleTest.finish());
+</script>

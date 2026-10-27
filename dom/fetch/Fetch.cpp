@@ -63,7 +63,6 @@ class AbortSignalProxy final : public AbortSignal::Follower
   // This value is used only for the creation of AbortSignal on the
   // main-thread. They are not updated.
   const bool mAborted;
-
   // This runnable propagates changes from the AbortSignal on workers to the
   // AbortSignal on main-thread.
   class AbortSignalProxyRunnable final : public Runnable
@@ -127,6 +126,7 @@ public:
 private:
   ~AbortSignalProxy()
   {
+    MOZ_ASSERT(!mFollowingSignal);
     NS_ReleaseOnMainThread(mSignalMainThread.forget());
   }
 };
@@ -142,6 +142,40 @@ class WorkerFetchResolver final : public FetchDriverObserver
   RefPtr<PromiseWorkerProxy> mPromiseProxy;
   RefPtr<AbortSignalProxy> mSignalProxy;
   RefPtr<FetchObserver> mFetchObserver;
+  UniquePtr<workers::WorkerHolder> mWorkerHolder;
+
+  class ResolverWorkerHolder final : public workers::WorkerHolder
+  {
+    WorkerFetchResolver* mResolver; // Resolver owns this and a lifecycle ref.
+  public:
+    explicit ResolverWorkerHolder(WorkerFetchResolver* aResolver) : mResolver(aResolver) {}
+    bool Notify(workers::Status aStatus) override
+    {
+      if (aStatus >= workers::Canceling) {
+        // Cancellation transports only a native bool to main; JS reasons and
+        // observer wrappers are detached here on their owning worker thread.
+        if (mResolver->mSignalProxy) {
+          mResolver->mSignalProxy->Aborted();
+        }
+        mResolver->mPromiseProxy->CleanUp();
+        mResolver->ReleaseWorkerState();
+      }
+      return true;
+    }
+  };
+
+  void ReleaseWorkerState()
+  {
+    mFetchObserver = nullptr;
+    if (mSignalProxy) {
+      mSignalProxy->Shutdown();
+      mSignalProxy = nullptr;
+    }
+    if (mWorkerHolder) {
+      mWorkerHolder = nullptr;
+      Release(); // Drop the lifecycle ref on the worker, after JS detach.
+    }
+  }
 
 public:
   // Returns null if worker is shutting down.
@@ -164,19 +198,18 @@ public:
 
     RefPtr<WorkerFetchResolver> r =
       new WorkerFetchResolver(proxy, signalProxy, aObserver);
-    return r.forget();
-  }
-
-  AbortSignal*
-  GetAbortSignalForMainThread()
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-
-    if (!mSignalProxy) {
+    r->mWorkerHolder.reset(new ResolverWorkerHolder(r));
+    if (!r->mWorkerHolder->HoldWorker(aWorkerPrivate, workers::Canceling)) {
+      r->mWorkerHolder = nullptr;
+      proxy->CleanUp();
+      r->ReleaseWorkerState();
       return nullptr;
     }
-
-    return mSignalProxy->GetOrCreateSignalForMainThread();
+    // A main-thread early return or dispatch failure cannot destroy worker
+    // DOM references. Shutdown always detaches the signal/reason and observer
+    // on their owning thread before the cross-thread resolver is released.
+    NS_ADDREF(r.get());
+    return r.forget();
   }
 
   AbortSignal*
@@ -213,7 +246,9 @@ private:
   }
 
   ~WorkerFetchResolver()
-  {}
+  {
+    MOZ_ASSERT(!mSignalProxy && !mFetchObserver && !mWorkerHolder);
+  }
 
   virtual void
   FlushConsoleReport() override;
@@ -247,7 +282,11 @@ public:
   void OnResponseEnd(FetchDriverObserver::EndReason aReason) override
   {
     if (aReason == eAborted) {
-      mPromise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+      if (mSignal && mSignal->Aborted()) {
+        mSignal->RejectPromise(mPromise);
+      } else {
+        mPromise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+      }
     }
 
     mFetchObserver = nullptr;
@@ -286,6 +325,7 @@ public:
   {
     AssertIsOnMainThread();
     RefPtr<FetchDriver> fetch;
+    RefPtr<AbortSignalProxy> signalProxy;
     RefPtr<PromiseWorkerProxy> proxy = mResolver->mPromiseProxy;
 
     {
@@ -306,9 +346,13 @@ public:
         proxy->GetWorkerPrivate()->GetBaseURI()->GetAsciiSpec(spec);
       }
       fetch->SetWorkerScript(spec);
+      // Copy under the same lock that orders worker cleanup. Reading the
+      // resolver RefPtr after unlocking would race ReleaseWorkerState().
+      signalProxy = mResolver->mSignalProxy;
     }
 
-    RefPtr<AbortSignal> signal = mResolver->GetAbortSignalForMainThread();
+    RefPtr<AbortSignal> signal = signalProxy
+      ? signalProxy->GetOrCreateSignalForMainThread() : nullptr;
 
     // ...but release it before calling Fetch, because mResolver's callback can
     // be called synchronously and they want the mutex, too.
@@ -352,8 +396,8 @@ FetchRequest(nsIGlobalObject* aGlobal, const RequestOrUSVString& aInput,
   
   if (signal && signal->Aborted()) {
     // An already aborted signal should reject immediately.
-    aRv.Throw(NS_ERROR_DOM_ABORT_ERR);
-    return nullptr;
+    signal->RejectPromise(p);
+    return p.forget();
   }
 
   RefPtr<FetchObserver> observer;
@@ -486,6 +530,12 @@ public:
   {
     MOZ_ASSERT(aWorkerPrivate);
     aWorkerPrivate->AssertIsOnWorkerThread();
+    {
+      MutexAutoLock lock(mResolver->mPromiseProxy->Lock());
+      if (mResolver->mPromiseProxy->CleanedUp()) {
+        return true;
+      }
+    }
 
     RefPtr<Promise> promise = mResolver->mPromiseProxy->WorkerPromise();
 
@@ -556,12 +606,7 @@ public:
 
     mResolver->mPromiseProxy->CleanUp();
 
-    mResolver->mFetchObserver = nullptr;
-
-    if (mResolver->mSignalProxy) {
-      mResolver->mSignalProxy->Shutdown();
-      mResolver->mSignalProxy = nullptr;
-    }
+    mResolver->ReleaseWorkerState();
   }
 };
 
@@ -583,9 +628,20 @@ public:
   bool
   WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
   {
+    {
+      MutexAutoLock lock(mResolver->mPromiseProxy->Lock());
+      if (mResolver->mPromiseProxy->CleanedUp()) {
+        return true;
+      }
+    }
     if (mReason == FetchDriverObserver::eAborted) {
       RefPtr<Promise> promise = mResolver->mPromiseProxy->WorkerPromise();
-      promise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+      AbortSignal* signal = mResolver->GetAbortSignalForTargetThread();
+      if (signal && signal->Aborted()) {
+        signal->RejectPromise(promise);
+      } else {
+        promise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+      }
     }
 
     WorkerRunInternal(aWorkerPrivate);
@@ -900,6 +956,37 @@ template
 FetchBody<Response>::FetchBody(nsIGlobalObject* aOwner);
 
 template <class Derived>
+void
+FetchBody<Derived>::Aborted()
+{
+  RefPtr<Derived> pin = DerivedClass();
+  RefPtr<AbortSignal> signal = mFollowingSignal;
+  if (!mReadableStreamBody || !signal) {
+    return;
+  }
+  AutoJSAPI jsapi;
+  if (!jsapi.Init(mOwner)) {
+    return;
+  }
+  JS::Rooted<JSObject*> body(jsapi.cx(), js::UncheckedUnwrap(mReadableStreamBody));
+  JSAutoCompartment ac(jsapi.cx(), body);
+  if (JS::ReadableStreamIsReadable(body)) {
+    JS::Rooted<JS::Value> reason(jsapi.cx());
+    ErrorResult rv;
+    signal->GetReason(jsapi.cx(), &reason, rv);
+    if (!rv.Failed()) {
+      JS::ReadableStreamError(jsapi.cx(), body, reason);
+    }
+    rv.SuppressException();
+  }
+  Unfollow();
+}
+
+template void FetchBody<Request>::Aborted();
+template void FetchBody<Response>::Aborted();
+
+
+template <class Derived>
 FetchBody<Derived>::~FetchBody()
 {
 }
@@ -914,37 +1001,23 @@ template <class Derived>
 bool
 FetchBody<Derived>::BodyUsed() const
 {
-  if (mBodyUsed) {
-    return true;
-  }
-
-  // If this object is disturbed or locked, return false.
-  if (mReadableStreamBody) {
-    AutoJSAPI jsapi;
-    if (!jsapi.Init(mOwner)) {
-      return true;
-    }
-
-    JSContext* cx = jsapi.cx();
-
-    JS::Rooted<JSObject*> body(cx, mReadableStreamBody);
-    if (JS::ReadableStreamIsDisturbed(body) ||
-        JS::ReadableStreamIsLocked(body) ||
-        !JS::ReadableStreamIsReadable(body)) {
-      return true;
-    }
-  }
-
-  return false;
+  return mBodyUsed || (mReadableStreamBody &&
+    JS::ReadableStreamIsDisturbed(js::UncheckedUnwrap(mReadableStreamBody)));
 }
 
-template
-bool
-FetchBody<Request>::BodyUsed() const;
+template bool FetchBody<Request>::BodyUsed() const;
+template bool FetchBody<Response>::BodyUsed() const;
 
-template
+template <class Derived>
 bool
-FetchBody<Response>::BodyUsed() const;
+FetchBody<Derived>::BodyUnusable() const
+{
+  return BodyUsed() || (mReadableStreamBody &&
+    JS::ReadableStreamIsLocked(js::UncheckedUnwrap(mReadableStreamBody)));
+}
+
+template bool FetchBody<Request>::BodyUnusable() const;
+template bool FetchBody<Response>::BodyUnusable() const;
 
 template <class Derived>
 void
@@ -995,20 +1068,26 @@ template <class Derived>
 already_AddRefed<Promise>
 FetchBody<Derived>::ConsumeBody(JSContext* aCx, FetchConsumeType aType, ErrorResult& aRv)
 {
-  RefPtr<AbortSignal> signal = DerivedClass()->GetSignal();
-  if (signal && signal->Aborted()) {
-    aRv.Throw(NS_ERROR_DOM_ABORT_ERR);
-    return nullptr;
-  }
-
-  if (BodyUsed()) {
+  if (BodyUnusable()) {
     aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
     return nullptr;
   }
-
-  SetBodyUsed(aCx, aRv);
-  if (NS_WARN_IF(aRv.Failed())) {
-    return nullptr;
+  nsCOMPtr<nsIInputStream> bodyStream;
+  DerivedClass()->GetBody(getter_AddRefs(bodyStream));
+  RefPtr<AbortSignal> signal = bodyStream ? DerivedClass()->GetSignal() : nullptr;
+  if (bodyStream) {
+    SetBodyUsed(aCx, aRv);
+    if (NS_WARN_IF(aRv.Failed())) {
+      return nullptr;
+    }
+  }
+  if (signal && signal->Aborted()) {
+    RefPtr<Promise> rejected = Promise::Create(DerivedClass()->GetParentObject(), aRv);
+    if (aRv.Failed()) {
+      return nullptr;
+    }
+    signal->RejectPromise(rejected);
+    return rejected.forget();
   }
 
   nsCOMPtr<nsIGlobalObject> global = DerivedClass()->GetParentObject();
@@ -1065,6 +1144,12 @@ FetchBody<Derived>::SetReadableStreamBody(JSObject* aBody)
   MOZ_ASSERT(!mReadableStreamBody);
   MOZ_ASSERT(aBody);
   mReadableStreamBody = aBody;
+  if (AbortSignal* signal = GetSignal()) {
+    Follow(signal);
+    if (signal->Aborted()) {
+      Aborted();
+    }
+  }
 }
 
 template
@@ -1113,6 +1198,12 @@ FetchBody<Derived>::GetBody(JSContext* aCx,
 
   mReadableStreamBody = body;
   aBodyOut.set(mReadableStreamBody);
+  if (AbortSignal* signal = GetSignal()) {
+    Follow(signal);
+    if (signal->Aborted()) {
+      Aborted();
+    }
+  }
 }
 
 template
@@ -1170,7 +1261,7 @@ FetchBody<Derived>::MaybeTeeReadableStreamBody(JSContext* aCx,
 {
   MOZ_DIAGNOSTIC_ASSERT(aStreamReader);
   MOZ_DIAGNOSTIC_ASSERT(aInputStream);
-  MOZ_DIAGNOSTIC_ASSERT(!BodyUsed());
+  MOZ_DIAGNOSTIC_ASSERT(!BodyUnusable());
 
   aBodyOut.set(nullptr);
   *aStreamReader = nullptr;

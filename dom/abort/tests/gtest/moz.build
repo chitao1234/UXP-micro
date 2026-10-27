@@ -1,0 +1,2 @@
+UNIFIED_SOURCES += ['TestAbortFollowers.cpp']
+FINAL_LIBRARY = 'xul-gtest'

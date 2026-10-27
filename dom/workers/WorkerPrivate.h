@@ -33,6 +33,7 @@
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
 #include "nsTObserverArray.h"
+#include "mozilla/dom/Timeout.h"
 
 #include "mozilla/dom/workerinternals/Queue.h"
 #include "mozilla/dom/workers/bindings/WorkerHolder.h"
@@ -48,6 +49,7 @@ class nsIEventTarget;
 class nsIPrincipal;
 class nsIScriptContext;
 class nsIScriptTimeoutHandler;
+class nsITimeoutHandler;
 class nsISerializable;
 class nsIThread;
 class nsIThreadInternal;
@@ -1045,6 +1047,7 @@ class WorkerPrivate : public WorkerPrivateParent<WorkerPrivate>
   // still see the nesting level.
   uint32_t mCurrentTimerNestingLevel;
 
+  TimeStamp mTimeoutFreezeStarted;
   bool mFrozen;
   bool mTimerRunning;
   bool mRunningExpiredTimeouts;
@@ -1239,9 +1242,9 @@ public:
   ReportErrorToConsole(const char* aMessage, const nsTArray<nsString>& aParams);
 
   int32_t
-  SetTimeout(JSContext* aCx, nsIScriptTimeoutHandler* aHandler,
-             int32_t aTimeout, bool aIsInterval,
-             ErrorResult& aRv);
+  SetTimeout(JSContext* aCx, nsITimeoutHandler* aHandler,
+             int32_t aTimeout, bool aIsInterval, ErrorResult& aRv,
+             Timeout::Reason aReason = Timeout::Reason::eTimeoutOrInterval);
 
   void
   ClearTimeout(int32_t aId);

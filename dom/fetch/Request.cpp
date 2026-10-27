@@ -35,6 +35,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Request)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mHeaders)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSignal)
+  tmp->Unfollow();
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
@@ -42,6 +43,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Request)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mHeaders)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSignal)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFollowingSignal)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(Request)
@@ -313,7 +315,7 @@ Request::Constructor(const GlobalObject& aGlobal,
     RefPtr<Request> inputReq = &aInput.GetAsRequest();
     nsCOMPtr<nsIInputStream> body;
     inputReq->GetBody(getter_AddRefs(body));
-    if (inputReq->BodyUsed()) {
+    if (inputReq->BodyUnusable()) {
       aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
       return nullptr;
     }
@@ -627,7 +629,7 @@ Request::Constructor(const GlobalObject& aGlobal,
 already_AddRefed<Request>
 Request::Clone(ErrorResult& aRv)
 {
-  if (BodyUsed()) {
+  if (BodyUnusable()) {
     aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
     return nullptr;
   }
@@ -656,7 +658,7 @@ AbortSignal*
 Request::GetOrCreateSignal()
 {
   if (!mSignal) {
-    mSignal = new AbortSignal(false);
+    mSignal = new AbortSignal(mOwner, false);
   }
 
   return mSignal;

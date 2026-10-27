@@ -17,6 +17,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/AbortSignal.h"
 #include "mozilla/dom/FetchStreamReader.h"
 // Fix X11 header brain damage that conflicts with HeadersGuardEnum::None
 #undef None
@@ -104,10 +105,13 @@ public:
   NS_IMETHOD_(MozExternalRefCountType) Release(void) = 0;
 
   virtual void NullifyStream() = 0;
+  virtual void StopFollowingSignal() = 0;
 
   virtual void MarkAsRead() = 0;
 
   virtual JSObject* ReadableStreamBody() = 0;
+
+  virtual AbortSignal* GetSignal() const = 0;
 };
 
 /*
@@ -145,12 +149,15 @@ public:
  */
 template <class Derived>
 class FetchBody : public FetchStreamHolder
+                , public AbortSignal::Follower
 {
 public:
   friend class FetchBodyConsumer<Derived>;
 
   bool
   BodyUsed() const;
+
+  bool BodyUnusable() const;
 
   already_AddRefed<Promise>
   ArrayBuffer(JSContext* aCx, ErrorResult& aRv)
@@ -233,8 +240,11 @@ public:
   {
     mReadableStreamBody = nullptr;
     mReadableStreamReader = nullptr;
+    Unfollow();
     mFetchStreamReader = nullptr;
   }
+
+  void StopFollowingSignal() override { Unfollow(); }
 
   JSObject*
   ReadableStreamBody() override
@@ -251,6 +261,10 @@ public:
 
   virtual AbortSignal*
   GetSignal() const = 0;
+
+  // Abort externally exposed ReadableStream bodies synchronously. The native
+  // source's error callback closes I/O and releases its owning-thread state.
+  void Aborted() override;
 
 protected:
   nsCOMPtr<nsIGlobalObject> mOwner;

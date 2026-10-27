@@ -1971,6 +1971,7 @@ struct WorkerPrivate::TimeoutInfo
   , mIsInterval(false)
   , mCanceled(false)
   , mOnChromeWorker(false)
+  , mReason(Timeout::Reason::eTimeoutOrInterval)
   {
     MOZ_COUNT_CTOR(mozilla::dom::workers::WorkerPrivate::TimeoutInfo);
   }
@@ -2008,7 +2009,7 @@ struct WorkerPrivate::TimeoutInfo
     mTargetTime = TimeStamp::Now() + target;
   }
 
-  nsCOMPtr<nsIScriptTimeoutHandler> mHandler;
+  nsCOMPtr<nsITimeoutHandler> mHandler;
   mozilla::TimeStamp mTargetTime;
   mozilla::TimeDuration mInterval;
   int32_t mId;
@@ -2016,6 +2017,7 @@ struct WorkerPrivate::TimeoutInfo
   bool mIsInterval;
   bool mCanceled;
   bool mOnChromeWorker;
+  Timeout::Reason mReason;
 };
 
 class WorkerJSContextStats final : public JS::RuntimeStats
@@ -5316,6 +5318,12 @@ WorkerPrivate::FreezeInternal()
   NS_ASSERTION(!mFrozen, "Already frozen!");
 
   mFrozen = true;
+  mTimeoutFreezeStarted = TimeStamp::Now();
+  // The native deadline measures active worker time, not time spent frozen.
+  // Rescheduling on thaw also invalidates an already queued timer callback.
+  if (mTimer) {
+    mTimer->Cancel();
+  }
 
   for (uint32_t index = 0; index < mChildWorkers.Length(); index++) {
     mChildWorkers[index]->Freeze(nullptr);
@@ -5335,7 +5343,18 @@ WorkerPrivate::ThawInternal()
     mChildWorkers[index]->Thaw(nullptr);
   }
 
+  TimeDuration frozenFor = TimeStamp::Now() - mTimeoutFreezeStarted;
+  for (const auto& info : mTimeouts) {
+    if (info->mReason == Timeout::Reason::eAbortSignalTimeout) {
+      info->mTargetTime += frozenFor;
+    }
+  }
+  AutoPtrComparator<TimeoutInfo> comparator = GetAutoPtrComparator(mTimeouts);
+  mTimeouts.Sort(comparator);
   mFrozen = false;
+  if (mTimerRunning && !mRunningExpiredTimeouts && !mTimeouts.IsEmpty()) {
+    return RescheduleTimeoutTimer(GetJSContext());
+  }
   return true;
 }
 
@@ -6144,9 +6163,9 @@ WorkerPrivate::ReportErrorToConsole(const char* aMessage,
 
 int32_t
 WorkerPrivate::SetTimeout(JSContext* aCx,
-                          nsIScriptTimeoutHandler* aHandler,
+                          nsITimeoutHandler* aHandler,
                           int32_t aTimeout, bool aIsInterval,
-                          ErrorResult& aRv)
+                          ErrorResult& aRv, Timeout::Reason aReason)
 {
   AssertIsOnWorkerThread();
   MOZ_ASSERT(aHandler);
@@ -6178,6 +6197,7 @@ WorkerPrivate::SetTimeout(JSContext* aCx,
   }
 
   newInfo->mHandler = aHandler;
+  newInfo->mReason = aReason;
 
   // See if any of the optional arguments were passed.
   aTimeout = std::max(0, aTimeout);
@@ -6233,7 +6253,7 @@ WorkerPrivate::ClearTimeout(int32_t aId)
 
     for (uint32_t index = 0; index < mTimeouts.Length(); index++) {
       nsAutoPtr<TimeoutInfo>& info = mTimeouts[index];
-      if (info->mId == aId) {
+      if (info->mId == aId && info->mReason == Timeout::Reason::eTimeoutOrInterval) {
         info->mCanceled = true;
         break;
       }
@@ -6309,18 +6329,26 @@ WorkerPrivate::RunExpiredTimeouts(JSContext* aCx)
       reason = "setTimeout handler";
     }
 
-    RefPtr<Function> callback = info->mHandler->GetCallback();
+    nsCOMPtr<nsIScriptTimeoutHandler> scriptHandler = do_QueryInterface(info->mHandler);
+    if (!scriptHandler) {
+      // Native abort deadlines use the same worker lifecycle and task source
+      // without compiling a JS closure/string or exposing a clearTimeout id.
+      RefPtr<nsITimeoutHandler> handler = info->mHandler.get();
+      handler->Call();
+      continue;
+    }
+    RefPtr<Function> callback = scriptHandler->GetCallback();
     if (!callback) {
       nsAutoMicroTask mt;
 
       AutoEntryScript aes(global, reason, false);
 
       // Evaluate the timeout expression.
-      const nsAString& script = info->mHandler->GetHandlerText();
+      const nsAString& script = scriptHandler->GetHandlerText();
 
       const char* filename = nullptr;
       uint32_t lineNo = 0, dummyColumn = 0;
-      info->mHandler->GetLocation(&filename, &lineNo, &dummyColumn);
+      scriptHandler->GetLocation(&filename, &lineNo, &dummyColumn);
 
       JS::CompileOptions options(aes.cx());
       options.setFileAndLine(filename, lineNo).setNoScriptRval(true);
@@ -6336,7 +6364,7 @@ WorkerPrivate::RunExpiredTimeouts(JSContext* aCx)
     } else {
       ErrorResult rv;
       JS::Rooted<JS::Value> ignoredVal(aCx);
-      callback->Call(GlobalScope(), info->mHandler->GetArgs(), &ignoredVal, rv,
+      callback->Call(GlobalScope(), scriptHandler->GetArgs(), &ignoredVal, rv,
                      reason);
       if (rv.IsUncatchableException()) {
         rv.SuppressException();

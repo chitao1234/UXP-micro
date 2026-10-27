@@ -43,6 +43,10 @@ public:
   void
   Close();
 
+  // Terminal cleanup dispatched to the owning thread even when finalization
+  // started on a JS helper thread. Preserve the JS body's terminal identity.
+  void ReleaseInputStreams();
+
   static nsresult
   RetrieveInputStream(void* aUnderlyingReadableStreamSource,
                       nsIInputStream** aInputStream);

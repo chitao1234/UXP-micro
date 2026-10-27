@@ -19,6 +19,7 @@ SOURCES += [
 ]
 
 LOCAL_INCLUDES += [
+    '../base',
     '../workers',
 ]
 

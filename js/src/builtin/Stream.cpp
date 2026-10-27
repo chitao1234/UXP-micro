@@ -1507,9 +1507,19 @@ ReadableStreamErrorInternal(JSContext* cx, Handle<ReadableStream*> stream, Handl
     // Step 5: Let reader be stream.[[reader]].
     RootedValue val(cx, stream->getFixedSlot(StreamSlot_Reader));
 
-    // Step 6: If reader is undefined, return.
-    if (val.isUndefined())
+    // An external source needs its terminal notification even without a
+    // reader, so that aborting an exposed idle body releases native I/O.
+    if (val.isUndefined()) {
+        if (stream->mode() == JS::ReadableStreamMode::ExternalSource &&
+            cx->runtime()->readableStreamErroredCallback)
+        {
+            NativeObject* controller = ControllerFromStream(stream);
+            void* source = controller->getFixedSlot(ControllerSlot_UnderlyingSource).toPrivate();
+            cx->runtime()->readableStreamErroredCallback(cx, stream, source,
+                                                         stream->embeddingFlags(), e);
+        }
         return true;
+    }
     RootedNativeObject reader(cx, &val.toObject().as<NativeObject>());
 
     // Steps 7,8: (Identical in our implementation.)
@@ -1536,6 +1546,10 @@ ReadableStreamErrorInternal(JSContext* cx, Handle<ReadableStream*> stream, Handl
     Rooted<PromiseObject*> closedPromise(cx, &val.toObject().as<PromiseObject>());
     if (!PromiseObject::reject(cx, closedPromise, e))
         return false;
+    if (closedPromise->isUnhandled())
+        cx->runtime()->removeUnhandledRejectedPromise(cx, closedPromise);
+    closedPromise->setFixedSlot(PromiseSlot_Flags,
+        Int32Value(closedPromise->flags() | PROMISE_FLAG_HANDLED));
 
     if (stream->mode() == JS::ReadableStreamMode::ExternalSource &&
         cx->runtime()->readableStreamErroredCallback)
@@ -2081,6 +2095,13 @@ ReadableStreamReaderGenericInitialize(JSContext* cx, HandleNativeObject reader,
         //          stream.[[storedError]].
         RootedValue storedError(cx, stream->getFixedSlot(StreamSlot_StoredError));
         promise = PromiseObject::unforgeableReject(cx, storedError);
+        if (promise) {
+            // This internal stream-state promise is specified as handled.
+            Rooted<PromiseObject*> closedPromise(cx, &promise->as<PromiseObject>());
+            cx->runtime()->removeUnhandledRejectedPromise(cx, closedPromise);
+            closedPromise->setFixedSlot(PromiseSlot_Flags,
+                Int32Value(closedPromise->flags() | PROMISE_FLAG_HANDLED));
+        }
     }
 
     if (!promise)

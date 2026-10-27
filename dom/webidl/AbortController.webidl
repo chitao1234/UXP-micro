@@ -9,5 +9,5 @@
 interface AbortController {
   readonly attribute AbortSignal signal;
 
-  void abort();
+  void abort(optional any reason);
 };

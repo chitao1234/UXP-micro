@@ -84,7 +84,7 @@ private:
                     FetchBody<Derived>* aBody,
                     nsIInputStream* aBodyStream,
                     Promise* aPromise,
-                    FetchConsumeType aType);
+                    FetchConsumeType aType, bool aHasBody);
 
   ~FetchBodyConsumer();
 
@@ -124,6 +124,7 @@ private:
 
   // touched only on the target thread.
   bool mBodyConsumed;
+  const bool mHasBody;
 
   // touched only on the main-thread.
   bool mShuttingDown;

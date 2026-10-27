@@ -291,6 +291,7 @@ FetchBodyConsumer<Derived>::Create(nsIGlobalObject* aGlobal,
 
   nsCOMPtr<nsIInputStream> bodyStream;
   aBody->DerivedClass()->GetBody(getter_AddRefs(bodyStream));
+  const bool hasBody = !!bodyStream;
   if (!bodyStream) {
     aRv = NS_NewCStringInputStream(getter_AddRefs(bodyStream), EmptyCString());
     if (NS_WARN_IF(aRv.Failed())) {
@@ -311,7 +312,7 @@ FetchBodyConsumer<Derived>::Create(nsIGlobalObject* aGlobal,
 
   RefPtr<FetchBodyConsumer<Derived>> consumer =
     new FetchBodyConsumer<Derived>(aGlobal, workerPrivate, aBody, bodyStream,
-                                   promise, aType);
+                                   promise, aType, hasBody);
 
   if (!NS_IsMainThread()) {
     MOZ_ASSERT(workerPrivate);
@@ -382,7 +383,7 @@ FetchBodyConsumer<Derived>::FetchBodyConsumer(nsIGlobalObject* aGlobalObject,
                                               FetchBody<Derived>* aBody,
                                               nsIInputStream* aBodyStream,
                                               Promise* aPromise,
-                                              FetchConsumeType aType)
+                                              FetchConsumeType aType, bool aHasBody)
   : mTargetThread(NS_GetCurrentThread())
 #ifdef DEBUG
   , mBody(aBody)
@@ -394,6 +395,7 @@ FetchBodyConsumer<Derived>::FetchBodyConsumer(nsIGlobalObject* aGlobalObject,
   , mConsumeType(aType)
   , mConsumePromise(aPromise)
   , mBodyConsumed(false)
+  , mHasBody(aHasBody)
   , mShuttingDown(false)
 {
   MOZ_ASSERT(aBody);
@@ -526,7 +528,7 @@ FetchBodyConsumer<Derived>::ContinueConsumeBody(nsresult aStatus,
 
   // Just a precaution to ensure ContinueConsumeBody is not called out of
   // sync with a body read.
-  MOZ_ASSERT(mBody->BodyUsed());
+  MOZ_ASSERT(!mHasBody || mBody->BodyUsed());
 
   auto autoFree = mozilla::MakeScopeExit([&] {
     free(aResult);
@@ -541,7 +543,11 @@ FetchBodyConsumer<Derived>::ContinueConsumeBody(nsresult aStatus,
   });
 
   if (NS_WARN_IF(NS_FAILED(aStatus))) {
-    localPromise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+    if (mFollowingSignal && mFollowingSignal->Aborted()) {
+      mFollowingSignal->RejectPromise(localPromise);
+    } else {
+      localPromise->MaybeReject(NS_ERROR_DOM_ABORT_ERR);
+    }
   }
 
   // Don't warn here since we warned above.
@@ -634,7 +640,7 @@ FetchBodyConsumer<Derived>::ContinueConsumeBlobBody(BlobImpl* aBlobImpl)
 
   // Just a precaution to ensure ContinueConsumeBody is not called out of
   // sync with a body read.
-  MOZ_ASSERT(mBody->BodyUsed());
+  MOZ_ASSERT(!mHasBody || mBody->BodyUsed());
 
   MOZ_ASSERT(mConsumePromise);
   RefPtr<Promise> localPromise = mConsumePromise.forget();
@@ -695,6 +701,9 @@ void
 FetchBodyConsumer<Derived>::Aborted()
 {
   AssertIsOnTargetThread();
+  // Stop the outstanding pump as well as rejecting the JS promise. Otherwise
+  // a deadline would leave the network/body operation running after rejection.
+  ShutDownMainThreadConsuming();
   ContinueConsumeBody(NS_ERROR_DOM_ABORT_ERR, 0, nullptr);
 }
 

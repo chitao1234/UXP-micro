@@ -8,23 +8,23 @@ function is(a, b, msg) {
 }
 
 function testWebIDL() {
-  ok("FetchController" in self, "We have a FetchController prototype");
-  ok("FetchSignal" in self, "We have a FetchSignal prototype");
+  ok("AbortController" in self, "We have a AbortController prototype");
+  ok("AbortSignal" in self, "We have a AbortSignal prototype");
 
-  var fc = new FetchController();
-  ok(!!fc, "FetchController can be created");
-  ok(fc instanceof FetchController, "FetchController is a FetchController");
+  var fc = new AbortController();
+  ok(!!fc, "AbortController can be created");
+  ok(fc instanceof AbortController, "AbortController is a AbortController");
 
-  ok(!!fc.signal, "FetchController has a signal");
-  ok(fc.signal instanceof FetchSignal, "fetchSignal is a FetchSignal");
-  is(fc.signal.aborted, false, "By default FetchSignal.aborted is false");
+  ok(!!fc.signal, "AbortController has a signal");
+  ok(fc.signal instanceof AbortSignal, "fetchSignal is a AbortSignal");
+  is(fc.signal.aborted, false, "By default AbortSignal.aborted is false");
   next();
 }
 
 function testUpdateData() {
-  var fc = new FetchController();
+  var fc = new AbortController();
  
-  is(fc.signal.aborted, false, "By default FetchSignal.aborted is false");
+  is(fc.signal.aborted, false, "By default AbortSignal.aborted is false");
  
   fc.abort();
   is(fc.signal.aborted, true, "Signal is aborted");
@@ -33,7 +33,7 @@ function testUpdateData() {
 }
  
 function testAbortEvent() {
-  var fc = new FetchController();
+  var fc = new AbortController();
   fc.signal.onabort = function(e) {
     is(e.type, "abort", "Abort received");
     next();
@@ -42,7 +42,7 @@ function testAbortEvent() {
 }
  
 function testAbortedFetch() {
-  var fc = new FetchController();
+  var fc = new AbortController();
   fc.abort();
 
   fetch('slow.sjs', { signal: fc.signal }).then(() => {
@@ -53,7 +53,7 @@ function testAbortedFetch() {
 }
 
 function testFetchAndAbort() {
-  var fc = new FetchController();
+  var fc = new AbortController();
 
   var p = fetch('slow.sjs', { signal: fc.signal });
   fc.abort();
@@ -66,18 +66,20 @@ function testFetchAndAbort() {
 }
 
 function testWorkerAbortedFetch() {
-  var w = new Worker('worker_fetch_controller.js');
+  var w = new Worker('worker_abort_controller.js');
   w.onmessage = function(e) {
     ok(e.data, "Abort + Fetch works in workers");
+    w.terminate();
     next();
   }
   w.postMessage('testWorkerAbortedFetch');
 }
 
 function testWorkerFetchAndAbort() {
-  var w = new Worker('worker_fetch_controller.js');
+  var w = new Worker('worker_abort_controller.js');
   w.onmessage = function(e) {
     ok(e.data, "Abort + Fetch works in workers");
+    w.terminate();
     next();
   }
   w.postMessage('testWorkerFetchAndAbort');

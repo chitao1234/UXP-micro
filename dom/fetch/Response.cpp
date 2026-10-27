@@ -36,6 +36,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Response)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mHeaders)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSignal)
+  tmp->Unfollow();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mFetchStreamReader)
 
   tmp->mReadableStreamBody = nullptr;
@@ -48,6 +49,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Response)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mHeaders)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSignal)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFollowingSignal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFetchStreamReader)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -320,7 +322,7 @@ Response::Constructor(const GlobalObject& aGlobal,
 already_AddRefed<Response>
 Response::Clone(JSContext* aCx, ErrorResult& aRv)
 {
-  if (BodyUsed()) {
+  if (BodyUnusable()) {
     aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
     return nullptr;
   }
@@ -344,7 +346,7 @@ Response::Clone(JSContext* aCx, ErrorResult& aRv)
       ? InternalResponse::eDontCloneInputStream
       : InternalResponse::eCloneInputStream);
 
-  RefPtr<Response> response = new Response(mOwner, ir, nullptr);
+  RefPtr<Response> response = new Response(mOwner, ir, mSignal);
 
   if (body) {
     // Maybe we have a body, but we receive null from MaybeTeeReadableStreamBody
@@ -362,7 +364,7 @@ Response::Clone(JSContext* aCx, ErrorResult& aRv)
 already_AddRefed<Response>
 Response::CloneUnfiltered(JSContext* aCx, ErrorResult& aRv)
 {
-  if (BodyUsed()) {
+  if (BodyUnusable()) {
     aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
     return nullptr;
   }
@@ -387,7 +389,7 @@ Response::CloneUnfiltered(JSContext* aCx, ErrorResult& aRv)
       : InternalResponse::eCloneInputStream);
 
   RefPtr<InternalResponse> ir = clone->Unfiltered();
-  RefPtr<Response> ref = new Response(mOwner, ir, nullptr);
+  RefPtr<Response> ref = new Response(mOwner, ir, mSignal);
 
   if (body) {
     // Maybe we have a body, but we receive null from MaybeTeeReadableStreamBody

@@ -7,11 +7,27 @@
 #include "AbortSignal.h"
 #include "mozilla/dom/AbortControllerBinding.h"
 #include "WorkerPrivate.h"
+#include "mozilla/HoldDropJSObjects.h"
+#include "mozilla/dom/ScriptSettings.h"
 
 namespace mozilla {
 namespace dom {
 
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(AbortController, mGlobal, mSignal)
+NS_IMPL_CYCLE_COLLECTION_CLASS(AbortController)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(AbortController)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mSignal)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
+  tmp->mReason.setUndefined();
+NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(AbortController)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGlobal)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSignal)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(AbortController)
+  NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
+  NS_IMPL_CYCLE_COLLECTION_TRACE_JS_MEMBER_CALLBACK(mReason)
+NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(AbortController)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(AbortController)
@@ -55,7 +71,15 @@ AbortController::Constructor(const GlobalObject& aGlobal, ErrorResult& aRv)
 AbortController::AbortController(nsIGlobalObject* aGlobal)
   : mGlobal(aGlobal)
   , mAborted(false)
-{}
+  , mReason(JS::UndefinedValue())
+{
+  mozilla::HoldJSObjects(this);
+}
+
+AbortController::~AbortController()
+{
+  mozilla::DropJSObjects(this);
+}
 
 JSObject*
 AbortController::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto)
@@ -73,14 +97,19 @@ AbortSignal*
 AbortController::Signal()
 {
   if (!mSignal) {
-    mSignal = new AbortSignal(mGlobal, mAborted);
+    mSignal = new AbortSignal(mGlobal, false);
+    if (mAborted) {
+      JS::Rooted<JS::Value> reason(RootingCx(), mReason);
+      mSignal->SetAbortedReason(reason);
+      mReason.setUndefined();
+    }
   }
 
   return mSignal;
 }
 
 void
-AbortController::Abort()
+AbortController::Abort(JSContext* aCx, JS::Handle<JS::Value> aReason)
 {
   if (mAborted) {
     return;
@@ -89,7 +118,9 @@ AbortController::Abort()
   mAborted = true;
 
   if (mSignal) {
-    mSignal->Abort();
+    mSignal->SignalAbort(aReason);
+  } else {
+    mReason = aReason;
   }
 }
 

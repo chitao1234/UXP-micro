@@ -44,6 +44,7 @@ public:
   {
     eTimeoutOrInterval,
     eIdleCallbackTimeout,
+    eAbortSignalTimeout,
   };
 
 #ifdef DEBUG

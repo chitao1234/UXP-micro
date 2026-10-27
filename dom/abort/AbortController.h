@@ -41,15 +41,16 @@ public:
   Signal();
 
   void
-  Abort();
+  Abort(JSContext* aCx, JS::Handle<JS::Value> aReason);
 
 private:
-  ~AbortController() = default;
+  ~AbortController();
 
   nsCOMPtr<nsIGlobalObject> mGlobal;
   RefPtr<AbortSignal> mSignal;
 
   bool mAborted;
+  JS::Heap<JS::Value> mReason;
 };
 
 } // dom namespace
