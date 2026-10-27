@@ -294,6 +294,20 @@ intrinsic_NewMap(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+intrinsic_NewSet(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    MOZ_ASSERT(args.length() == 0);
+
+    Rooted<SetObject*> set(cx, SetObject::create(cx));
+    if (!set)
+        return false;
+
+    args.rval().setObject(*set);
+    return true;
+}
+
+static bool
 intrinsic_SubstringKernel(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -2333,6 +2347,10 @@ static const JSFunctionSpec intrinsic_functions[] = {
 
     JS_FN("std_Set_has",                         SetObject::has,               1,0),
     JS_FN("std_Set_iterator",                    SetObject::values,            0,0),
+    JS_FN("std_Set_size",                        SetObject::size,              0,0),
+    JS_FN("std_Set_add",                         SetObject::add,               1,0),
+    JS_FN("std_Set_delete",                      SetObject::delete_,           1,0),
+    JS_FN("std_Set_create",                      intrinsic_NewSet,             0,0),
 
     JS_INLINABLE_FN("std_String_fromCharCode",   str_fromCharCode,             1,0, StringFromCharCode),
     JS_INLINABLE_FN("std_String_charCodeAt",     str_charCodeAt,               1,0, StringCharCodeAt),

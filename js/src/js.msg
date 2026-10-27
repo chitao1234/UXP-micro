@@ -79,6 +79,7 @@ MSG_DEF(JSMSG_BUILTIN_CTOR_NO_NEW,     1, JSEXN_TYPEERR, "calling a builtin {0} 
 MSG_DEF(JSMSG_BAD_GENERATOR_YIELD,     1, JSEXN_TYPEERR, "yield from closing generator {0}")
 MSG_DEF(JSMSG_EMPTY_ARRAY_REDUCE,      0, JSEXN_TYPEERR, "reduce of empty array with no initial value")
 MSG_DEF(JSMSG_UNEXPECTED_TYPE,         2, JSEXN_TYPEERR, "{0} is {1}")
+MSG_DEF(JSMSG_SET_NEGATIVE_SIZE,       0, JSEXN_RANGEERR, "set-like size must not be negative")
 MSG_DEF(JSMSG_MISSING_FUN_ARG,         2, JSEXN_TYPEERR, "missing argument {0} when calling function {1}")
 MSG_DEF(JSMSG_NOT_NONNULL_OBJECT,      1, JSEXN_TYPEERR, "{0} is not a non-null object")
 MSG_DEF(JSMSG_NOT_WEAKREF_TARGET,      0, JSEXN_TYPEERR, "WeakRef target must be an object or a non-registered symbol")

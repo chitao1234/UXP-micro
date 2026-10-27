@@ -103,3 +103,221 @@ function SetIteratorNext() {
     // Steps 7, 10.d, 12.
     return retVal;
 }
+
+// ECMA-262 Set composition methods. Keep the set-like protocol separate from
+// the receiver's internal Set data: only other.size/has/keys are observable.
+// Captured native Set operations validate/unwrap receivers for individual
+// accesses, keeping these algorithms and newly created Sets in the method's
+// realm instead of rerunning the whole algorithm in a wrapped receiver's realm.
+function GetSetRecord(obj) {
+    if (!IsObject(obj))
+        ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, "set-like argument");
+
+    var rawSize = obj.size;
+    var numSize = +rawSize;
+    if (numSize !== numSize)
+        ThrowTypeError(JSMSG_UNEXPECTED_TYPE, "size", "NaN");
+    var size = ToInteger(numSize);
+    if (size < 0)
+        ThrowRangeError(JSMSG_SET_NEGATIVE_SIZE);
+
+    var has = obj.has;
+    if (!IsCallable(has))
+        ThrowTypeError(JSMSG_NOT_FUNCTION, typeof has);
+    var keys = obj.keys;
+    if (!IsCallable(keys))
+        ThrowTypeError(JSMSG_NOT_FUNCTION, typeof keys);
+    return {set: obj, size, has, keys};
+}
+
+// GetIteratorFromMethod followed by GetIteratorDirect. Snapshot next exactly
+// once, even when keys/next accessors mutate the receiver or the iterator.
+function SetMethodsGetIterator(rec) {
+    var iterator = callContentFunction(rec.keys, rec.set);
+    if (!IsObject(iterator))
+        ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, "set-like keys result");
+    return {iterator, next: iterator.next, value: undefined};
+}
+
+function SetMethodsIteratorStep(rec) {
+    var next = callContentFunction(rec.next, rec.iterator);
+    if (!IsObject(next))
+        ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, "iterator result");
+    // Snapshot value once, in spec order. Reuse this private record rather
+    // than allocating a second result object for every user iterator step.
+    if (next.done)
+        return false;
+    rec.value = next.value;
+    return true;
+}
+
+function SetMethodsIteratorClose(iterator) {
+    var returnMethod = GetMethod(iterator, "return");
+    if (returnMethod !== undefined) {
+        var innerResult = callContentFunction(returnMethod, iterator);
+        if (!IsObject(innerResult))
+            ThrowTypeError(JSMSG_NOT_NONNULL_OBJECT, "iterator return result");
+    }
+}
+
+function SetCopy(set) {
+    // Intrinsics bypass a changed constructor, @@species, add, values, and
+    // @@iterator. New sets always use the method realm's %Set.prototype%.
+    var result = std_Set_create();
+    var values = callFunction(std_Set_iterator, set);
+    while (true) {
+        var next = callFunction(SetIteratorNext, values);
+        if (next.done)
+            return result;
+        callFunction(std_Set_add, result, next.value);
+    }
+}
+
+function SetUnion(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    var keys = SetMethodsGetIterator(otherRec);
+    var result = SetCopy(O);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return result;
+        callFunction(std_Set_add, result, keys.value);
+    }
+}
+
+function SetIntersection(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    var result = std_Set_create();
+    if (callFunction(std_Set_size, O) <= otherRec.size) {
+        var values = callFunction(std_Set_iterator, O);
+        while (true) {
+            var next = callFunction(SetIteratorNext, values);
+            if (next.done)
+                return result;
+            var value = next.value;
+            if (callContentFunction(otherRec.has, otherRec.set, value))
+                callFunction(std_Set_add, result, value);
+        }
+    }
+
+    var keys = SetMethodsGetIterator(otherRec);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return result;
+        if (callFunction(std_Set_has, O, keys.value))
+            callFunction(std_Set_add, result, keys.value);
+    }
+}
+
+function SetDifference(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    var result = SetCopy(O);
+    if (callFunction(std_Set_size, O) <= otherRec.size) {
+        // Iterate the copied data: other.has can mutate O without changing
+        // the list that difference is required to visit.
+        var values = callFunction(std_Set_iterator, result);
+        while (true) {
+            var next = callFunction(SetIteratorNext, values);
+            if (next.done)
+                return result;
+            if (callContentFunction(otherRec.has, otherRec.set, next.value))
+                callFunction(std_Set_delete, result, next.value);
+        }
+    }
+
+    var keys = SetMethodsGetIterator(otherRec);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return result;
+        callFunction(std_Set_delete, result, keys.value);
+    }
+}
+
+function SetSymmetricDifference(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    var keys = SetMethodsGetIterator(otherRec);
+    var result = SetCopy(O);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return result;
+        // Membership uses O, not the changing result: duplicate keys from a
+        // set-like iterator must not toggle an entry repeatedly.
+        if (callFunction(std_Set_has, O, keys.value))
+            callFunction(std_Set_delete, result, keys.value);
+        else
+            callFunction(std_Set_add, result, keys.value);
+    }
+}
+
+function SetIsSubsetOf(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    if (callFunction(std_Set_size, O) > otherRec.size)
+        return false;
+    var values = callFunction(std_Set_iterator, O);
+    while (true) {
+        var next = callFunction(SetIteratorNext, values);
+        if (next.done)
+            return true;
+        if (!callContentFunction(otherRec.has, otherRec.set, next.value))
+            return false;
+    }
+}
+
+function SetIsSupersetOf(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    if (callFunction(std_Set_size, O) < otherRec.size)
+        return false;
+    var keys = SetMethodsGetIterator(otherRec);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return true;
+        if (!callFunction(std_Set_has, O, keys.value)) {
+            SetMethodsIteratorClose(keys.iterator);
+            return false;
+        }
+    }
+}
+
+function SetIsDisjointFrom(other) {
+    var O = this;
+    callFunction(std_Set_size, O); // Require [[SetData]] before touching other.
+
+    var otherRec = GetSetRecord(other);
+    if (callFunction(std_Set_size, O) <= otherRec.size) {
+        var values = callFunction(std_Set_iterator, O);
+        while (true) {
+            var next = callFunction(SetIteratorNext, values);
+            if (next.done)
+                return true;
+            if (callContentFunction(otherRec.has, otherRec.set, next.value))
+                return false;
+        }
+    }
+
+    var keys = SetMethodsGetIterator(otherRec);
+    while (true) {
+        if (!SetMethodsIteratorStep(keys))
+            return true;
+        if (callFunction(std_Set_has, O, keys.value)) {
+            SetMethodsIteratorClose(keys.iterator);
+            return false;
+        }
+    }
+}

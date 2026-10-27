@@ -219,6 +219,9 @@ class SetObject : public NativeObject {
     [[nodiscard]] static bool values(JSContext *cx, unsigned argc, Value *vp);
     [[nodiscard]] static bool add(JSContext *cx, HandleObject obj, HandleValue key);
     [[nodiscard]] static bool has(JSContext *cx, unsigned argc, Value *vp);
+    [[nodiscard]] static bool size(JSContext* cx, unsigned argc, Value* vp);
+    [[nodiscard]] static bool add(JSContext* cx, unsigned argc, Value* vp);
+    [[nodiscard]] static bool delete_(JSContext* cx, unsigned argc, Value* vp);
 
     // Publicly exposed Set calls for JSAPI access (webidl maplike/setlike
     // interfaces, etc.)
@@ -255,12 +258,9 @@ class SetObject : public NativeObject {
     [[nodiscard]] static bool iterator_impl(JSContext* cx, const CallArgs& args, IteratorKind kind);
 
     [[nodiscard]] static bool size_impl(JSContext* cx, const CallArgs& args);
-    [[nodiscard]] static bool size(JSContext* cx, unsigned argc, Value* vp);
     [[nodiscard]] static bool has_impl(JSContext* cx, const CallArgs& args);
     [[nodiscard]] static bool add_impl(JSContext* cx, const CallArgs& args);
-    [[nodiscard]] static bool add(JSContext* cx, unsigned argc, Value* vp);
     [[nodiscard]] static bool delete_impl(JSContext* cx, const CallArgs& args);
-    [[nodiscard]] static bool delete_(JSContext* cx, unsigned argc, Value* vp);
     [[nodiscard]] static bool values_impl(JSContext* cx, const CallArgs& args);
     [[nodiscard]] static bool entries_impl(JSContext* cx, const CallArgs& args);
     [[nodiscard]] static bool entries(JSContext* cx, unsigned argc, Value* vp);
