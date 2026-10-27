@@ -148,6 +148,8 @@ class Nursery
     /* Return true if no allocations have been made since the last collection. */
     bool isEmpty() const;
 
+    bool backingAllocationFailed() const { return backingAllocationFailed_; }
+
     /*
      * Check whether an arbitrary pointer is within the nursery. This is
      * slower than IsInsideNursery(Cell*), but works on all types of pointers.
@@ -229,7 +231,10 @@ class Nursery
     [[nodiscard]] bool queueDictionaryModeObjectToSweep(NativeObject* obj);
 
     size_t sizeOfHeapCommitted() const {
-        return numChunks() * gc::ChunkSize;
+        size_t bytes = 0;
+        for (unsigned i = 0; i < numChunks(); ++i)
+            bytes += chunk(i).isDecommitted() ? gc::SystemPageSize() : gc::ChunkSize;
+        return bytes;
     }
     size_t sizeOfMallocedBuffers(mozilla::MallocSizeOf mallocSizeOf) const {
         size_t total = 0;
@@ -263,6 +268,10 @@ class Nursery
         static NurseryChunk* fromChunk(gc::Chunk* chunk);
         void init(JSRuntime* rt);
         void poisonAndInit(JSRuntime* rt, uint8_t poison);
+        bool isDecommitted() const { return trailer.padding & 1; }
+        [[nodiscard]] bool ensureCommitted();
+        [[nodiscard]] bool decommit();
+        static NurseryChunk* fromChunkWithLazyBacking(gc::Chunk* chunk, JSRuntime* rt);
         uintptr_t start() const { return uintptr_t(&data); }
         uintptr_t end() const { return uintptr_t(&trailer); }
         gc::Chunk* toChunk(JSRuntime* rt);
@@ -367,13 +376,24 @@ class Nursery
     using NativeObjectVector = Vector<NativeObject*, 0, SystemAllocPolicy>;
     NativeObjectVector dictionaryModeObjects_;
 
+    // A backing failure is not nursery exhaustion. The object allocation
+    // slow path can fall back to tenured allocation without an earlier GC.
+    bool backingAllocationFailed_;
+
+    // A major-GC entry can collect an almost-empty nursery in the middle of
+    // sustained allocation. Do not classify that one partial cycle as idle.
+    uint8_t lowDemandCollections_;
+
+    friend struct NurseryBackingTest;
+
     NurseryChunk* allocChunk();
 
     NurseryChunk& chunk(unsigned index) const {
         return *chunks_[index];
     }
 
-    void setCurrentChunk(unsigned chunkno);
+    [[nodiscard]] bool setCurrentChunk(unsigned chunkno);
+    void releaseInactiveChunks(unsigned usedChunks);
     void setStartPosition();
 
     void updateNumChunks(unsigned newCount);

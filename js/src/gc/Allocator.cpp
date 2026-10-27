@@ -86,6 +86,9 @@ GCRuntime::tryNewNurseryObject(JSContext* cx, size_t thingSize, size_t nDynamicS
     if (obj)
         return obj;
 
+    if (nursery.backingAllocationFailed())
+        return nullptr;
+
     if (allowGC && !rt->mainThread.suppressGC) {
         minorGC(JS::gcreason::OUT_OF_NURSERY);
 

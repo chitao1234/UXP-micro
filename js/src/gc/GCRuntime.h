@@ -671,6 +671,7 @@ class GCRuntime
     bool isForegroundSweeping() const { return state() == State::Sweep; }
     bool isBackgroundSweeping() { return helperState.isBackgroundSweeping(); }
     void waitBackgroundSweepEnd() { helperState.waitBackgroundSweepEnd(); }
+    void waitBackgroundDecommitEnd();
     void waitBackgroundSweepOrAllocEnd() {
         helperState.waitBackgroundSweepEnd();
         allocTask.cancel(GCParallelTask::CancelAndWait);

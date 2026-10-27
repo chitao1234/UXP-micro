@@ -1407,6 +1407,8 @@ GCDecommitPrefsCallback(const char*, void*)
     int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
     JS_SetGCDecommitEnabled(Preferences::GetBool(
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
+    JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
+        "javascript.options.mem.nursery_lazy_commit", tier >= 0 && tier <= 1));
 }
 
 static void
@@ -1554,6 +1556,8 @@ XPCJSContext::~XPCJSContext()
     Preferences::UnregisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.gc_decommit");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.mem.nursery_lazy_commit");
 }
 
 // If |*anonymizeID| is non-zero and this is a user compartment, the name will
@@ -3396,6 +3400,8 @@ XPCJSContext::Initialize()
     Preferences::RegisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.gc_decommit");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.nursery_lazy_commit");
 
     return NS_OK;
 }

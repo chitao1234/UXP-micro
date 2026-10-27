@@ -76,8 +76,14 @@ struct js::Nursery::SweepAction
 inline void
 js::Nursery::NurseryChunk::poisonAndInit(JSRuntime* rt, uint8_t poison)
 {
-    JS_POISON(this, poison, ChunkSize);
-    init(rt);
+    MOZ_ASSERT(!isDecommitted());
+    // Background decommit may still have a snapshot pointer to this chunk.
+    // Conversion initializes the trailer under the GC lock; later nursery
+    // reuse must keep its classification stable, including debug poisoning.
+    JS_POISON(data, poison, sizeof(data));
+    if (!trailer.storeBuffer)
+        init(rt);
+    MOZ_ASSERT(trailer.runtime == rt);
 }
 
 inline void
@@ -95,8 +101,45 @@ js::Nursery::NurseryChunk::fromChunk(Chunk* chunk)
 inline Chunk*
 js::Nursery::NurseryChunk::toChunk(JSRuntime* rt)
 {
+    if (!ensureCommitted())
+        return nullptr;
     auto chunk = reinterpret_cast<Chunk*>(this);
     chunk->init(rt);
+    return chunk;
+}
+
+bool
+js::Nursery::NurseryChunk::ensureCommitted()
+{
+    if (!isDecommitted())
+        return true;
+    if (!MarkPagesInUse(this, ChunkSize - SystemPageSize(), true))
+        return false;
+    trailer.padding &= ~1u;
+    return true;
+}
+
+bool
+js::Nursery::NurseryChunk::decommit()
+{
+    if (isDecommitted())
+        return true;
+    if (!MarkPagesUnused(this, ChunkSize - SystemPageSize(), true))
+        return false;
+    trailer.padding |= 1;
+    return true;
+}
+
+js::Nursery::NurseryChunk*
+js::Nursery::NurseryChunk::fromChunkWithLazyBacking(Chunk* aChunk, JSRuntime* rt)
+{
+    // The tenured header/bitmap may already be partly decommitted. Convert
+    // without reading it; the retained trailer page is sufficient for nursery.
+    if (!MarkPagesUnused(aChunk, ChunkSize - SystemPageSize(), true))
+        return nullptr;
+    NurseryChunk* chunk = fromChunk(aChunk);
+    chunk->init(rt);
+    chunk->trailer.padding = 1;
     return chunk;
 }
 
@@ -115,6 +158,8 @@ js::Nursery::Nursery(JSRuntime* rt)
   , minorGcCount_(0)
   , freeMallocedBuffersTask(nullptr)
   , sweepActions_(nullptr)
+  , backingAllocationFailed_(false)
+  , lowDemandCollections_(0)
 {}
 
 bool
@@ -142,7 +187,7 @@ js::Nursery::init(uint32_t maxNurseryBytes, AutoLockGC& lock)
     if (numChunks() == 0)
         return false;
 
-    setCurrentChunk(0);
+    MOZ_ALWAYS_TRUE(setCurrentChunk(0));
     setStartPosition();
 
     char* env = getenv("JS_GC_PROFILE_NURSERY");
@@ -194,7 +239,7 @@ js::Nursery::enable()
     if (numChunks() == 0)
         return;
 
-    setCurrentChunk(0);
+    MOZ_ALWAYS_TRUE(setCurrentChunk(0));
     setStartPosition();
 
     MOZ_ALWAYS_TRUE(runtime()->gc.storeBuffer.enable());
@@ -263,6 +308,7 @@ js::Nursery::allocateObject(JSContext* cx, size_t size, size_t numDynamic, const
 void*
 js::Nursery::allocate(size_t size)
 {
+    backingAllocationFailed_ = false;
     MOZ_ASSERT(isEnabled());
     MOZ_ASSERT(!runtime()->isHeapBusy());
     MOZ_ASSERT_IF(currentChunk_ == currentStartChunk_, position() >= currentStartPosition_);
@@ -272,7 +318,10 @@ js::Nursery::allocate(size_t size)
     if (currentEnd() < position() + size) {
         if (currentChunk_ + 1 == numChunks())
             return nullptr;
-        setCurrentChunk(currentChunk_ + 1);
+        if (!setCurrentChunk(currentChunk_ + 1)) {
+            backingAllocationFailed_ = true;
+            return nullptr;
+        }
     }
 
     void* thing = (void*)position();
@@ -519,6 +568,7 @@ js::Nursery::collect(JSRuntime* rt, JS::gcreason::Reason reason)
     JS::AutoSuppressGCAnalysis nogc;
 
     TenureCountCache tenureCounts;
+    unsigned usedChunks = currentChunk_ + 1;
     double promotionRate = 0;
     if (!isEmpty())
         promotionRate = doCollection(rt, reason, tenureCounts);
@@ -552,6 +602,11 @@ js::Nursery::collect(JSRuntime* rt, JS::gcreason::Reason reason)
     // because gcBytes >= gcMaxBytes.
     if (rt->gc.usage.gcBytes() >= rt->gc.tunables.gcMaxBytes())
         disable();
+
+    // All forwarding, dictionary and store-buffer consumers are finished.
+    // Retain hot backing under sustained allocation; release tail only after
+    // consecutive existing minor GCs found demand confined to the first quarter.
+    releaseInactiveChunks(usedChunks);
 
     endProfile(ProfileKey::Total);
     minorGcCount_++;
@@ -758,9 +813,10 @@ js::Nursery::sweep()
     {
 #ifdef JS_CRASH_DIAGNOSTICS
         for (unsigned i = 0; i < numChunks(); ++i)
-            chunk(i).poisonAndInit(runtime(), JS_SWEPT_NURSERY_PATTERN);
+            if (!chunk(i).isDecommitted())
+                chunk(i).poisonAndInit(runtime(), JS_SWEPT_NURSERY_PATTERN);
 #endif
-        setCurrentChunk(0);
+        MOZ_ALWAYS_TRUE(setCurrentChunk(0));
     }
 
     /* Set current start position for isEmpty checks. */
@@ -784,15 +840,36 @@ js::Nursery::spaceToEnd() const
     return bytes;
 }
 
-MOZ_ALWAYS_INLINE void
+MOZ_ALWAYS_INLINE bool
 js::Nursery::setCurrentChunk(unsigned chunkno)
 {
     MOZ_ASSERT(chunkno < maxChunks());
     MOZ_ASSERT(chunkno < numChunks());
+    if (!chunk(chunkno).ensureCommitted())
+        return false;
     currentChunk_ = chunkno;
     position_ = chunk(chunkno).start();
     currentEnd_ = chunk(chunkno).end();
     chunk(chunkno).poisonAndInit(runtime(), JS_FRESH_NURSERY_PATTERN);
+    return true;
+}
+
+void
+js::Nursery::releaseInactiveChunks(unsigned usedChunks)
+{
+    if (!NurseryLazyCommitEnabled() || !isEnabled() || usedChunks > numChunks() / 4) {
+        lowDemandCollections_ = 0;
+        return;
+    }
+    MOZ_ASSERT(isEmpty());
+    if (lowDemandCollections_ < 2)
+        ++lowDemandCollections_;
+    if (lowDemandCollections_ < 2)
+        return;
+    for (unsigned i = 1; i < numChunks(); ++i) {
+        // Failure preserves writable backing; it must not change capacity.
+        mozilla::Unused << chunk(i).decommit();
+    }
 }
 
 MOZ_ALWAYS_INLINE void
@@ -845,6 +922,14 @@ void
 js::Nursery::updateNumChunks(unsigned newCount)
 {
     if (numChunks() != newCount) {
+        if (newCount < numChunks()) {
+            for (unsigned i = newCount; i < numChunks(); ++i) {
+                if (chunk(i).isDecommitted()) {
+                    runtime()->gc.waitBackgroundDecommitEnd();
+                    break;
+                }
+            }
+        }
         AutoMaybeStartBackgroundAllocation maybeBgAlloc;
         AutoLockGC lock(runtime());
         updateNumChunksLocked(newCount, maybeBgAlloc, lock);
@@ -864,8 +949,17 @@ js::Nursery::updateNumChunksLocked(unsigned newCount,
 
     if (newCount < priorCount) {
         // Shrink the nursery and free unused chunks.
-        for (unsigned i = newCount; i < priorCount; i++)
-            runtime()->gc.recycleChunk(chunk(i).toChunk(runtime()), lock);
+        for (unsigned i = newCount; i < priorCount; i++) {
+            Chunk* recycled = chunk(i).toChunk(runtime());
+            if (recycled) {
+                runtime()->gc.recycleChunk(recycled, lock);
+            } else {
+                // Dead nursery data needs no commitment to release a mapping.
+                // This also keeps disable/destruction safe under commit OOM.
+                runtime()->gc.stats.count(gcstats::STAT_DESTROY_CHUNK);
+                UnmapPages(&chunk(i), ChunkSize);
+            }
+        }
         chunks_.shrinkTo(newCount);
         return;
     }
@@ -879,6 +973,13 @@ js::Nursery::updateNumChunksLocked(unsigned newCount,
         if (!newChunk) {
             chunks_.shrinkTo(i);
             return;
+        }
+
+        if (i && NurseryLazyCommitEnabled()) {
+            if (NurseryChunk* lazy = NurseryChunk::fromChunkWithLazyBacking(newChunk, runtime())) {
+                chunks_[i] = lazy;
+                continue;
+            }
         }
 
         if (!newChunk->prepareForReuse()) {

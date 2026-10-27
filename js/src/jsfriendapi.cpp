@@ -45,6 +45,12 @@ JS_SetGCDecommitEnabled(bool enabled)
     gc::SetGCDecommitEnabled(enabled);
 }
 
+JS_FRIEND_API(void)
+JS_SetNurseryLazyCommitEnabled(bool enabled)
+{
+    gc::SetNurseryLazyCommitEnabled(enabled);
+}
+
 js::ContextFriendFields::ContextFriendFields(bool isJSContext)
   : JS::RootingContext(isJSContext),
     compartment_(nullptr), zone_(nullptr)

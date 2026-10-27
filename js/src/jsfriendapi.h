@@ -51,6 +51,11 @@ JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data);
 extern JS_FRIEND_API(void)
 JS_SetGCDecommitEnabled(bool enabled);
 
+// Lazy backing is independent of tenured-arena decommit. Nursery capacity and
+// collection decisions remain unchanged; actual page state survives changes.
+extern JS_FRIEND_API(void)
+JS_SetNurseryLazyCommitEnabled(bool enabled);
+
 extern JS_FRIEND_API(JSObject*)
 JS_FindCompilationScope(JSContext* cx, JS::HandleObject obj);
 

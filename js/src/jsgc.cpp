@@ -2997,6 +2997,11 @@ js::gc::BackgroundDecommitTask::run()
     AutoLockGC lock(runtime);
 
     for (Chunk* chunk : toDecommit) {
+        // A snapshot entry can have become an empty pooled chunk and then a
+        // nursery chunk while another decommit syscall released the GC lock.
+        // The trailer is always backed; nursery payload/header pages may not be.
+        if (chunk->isNurseryChunk())
+            continue;
         // The arena list is not doubly-linked, so we have to work in the free
         // list order and not in the natural order.
         while (chunk->info.numArenasFreeCommitted) {
@@ -3016,6 +3021,13 @@ js::gc::BackgroundDecommitTask::run()
         AutoUnlockGC unlock(lock);
         FreeChunkPool(runtime, toFree);
     }
+}
+
+void
+GCRuntime::waitBackgroundDecommitEnd()
+{
+    // Call before taking the GC lock, which the task needs in order to finish.
+    decommitTask.join();
 }
 
 void

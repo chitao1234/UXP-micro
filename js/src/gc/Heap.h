@@ -778,17 +778,19 @@ struct ChunkTrailer
 {
     /* Construct a Nursery ChunkTrailer. */
     ChunkTrailer(JSRuntime* rt, StoreBuffer* sb)
-      : location(ChunkLocation::Nursery), storeBuffer(sb), runtime(rt)
+      : location(ChunkLocation::Nursery), padding(0), storeBuffer(sb), runtime(rt)
     {}
 
     /* Construct a Tenured heap ChunkTrailer. */
     explicit ChunkTrailer(JSRuntime* rt)
-      : location(ChunkLocation::TenuredHeap), storeBuffer(nullptr), runtime(rt)
+      : location(ChunkLocation::TenuredHeap), padding(0), storeBuffer(nullptr), runtime(rt)
     {}
 
   public:
     /* The index the chunk in the nursery, or LocationTenuredHeap. */
     ChunkLocation   location;
+    // Nursery chunks use bit 0 to record actual decommitted payload backing.
+    // This page remains committed for barrier/pointer classification.
     uint32_t        padding;
 
     /* The store buffer for writes to things in this chunk or nullptr. */

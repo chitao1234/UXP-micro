@@ -36,6 +36,8 @@ bool MarkPagesUnused(void* p, size_t size, bool decommit = false);
 // Actual backing state belongs to each chunk, independently of this policy.
 void SetGCDecommitEnabled(bool enabled);
 bool GCDecommitEnabled();
+void SetNurseryLazyCommitEnabled(bool enabled);
+bool NurseryLazyCommitEnabled();
 
 // Returns #(hard faults) + #(soft faults)
 size_t GetPageFaultCount();

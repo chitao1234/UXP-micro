@@ -39,11 +39,18 @@ static size_t pageSize = 0;
 static size_t allocGranularity = 0;
 
 static mozilla::Atomic<bool, mozilla::Relaxed> gcDecommitEnabled(false);
+static mozilla::Atomic<bool, mozilla::Relaxed> nurseryLazyCommitEnabled(false);
 
 void
 SetGCDecommitEnabled(bool enabled)
 {
     gcDecommitEnabled = enabled;
+}
+
+void
+SetNurseryLazyCommitEnabled(bool enabled)
+{
+    nurseryLazyCommitEnabled = enabled;
 }
 
 #if defined(XP_UNIX)
@@ -85,6 +92,17 @@ GCDecommitEnabled()
 #else
     return false;
 #endif
+}
+
+bool
+NurseryLazyCommitEnabled()
+{
+#if defined(XP_WIN)
+#  if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+    return DecommitEnabled() && nurseryLazyCommitEnabled;
+#  endif
+#endif
+    return false;
 }
 
 /*
