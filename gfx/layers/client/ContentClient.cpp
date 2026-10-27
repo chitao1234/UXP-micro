@@ -22,6 +22,7 @@
 #include "mozilla/gfx/Rect.h"           // for Rect
 #include "mozilla/gfx/Types.h"
 #include "mozilla/layers/CompositorBridgeChild.h" // for CompositorBridgeChild
+#include "ClientLayerManager.h"
 #include "mozilla/layers/LayerManagerComposite.h"
 #include "mozilla/layers/LayersMessages.h"  // for ThebesBufferData
 #include "mozilla/layers/LayersTypes.h"
@@ -667,6 +668,10 @@ ContentClientDoubleBuffered::BeginPaint()
 ContentClientRemoteBuffer::PaintState
 ContentClientDoubleBuffered::BeginPaintBuffer(PaintedLayer* aLayer, uint32_t aFlags)
 {
+  PaintState shrunk;
+  if (TryShrinkBuffer(aLayer, aFlags, shrunk)) {
+    return shrunk;
+  }
   if (mBackBufferDiscarded && mFrontClient) {
     nsIntRegion visible = aLayer->GetVisibleRegion().ToUnknownRegion();
     if (visible.IsEmpty()) {
@@ -712,6 +717,125 @@ ContentClientDoubleBuffered::BeginPaintBuffer(PaintedLayer* aLayer, uint32_t aFl
     return PaintState();
   }
   return ContentClientRemoteBuffer::BeginPaintBuffer(aLayer, aFlags);
+}
+
+bool
+ContentClientDoubleBuffered::TryShrinkBuffer(PaintedLayer* aLayer,
+                                             uint32_t aFlags,
+                                             PaintState& aPaintState)
+{
+  // Repaint substantially oversized software buffers during a normal layer
+  // transaction. Never modify the displayed texture or copy its rotated pixels.
+  // GPU/component-alpha/readback lifetimes keep their existing policy.
+  int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+  if (mForwarder->GetCompositorBackendType() != LayersBackend::LAYERS_BASIC ||
+      !Preferences::GetBool("browser.memory.shrinkPaintBuffers",
+                            tier >= 0 && tier <= 1) ||
+      !mFrontClient || mFrontClientOnWhite || mTextureClientOnWhite ||
+      mWaitingForBufferSwap || mUsedForReadback || aLayer->UsedForReadback() ||
+      mLoanedDrawTarget) {
+    return false;
+  }
+  ClientLayerManager* manager = aLayer->Manager()->AsClientLayerManager();
+  if (!manager || !manager->GetPaintedLayerCallback()) {
+    return false; // Empty transactions cannot supply the required full repaint.
+  }
+
+  nsIntRegion visible = aLayer->GetVisibleRegion().ToUnknownRegion();
+  IntRect rect = visible.GetBounds();
+  if (rect.IsEmpty()) {
+    return false;
+  }
+  // Match ComputeBufferRect's minimum width (platform/SIMD requirement).
+  rect.width = std::max(rect.width, 64);
+  IntSize oldSize = mFrontClient->GetSize();
+  int64_t oldPixels = int64_t(oldSize.width) * oldSize.height;
+  int64_t newPixels = int64_t(rect.width) * rect.height;
+  int64_t savedBytes =
+    (oldPixels - newPixels) * BytesPerPixel(mFrontClient->GetFormat());
+  int64_t minimum = int64_t(Preferences::GetUint(
+    "browser.memory.shrinkPaintBuffers.minSavingsKB", 2048)) * 1024;
+  // At least half the pixels and, by default, 2 MiB must be redundant. Small
+  // size changes keep reusing their buffers; rapid shrink/grow cycles cannot
+  // allocate more than once a second through this path.
+  if (newPixels * 2 > oldPixels ||
+      savedBytes < minimum ||
+      (!mLastBufferShrink.IsNull() &&
+       (TimeStamp::Now() - mLastBufferShrink).ToMilliseconds() < 1000)) {
+    return false;
+  }
+
+  SurfaceMode mode = aLayer->GetSurfaceMode();
+  if (mode == SurfaceMode::SURFACE_COMPONENT_ALPHA) {
+    if (aLayer->GetParent() &&
+        aLayer->GetParent()->SupportsComponentAlphaChildren() &&
+        aLayer->AsShadowableLayer() && aLayer->AsShadowableLayer()->HasShadow()) {
+      return false;
+    }
+    mode = SurfaceMode::SURFACE_SINGLE_CHANNEL_ALPHA;
+  }
+  ContentType content = aLayer->CanUseOpaqueSurface()
+                        ? gfxContentType::COLOR : gfxContentType::COLOR_ALPHA;
+  nsIntRegion needed = visible;
+  if ((aFlags & PAINT_WILL_RESAMPLE) &&
+      (!rect.IsEqualInterior(visible.GetBounds()) || visible.GetNumRects() > 1)) {
+    if (mode == SurfaceMode::SURFACE_OPAQUE) {
+      content = gfxContentType::COLOR_ALPHA;
+      mode = SurfaceMode::SURFACE_SINGLE_CHANNEL_ALPHA;
+    }
+    needed = rect;
+  }
+
+  // Stage and validate everything before releasing any current client state.
+  // Allocation/registration/locking/draw-target failures simply keep the old
+  // buffer and continue through the established painting path below.
+  SurfaceFormat format = gfxPlatform::GetPlatform()->Optimal2DFormatForContent(content);
+  RefPtr<TextureClient> replacement = CreateTextureClientForDrawing(
+    format, rect.Size(), BackendSelector::Content, ExtraTextureFlags(),
+    TextureAllocationFlags::ALLOC_CLEAR_BUFFER);
+  if (!replacement || !AddTextureClient(replacement) ||
+      !replacement->Lock(OpenMode::OPEN_READ_WRITE)) {
+    return false;
+  }
+  RefPtr<DrawTarget> target = replacement->BorrowDrawTarget();
+  if (!target || !target->IsValid()) {
+    target = nullptr;
+    replacement->Unlock();
+    return false;
+  }
+
+  CancelIdleBackBufferTimer();
+  SetBufferProvider(nullptr);
+  SetBufferProviderOnWhite(nullptr);
+  if (mTextureClient) {
+    mOldTextures.AppendElement(mTextureClient);
+  }
+  // Normal IPC ownership keeps the old front displayed until Updated submits
+  // the complete replacement. Do not reuse it as a differently sized spare.
+  DestroyFrontBuffer();
+  mTextureClient = replacement;
+  mTextureFlags = TextureFlags::NO_FLAGS;
+  mSurfaceFormat = format;
+  mSize = rect.Size();
+  SetBufferProvider(mTextureClient);
+  mDTBuffer = target;
+  mBufferRect = rect;
+  mBufferRotation = IntPoint();
+  mFrontBufferRect.SetEmpty();
+  mFrontBufferRotation = IntPoint();
+  mFrontUpdatedRegion.SetEmpty();
+  mFrontAndBackBufferDiffer = false;
+  mBackBufferDiscarded = false;
+  mDidSelfCopy = false;
+  mIsNewBuffer = true;
+  mLastBufferShrink = TimeStamp::Now();
+
+  aPaintState.mRegionToInvalidate = aLayer->GetValidRegion();
+  aPaintState.mRegionToDraw = needed;
+  aPaintState.mContentType = content;
+  aPaintState.mMode = mode;
+  aPaintState.mClip = DrawRegionClip::DRAW;
+  return true;
 }
 
 // Sync front/back buffers content

@@ -1,0 +1,36 @@
+<!doctype html>
+<html class="reftest-wait">
+<meta charset="utf-8">
+<style>
+html,body{margin:0;background:white}
+#panel{position:absolute;left:20px;top:20px;width:700px;height:520px;overflow:hidden;transform:translateZ(0)}
+#background{width:900px;height:900px;background:repeating-linear-gradient(20deg,#147 0px,#147 20px,#fed 20px,#fed 40px)}
+#patch{position:absolute;left:30px;top:40px;width:70px;height:50px;background:red}
+#alpha{position:absolute;left:110px;top:70px;width:100px;height:100px;background:rgba(20,220,60,.5);transform:rotate(9deg)}
+</style>
+<div id="panel"><div id="background"></div><div id="patch"></div><div id="alpha"></div></div>
+<script>
+window.onload=function(){
+  function wait(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
+  function frame(){return new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve);});});}
+  var panel=document.getElementById('panel'),patch=document.getElementById('patch');
+  (async function(){
+    await frame();await wait(250);
+    panel.style.width='220px';panel.style.height='180px';
+    await frame();await wait(250);
+    // After the full shrink repaint/spare expiry, dirty only a tiny area.
+    patch.style.background='blue';
+    await frame();await wait(250);
+    // Growth must invalidate the discarded outside pixels correctly.
+    panel.style.width='700px';panel.style.height='520px';
+    await frame();await wait(1100);
+    panel.scrollLeft=17;panel.scrollTop=23;
+    panel.style.width='220px';panel.style.height='180px';
+    await frame();await wait(250);
+    patch.style.width='72px';
+    await frame();await wait(250);
+    document.documentElement.removeAttribute('class');
+  })();
+};
+</script>
+</html>

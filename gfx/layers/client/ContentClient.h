@@ -378,6 +378,8 @@ private:
   void ArmIdleBackBufferTimer();
   void CancelIdleBackBufferTimer();
   void DiscardIdleBackBuffer();
+  bool TryShrinkBuffer(PaintedLayer* aLayer, uint32_t aFlags,
+                       PaintState& aPaintState);
 
   void UpdateDestinationFrom(const RotatedBuffer& aSource,
                              const nsIntRegion& aUpdateRegion);
@@ -397,6 +399,7 @@ private:
   nsIntPoint mFrontBufferRotation;
   nsCOMPtr<nsITimer> mIdleBackBufferTimer;
   TimeStamp mLastBufferUpdate;
+  TimeStamp mLastBufferShrink;
   bool mWaitingForBufferSwap;
   bool mBackBufferDiscarded;
   bool mUsedForReadback;
