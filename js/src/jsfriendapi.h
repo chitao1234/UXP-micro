@@ -56,6 +56,11 @@ JS_SetGCDecommitEnabled(bool enabled);
 extern JS_FRIEND_API(void)
 JS_SetNurseryLazyCommitEnabled(bool enabled);
 
+// Initial reservation budget for new 32-bit Windows unshared Wasm memories.
+// Zero retains historical reservation policy; existing memories keep theirs.
+extern JS_FRIEND_API(void)
+JS_SetWasmMemoryReservationLimit(uint32_t bytes);
+
 extern JS_FRIEND_API(JSObject*)
 JS_FindCompilationScope(JSContext* cx, JS::HandleObject obj);
 

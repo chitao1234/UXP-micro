@@ -367,6 +367,7 @@ class ArrayBufferObject : public ArrayBufferObjectMaybeShared
                                              bool needGuard);
     size_t wasmMappedSize() const;
     mozilla::Maybe<uint32_t> wasmMaxSize() const;
+    bool wasmMovingGrowable() const;
     [[nodiscard]] static bool wasmGrowToSizeInPlace(uint32_t newSize,
                                                    Handle<ArrayBufferObject*> oldBuf,
                                                    MutableHandle<ArrayBufferObject*> newBuf,

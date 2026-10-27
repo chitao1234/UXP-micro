@@ -57,6 +57,7 @@
 #include "jsobjinlines.h"
 
 #include "vm/EnvironmentObject-inl.h"
+#include "vm/ArrayBufferObject-inl.h"
 #include "vm/NativeObject-inl.h"
 
 using namespace js;
@@ -606,6 +607,38 @@ WasmBinaryToText(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     args.rval().setString(result);
+    return true;
+}
+
+static bool
+GetWasmMemoryInfo(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    JSObject* unwrapped = args.get(0).isObject() ? CheckedUnwrap(&args[0].toObject()) : nullptr;
+    if (!unwrapped || !unwrapped->is<WasmMemoryObject>()) {
+        JS_ReportErrorASCII(cx, "argument is not a WebAssembly.Memory");
+        return false;
+    }
+    RootedWasmMemoryObject memory(cx, &unwrapped->as<WasmMemoryObject>());
+    RootedArrayBufferObjectMaybeShared buffer(cx, &memory->buffer());
+    uint32_t length = buffer->byteLength();
+    size_t mapped = buffer->wasmMappedSize();
+    Maybe<uint32_t> maximum = buffer->wasmMaxSize();
+    uintptr_t address = uintptr_t(buffer->dataPointerEither().unwrap());
+    bool moving = memory->movingGrowable();
+    RootedValue maximumValue(cx, maximum ? NumberValue(*maximum) : NullValue());
+    RootedValue movingValue(cx, BooleanValue(moving));
+    RootedObject result(cx, JS_NewPlainObject(cx));
+    if (!result ||
+        !JS_DefineProperty(cx, result, "byteLength", double(length), JSPROP_ENUMERATE) ||
+        !JS_DefineProperty(cx, result, "mappedBytes", double(mapped), JSPROP_ENUMERATE) ||
+        !JS_DefineProperty(cx, result, "declaredMaximum", maximumValue, JSPROP_ENUMERATE) ||
+        !JS_DefineProperty(cx, result, "baseAddress", double(address), JSPROP_ENUMERATE) ||
+        !JS_DefineProperty(cx, result, "moving", movingValue, JSPROP_ENUMERATE))
+    {
+        return false;
+    }
+    args.rval().setObject(*result);
     return true;
 }
 
@@ -4275,6 +4308,10 @@ JS_FN_HELP("streamsAreEnabled", StreamsAreEnabled, 0, 0,
     JS_FN_HELP("wasmExtractCode", WasmExtractCode, 1, 0,
 "wasmExtractCode(module)",
 "  Extracts generated machine code from WebAssembly.Module."),
+
+    JS_FN_HELP("getWasmMemoryInfo", GetWasmMemoryInfo, 1, 0,
+"getWasmMemoryInfo(memory)",
+"  Return live length, mapping size, declared maximum, movement policy and base address."),
 
     JS_FN_HELP("isLazyFunction", IsLazyFunction, 1, 0,
 "isLazyFunction(fun)",

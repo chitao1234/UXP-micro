@@ -7,6 +7,7 @@
 #include "vm/ArrayBufferObject.h"
 
 #include "mozilla/Alignment.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
@@ -66,6 +67,26 @@ using mozilla::Nothing;
 
 using namespace js;
 using namespace js::gc;
+
+// Published by the embedding's main-thread preference callback. Workers only
+// read the atomic; each memory snapshots its own growth policy at allocation.
+static mozilla::Atomic<uint32_t, mozilla::Relaxed> wasmMemoryReservationLimit(0);
+
+JS_FRIEND_API(void)
+JS_SetWasmMemoryReservationLimit(uint32_t bytes)
+{
+    wasmMemoryReservationLimit = bytes;
+}
+
+static uint32_t
+WasmMemoryReservationLimit()
+{
+#if defined(XP_WIN) && !defined(WASM_HUGE_MEMORY)
+    if (sizeof(void*) == 4)
+        return wasmMemoryReservationLimit;
+#endif
+    return 0;
+}
 
 /*
  * Convert |v| to an array index for an array of length |length| per
@@ -807,10 +828,11 @@ ArrayBufferObject::fun_transferToFixedLength(JSContext* cx, unsigned argc, Value
  *
  * Invariants:
  *  - length only increases
- *  - 0 <= length <= maxSize (if present) <= boundsCheckLimit <= mappedSize
+ *  - length <= maxSize (if present); the declared maximum never changes
+ *  - length <= boundsCheckLimit <= mappedSize
  *  - on ARM boundsCheckLimit must be a valid ARM immediate.
- *  - if maxSize is not specified, boundsCheckLimit/mappedSize may grow. They are
- *    otherwise constant.
+ *  - movable memories can grow boundsCheckLimit/mappedSize or relocate even
+ *    with a declared maximum. Every importing instance registers an observer.
  *
  * NOTE: For asm.js on non-x64 we guarantee that
  *
@@ -837,18 +859,24 @@ ArrayBufferObject::fun_transferToFixedLength(JSContext* cx, unsigned argc, Value
 
 class js::WasmArrayRawBuffer
 {
-    Maybe<uint32_t> maxSize_;
+    const Maybe<uint32_t> maxSize_;
     size_t mappedSize_;
+    const uint32_t reservationBudget_;
+    const bool movingGrowable_;
 
   protected:
-    WasmArrayRawBuffer(uint8_t* buffer, uint32_t length, Maybe<uint32_t> maxSize, size_t mappedSize)
-      : maxSize_(maxSize), mappedSize_(mappedSize)
+    WasmArrayRawBuffer(uint8_t* buffer, Maybe<uint32_t> maxSize, size_t mappedSize,
+                      uint32_t reservationBudget, bool movingGrowable)
+      : maxSize_(maxSize), mappedSize_(mappedSize),
+        reservationBudget_(reservationBudget), movingGrowable_(movingGrowable)
     {
         MOZ_ASSERT(buffer == dataPointer());
     }
 
   public:
-    static WasmArrayRawBuffer* Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize);
+    static WasmArrayRawBuffer* Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize,
+                                       uint32_t capacity, uint32_t reservationBudget = 0,
+                                       bool movingGrowable = false);
     static void Release(void* mem);
 
     uint8_t* dataPointer() {
@@ -868,6 +896,9 @@ class js::WasmArrayRawBuffer
         return maxSize_;
     }
 
+    uint32_t reservationBudget() const { return reservationBudget_; }
+    bool movingGrowable() const { return movingGrowable_; }
+
     size_t allocatedBytes() const {
         return mappedSize_ + gc::SystemPageSize();
     }
@@ -884,7 +915,12 @@ class js::WasmArrayRawBuffer
     [[nodiscard]] bool growToSizeInPlace(uint32_t oldSize, uint32_t newSize) {
         MOZ_ASSERT(newSize >= oldSize);
         MOZ_ASSERT_IF(maxSize(), newSize <= maxSize().value());
-        MOZ_ASSERT(newSize <= mappedSize());
+        // A logical maximum can exceed the reserved region. Reject before
+        // committing pages outside our allocation; moving growth handles it.
+#ifndef WASM_HUGE_MEMORY
+        if (newSize > boundsCheckLimit())
+            return false;
+#endif
 
         uint32_t delta = newSize - oldSize;
         MOZ_ASSERT(delta % wasm::PageSize == 0);
@@ -935,32 +971,30 @@ class js::WasmArrayRawBuffer
 
     // Try and grow the mapped region of memory. Does not changes current size.
     // Does not move memory if no space to grow.
-    void tryGrowMaxSizeInPlace(uint32_t deltaMaxSize) {
-        CheckedInt<uint32_t> newMaxSize = maxSize_.value();
-        newMaxSize += deltaMaxSize;
-        MOZ_ASSERT(newMaxSize.isValid());
-        MOZ_ASSERT(newMaxSize.value() % wasm::PageSize == 0);
-
-        if (!extendMappedSize(newMaxSize.value()))
-            return;
-
-        maxSize_ = Some(newMaxSize.value());
+    void tryGrowCapacityInPlace(uint32_t deltaCapacity, uint32_t capacityLimit) {
+        CheckedInt<uint32_t> capacity = boundsCheckLimit();
+        capacity += deltaCapacity;
+        if (capacity.isValid())
+            (void)extendMappedSize(Min(capacity.value(), capacityLimit));
     }
 #endif // WASM_HUGE_MEMORY
 };
 
 /* static */ WasmArrayRawBuffer*
-WasmArrayRawBuffer::Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize)
+WasmArrayRawBuffer::Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize,
+                            uint32_t capacity, uint32_t reservationBudget,
+                            bool movingGrowable)
 {
     size_t mappedSize;
 #ifdef WASM_HUGE_MEMORY
     mappedSize = wasm::HugeMappedSize;
 #else
-    mappedSize = wasm::ComputeMappedSize(maxSize.valueOr(numBytes));
+    mappedSize = wasm::ComputeMappedSize(capacity);
 #endif
 
     MOZ_RELEASE_ASSERT(mappedSize <= SIZE_MAX - gc::SystemPageSize());
     MOZ_RELEASE_ASSERT(numBytes <= maxSize.valueOr(UINT32_MAX));
+    MOZ_RELEASE_ASSERT(numBytes <= capacity);
     MOZ_ASSERT(numBytes % gc::SystemPageSize() == 0);
     MOZ_ASSERT(mappedSize % gc::SystemPageSize() == 0);
 
@@ -1003,7 +1037,8 @@ WasmArrayRawBuffer::Allocate(uint32_t numBytes, Maybe<uint32_t> maxSize)
     uint8_t* base = reinterpret_cast<uint8_t*>(data) + gc::SystemPageSize();
     uint8_t* header = base - sizeof(WasmArrayRawBuffer);
 
-    auto rawBuf = new (header) WasmArrayRawBuffer(base, numBytes, maxSize, mappedSize);
+    auto rawBuf = new (header) WasmArrayRawBuffer(base, maxSize, mappedSize,
+                                                reservationBudget, movingGrowable);
     return rawBuf;
 }
 
@@ -1042,49 +1077,59 @@ ArrayBufferObject::createForWasm(JSContext* cx, uint32_t initialSize, Maybe<uint
     MOZ_ASSERT(initialSize % wasm::PageSize == 0);
     MOZ_RELEASE_ASSERT(wasm::HaveSignalHandlers());
 
-    // Prevent applications specifying a large max (like UINT32_MAX) from
-    // unintentially OOMing the browser on 32-bit: they just want "a lot of
-    // memory". Maintain the invariant that initialSize <= maxSize.
+    if (initialSize > INT32_MAX) {
+        ReportOutOfMemory(cx);
+        return nullptr;
+    }
+
+    // Preserve the descriptor maximum for imports and memory.grow. Reservation
+    // capacity is an implementation choice and must never rewrite this limit.
+    uint32_t capacity = maxSize.valueOr(initialSize);
     if (sizeof(void*) == 4 && maxSize) {
         static const uint32_t OneGiB = 1 << 30;
-        uint32_t clamp = Max(OneGiB, initialSize);
-        maxSize = Some(Min(clamp, maxSize.value()));
+        capacity = Min(Max(OneGiB, initialSize), capacity);
     }
+    uint32_t budget = maxSize ? WasmMemoryReservationLimit() : 0;
+    if (budget)
+        capacity = Max(initialSize, Min(capacity, budget));
+    bool movingGrowable = !maxSize || budget;
 
     RootedArrayBufferObject buffer(cx, ArrayBufferObject::createEmpty(cx));
     if (!buffer)
         return nullptr;
 
-    // Try to reserve the maximum requested memory
-    WasmArrayRawBuffer* wasmBuf = WasmArrayRawBuffer::Allocate(initialSize, maxSize);
+    WasmArrayRawBuffer* wasmBuf = WasmArrayRawBuffer::Allocate(initialSize, maxSize,
+                                                              capacity, budget, movingGrowable);
     if (!wasmBuf) {
-#ifdef  WASM_HUGE_MEMORY
+#ifdef WASM_HUGE_MEMORY
         ReportOutOfMemory(cx);
         return nullptr;
 #else
-        // If we fail, and have a maxSize, try to reserve the biggest chunk in
-        // the range [initialSize, maxSize) using log backoff.
-        if (!maxSize) {
-            ReportOutOfMemory(cx);
-            return nullptr;
-        }
-
-        uint32_t cur = maxSize.value() / 2;
-
+        // Back off the reserved capacity, retaining the declared maximum. The
+        // capped policy can later relocate; historical fixed mappings retain
+        // their historical inability to grow past available reservation.
+        uint32_t cur = capacity / 2;
         for (; cur > initialSize; cur /= 2) {
-            wasmBuf = WasmArrayRawBuffer::Allocate(initialSize, Some(ROUND_UP(cur, wasm::PageSize)));
+            wasmBuf = WasmArrayRawBuffer::Allocate(initialSize, maxSize,
+                ROUND_UP(cur, wasm::PageSize), budget, movingGrowable);
             if (wasmBuf)
                 break;
         }
-
+        if (!wasmBuf && budget) {
+            wasmBuf = WasmArrayRawBuffer::Allocate(initialSize, maxSize, initialSize,
+                                                   budget, movingGrowable);
+        }
         if (!wasmBuf) {
             ReportOutOfMemory(cx);
             return nullptr;
         }
 
-        // Try to grow our chunk as much as possible.
-        for (size_t d = cur / 2; d >= wasm::PageSize; d /= 2)
-            wasmBuf->tryGrowMaxSizeInPlace(ROUND_UP(d, wasm::PageSize));
+        // Only the historical policy tries to fill the remaining address
+        // space. Capped mappings stay within their chosen reservation.
+        if (!budget) {
+            for (size_t d = cur / 2; d >= wasm::PageSize; d /= 2)
+                wasmBuf->tryGrowCapacityInPlace(ROUND_UP(d, wasm::PageSize), capacity);
+        }
 #endif
     }
 
@@ -1121,7 +1166,7 @@ ArrayBufferObject::prepareForAsmJS(JSContext* cx, Handle<ArrayBufferObject*> buf
             return false;
 
         uint32_t length = buffer->byteLength();
-        WasmArrayRawBuffer* wasmBuf = WasmArrayRawBuffer::Allocate(length, Some(length));
+        WasmArrayRawBuffer* wasmBuf = WasmArrayRawBuffer::Allocate(length, Some(length), length);
         if (!wasmBuf) {
             ReportOutOfMemory(cx);
             return false;
@@ -1263,6 +1308,12 @@ ArrayBufferObject::wasmMaxSize() const
         return Some<uint32_t>(byteLength());
 }
 
+bool
+ArrayBufferObject::wasmMovingGrowable() const
+{
+    return isWasm() && contents().wasmBuffer()->movingGrowable();
+}
+
 Maybe<uint32_t>
 js::WasmArrayBufferMaxSize(const ArrayBufferObjectMaybeShared* buf)
 {
@@ -1317,8 +1368,17 @@ ArrayBufferObject::wasmMovingGrowToSize(uint32_t newSize,
     if (newSize > INT32_MAX)
         return false;
 
+    WasmArrayRawBuffer* oldRaw = oldBuf->contents().wasmBuffer();
+    MOZ_ASSERT(oldRaw->movingGrowable());
+    if (newSize > oldRaw->maxSize().valueOr(UINT32_MAX))
+        return false;
+
+    // Capped Windows mappings use a single reservation. Extending via a second
+    // adjacent VirtualAlloc reservation cannot safely be committed/released as
+    // one region. Keep historical non-capped behavior separate.
+    bool canExtend = !oldRaw->reservationBudget();
     if (newSize <= oldBuf->wasmBoundsCheckLimit() ||
-        oldBuf->contents().wasmBuffer()->extendMappedSize(newSize))
+        (canExtend && oldRaw->extendMappedSize(newSize)))
     {
         return wasmGrowToSizeInPlace(newSize, oldBuf, newBuf, cx);
     }
@@ -1329,7 +1389,26 @@ ArrayBufferObject::wasmMovingGrowToSize(uint32_t newSize,
         return false;
     }
 
-    WasmArrayRawBuffer* newRawBuf = WasmArrayRawBuffer::Allocate(newSize, Nothing());
+    uint32_t capacity = newSize;
+    if (oldRaw->reservationBudget()) {
+        // Reserve geometric headroom after a relocation, without changing the
+        // declared maximum. All arithmetic is wide until clamped to a legal
+        // page-aligned ArrayBuffer capacity.
+        uint64_t desired = Max(uint64_t(oldBuf->wasmBoundsCheckLimit()) * 2,
+                               uint64_t(oldRaw->reservationBudget()));
+        desired = Max(desired, uint64_t(newSize));
+        uint32_t limit = Min(oldRaw->maxSize().valueOr(UINT32_MAX),
+                             uint32_t(INT32_MAX / wasm::PageSize * wasm::PageSize));
+        capacity = uint32_t(Min(desired, uint64_t(limit)));
+    }
+    WasmArrayRawBuffer* newRawBuf;
+    for (;;) {
+        newRawBuf = WasmArrayRawBuffer::Allocate(newSize, oldRaw->maxSize(), capacity,
+            oldRaw->reservationBudget(), oldRaw->movingGrowable());
+        if (newRawBuf || capacity == newSize)
+            break;
+        capacity = Max(newSize, ROUND_UP(capacity / 2, wasm::PageSize));
+    }
     if (!newRawBuf)
         return false;
     BufferContents contents = BufferContents::create<WASM>(newRawBuf->dataPointer());

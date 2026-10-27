@@ -1409,6 +1409,10 @@ GCDecommitPrefsCallback(const char*, void*)
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
     JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
         "javascript.options.mem.nursery_lazy_commit", tier >= 0 && tier <= 1));
+    int32_t reservationMB = Preferences::GetInt(
+        "javascript.options.wasm_reservation_limit_mb", tier >= 0 && tier <= 1 ? 128 : 0);
+    JS_SetWasmMemoryReservationLimit(reservationMB > 0 ?
+        uint32_t(reservationMB > 1024 ? 1024 : reservationMB) * 1024 * 1024 : 0);
 }
 
 static void
@@ -1558,6 +1562,8 @@ XPCJSContext::~XPCJSContext()
                                     "javascript.options.mem.gc_decommit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.nursery_lazy_commit");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.wasm_reservation_limit_mb");
 }
 
 // If |*anonymizeID| is non-zero and this is a user compartment, the name will
@@ -3402,6 +3408,8 @@ XPCJSContext::Initialize()
                                   "javascript.options.mem.gc_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.nursery_lazy_commit");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.wasm_reservation_limit_mb");
 
     return NS_OK;
 }

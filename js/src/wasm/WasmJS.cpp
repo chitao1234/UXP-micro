@@ -1271,7 +1271,7 @@ WasmMemoryObject::movingGrowable() const
 #ifdef WASM_HUGE_MEMORY
     return false;
 #else
-    return !buffer().wasmMaxSize();
+    return buffer().is<ArrayBufferObject>() && buffer().as<ArrayBufferObject>().wasmMovingGrowable();
 #endif
 }
 
@@ -1309,33 +1309,36 @@ WasmMemoryObject::grow(HandleWasmMemoryObject memory, uint32_t delta, JSContext*
     RootedArrayBufferObject newBuf(cx);
     uint8_t* prevMemoryBase = nullptr;
 
-    if (Maybe<uint32_t> maxSize = oldBuf->wasmMaxSize()) {
-        if (newSize.value() > maxSize.value())
-            return -1;
-
-        if (!ArrayBufferObject::wasmGrowToSizeInPlace(newSize.value(), oldBuf, &newBuf, cx))
-            return -1;
-    } else {
-#ifdef WASM_HUGE_MEMORY
-        if (!ArrayBufferObject::wasmGrowToSizeInPlace(newSize.value(), oldBuf, &newBuf, cx))
-            return -1;
-#else
-        MOZ_ASSERT(memory->movingGrowable());
+    // The logical limit is independent of how much address space is reserved.
+    if (newSize.value() > oldBuf->wasmMaxSize().valueOr(UINT32_MAX))
+        return -1;
+#ifndef WASM_HUGE_MEMORY
+    uint32_t prevBoundsCheckLimit = oldBuf->wasmBoundsCheckLimit();
+    if (memory->movingGrowable()) {
         prevMemoryBase = oldBuf->dataPointer();
         if (!ArrayBufferObject::wasmMovingGrowToSize(newSize.value(), oldBuf, &newBuf, cx))
             return -1;
+    } else
 #endif
+    {
+        if (!ArrayBufferObject::wasmGrowToSizeInPlace(newSize.value(), oldBuf, &newBuf, cx))
+            return -1;
     }
 
     memory->setReservedSlot(BUFFER_SLOT, ObjectValue(*newBuf));
 
     // Only notify moving-grow-observers after the BUFFER_SLOT has been updated
     // since observers will call buffer().
-    if (memory->hasObservers()) {
+#ifndef WASM_HUGE_MEMORY
+    if (memory->hasObservers() &&
+        (prevMemoryBase != newBuf->dataPointer() ||
+         prevBoundsCheckLimit != newBuf->wasmBoundsCheckLimit()))
+    {
         MOZ_ASSERT(prevMemoryBase);
         for (InstanceSet::Range r = memory->observers().all(); !r.empty(); r.popFront())
             r.front()->instance().onMovingGrowMemory(prevMemoryBase);
     }
+#endif
 
     return oldNumPages;
 }
