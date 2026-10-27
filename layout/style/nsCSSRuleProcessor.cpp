@@ -742,7 +742,11 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
   mPreviousCacheKey = nullptr;
 
   if (mSheets.Length() != 0) {
-    bool shareIndexes = Preferences::GetBool("layout.css.cascade-index.share", true);
+    // Canonicalizing new media states saves memory but adds construction work.
+    // Prefer it on low-memory tiers; an explicit pref overrides the tier policy.
+    int32_t memoryTier = Preferences::GetInt("browser.memoryTier", 3);
+    bool shareIndexes = Preferences::GetBool("layout.css.cascade-index.share",
+                                            memoryTier <= 1);
     // A single media state has nothing to share. Build its normal index first;
     // only introduce identities/canonical buckets once another state is needed.
     if (shareIndexes && !mIndexPool && mGroup) {
