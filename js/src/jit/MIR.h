@@ -12583,13 +12583,15 @@ class MWasmLoadTls
     }
 
     bool congruentTo(const MDefinition* ins) const override {
-        return op() == ins->op() &&
-               offset() == ins->toWasmLoadTls()->offset() &&
-               type() == ins->type();
+        return congruentIfOperandsEqual(ins) &&
+               offset() == ins->toWasmLoadTls()->offset();
     }
 
     HashNumber valueHash() const override {
-        return op() + offset();
+        // As in upstream's MWasmLoadInstance, include the input and memory
+        // dependency. Mutable metadata loads separated by calls must not all
+        // collapse into one value-numbering hash bucket.
+        return addU32ToHash(MUnaryInstruction::valueHash(), offset());
     }
 
     AliasSet getAliasSet() const override {
