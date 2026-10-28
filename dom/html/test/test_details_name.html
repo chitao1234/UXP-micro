@@ -203,8 +203,8 @@ async function runDetailsNameTests() {
   const final = details("reentrant");
   fixture.appendChild(first); fixture.appendChild(second); fixture.appendChild(final);
   let reentered = false;
-  first.addEventListener("DOMAttrModified", event => {
-    if (event.attrName === "open" && !first.open && !reentered) {
+  second.addEventListener("DOMAttrModified", event => {
+    if (event.attrName === "open" && second.open && !reentered) {
       reentered = true;
       first.remove();
       final.open = true;
@@ -222,6 +222,36 @@ async function runDetailsNameTests() {
   } else {
     ok(!reentered, "engine without legacy mutation events does not dispatch them");
   }
+
+  fixture.innerHTML = '';
+  first = details("notifications", true); second = details("notifications");
+  const unrelated = document.createElement("div");
+  fixture.appendChild(first); fixture.appendChild(second); fixture.appendChild(unrelated);
+  const firstLegacy = [], secondLegacy = [], unrelatedLegacy = [], mutations = [];
+  first.addEventListener("DOMAttrModified", event => firstLegacy.push(event.attrName));
+  second.addEventListener("DOMAttrModified", event => {
+    secondLegacy.push(event.attrName);
+    unrelated.setAttribute("data-side-effect", "yes");
+  });
+  unrelated.addEventListener("DOMAttrModified", event => unrelatedLegacy.push(event.attrName));
+  const observer = new MutationObserver(records => mutations.push(...records));
+  observer.observe(first, {attributes: true, attributeOldValue: true});
+  second.open = true;
+  await turn();
+  states([first, second], [0, 1], "internal closure preserves group state");
+  is(firstLegacy.length, 0, "automatic peer closure suppresses only legacy mutation events");
+  ok(mutations.some(record => record.target === first && record.attributeName === "open" && record.oldValue === ""),
+     "MutationObserver sees automatic open removal and old value");
+  observer.disconnect();
+  if (legacyMutationEvents) {
+    is(secondLegacy.join(), "open", "user opening still dispatches its legacy event");
+    is(unrelatedLegacy.join(), "data-side-effect", "unrelated reentrant mutation keeps legacy event");
+  }
+  first.open = true;
+  firstLegacy.length = 0;
+  first.removeAttribute("open");
+  await turn();
+  if (legacyMutationEvents) is(firstLegacy.join(), "open", "user removeAttribute still dispatches legacy event");
 }
 
 runDetailsNameTests().catch(error => {

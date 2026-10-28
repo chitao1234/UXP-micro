@@ -1281,6 +1281,15 @@ public:
   bool UpdateIntersectionObservation(DOMIntersectionObserver* aObserver, int32_t threshold);
 
 protected:
+  // UA-internal attribute removals can notify layout, MutationObservers and
+  // custom elements without firing deprecated synchronous mutation events.
+  nsresult UnsetAttrWithoutLegacyMutationEvents(int32_t aNameSpaceID,
+                                                nsIAtom* aName,
+                                                bool aNotify);
+
+  nsresult UnsetAttrInternal(int32_t aNameSpaceID, nsIAtom* aName,
+                            bool aNotify, bool aFireLegacyMutationEvents);
+
   /*
    * Named-bools for use with SetAttrAndNotify to make call sites easier to
    * read.

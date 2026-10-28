@@ -536,6 +536,7 @@ WEBIDL_FILES = [
     'ThreadSafeChromeUtils.webidl',
     'TimeEvent.webidl',
     'TimeRanges.webidl',
+    'ToggleEvent.webidl',
     'Touch.webidl',
     'TouchEvent.webidl',
     'TouchList.webidl',

@@ -2413,7 +2413,8 @@ nsContentUtils::Retarget(nsINode* aTargetA, nsINode* aTargetB)
     }
 
     // or A's root is a shadow-including inclusive ancestor of B...
-    if (nsContentUtils::ContentIsShadowIncludingDescendantOf(aTargetB, root)) {
+    if (aTargetB &&
+        nsContentUtils::ContentIsShadowIncludingDescendantOf(aTargetB, root)) {
       // ...then return A.
       return aTargetA;
     }

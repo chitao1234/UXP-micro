@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ToggleEvent constructor, details states and source retargeting</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<div id="fixture"></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+function throwsTypeError(callback, message) {
+  let caught = false;
+  try { callback(); } catch (error) { caught = error instanceof TypeError; }
+  ok(caught, message);
+}
+function tick() { return new Promise(resolve => setTimeout(resolve, 0)); }
+function nextToggle(element, action) {
+  return new Promise(resolve => {
+    element.addEventListener("toggle", resolve, {once: true});
+    action();
+  });
+}
+async function runToggleEventTests() {
+  throwsTypeError(() => new ToggleEvent(), "event type required");
+  const initial = new ToggleEvent("toggle");
+  ok(initial instanceof Event, "ToggleEvent inherits Event");
+  is(Object.getPrototypeOf(initial), ToggleEvent.prototype, "native ToggleEvent prototype");
+  is(initial.oldState, "", "default old state");
+  is(initial.newState, "", "default new state");
+  is(initial.source, null, "default source");
+  is(initial.bubbles, false, "default bubbles");
+  is(initial.cancelable, false, "default cancelable");
+  is(initial.composed, false, "default composed");
+  is(initial.isTrusted, false, "script-constructed event untrusted");
+  initial.oldState = "changed"; initial.newState = "changed";
+  is(initial.oldState, "", "oldState readonly");
+  is(initial.newState, "", "newState readonly");
+  const source = document.createElement("button");
+  const custom = new ToggleEvent(null, {oldState: null, newState: 12,
+    source, bubbles: true, cancelable: true, composed: true});
+  is(custom.type, "null", "event type DOMString conversion");
+  is(custom.oldState, "null", "oldState DOMString conversion");
+  is(custom.newState, "12", "newState DOMString conversion");
+  is(custom.source, source, "source identity outside dispatch");
+  is(custom.bubbles, true, "constructor bubbles option");
+  is(custom.cancelable, true, "constructor cancelable option");
+  is(custom.composed, true, "constructor composed option");
+  throwsTypeError(() => new ToggleEvent("toggle", {source: {}}), "source must be Element");
+  throwsTypeError(() => new ToggleEvent("toggle", {source: document}), "Document is not Element source");
+  const fixture = document.getElementById("fixture");
+  const details = document.createElement("details"); fixture.appendChild(details);
+  let event = await nextToggle(details, () => details.open = true);
+  is(Object.getPrototypeOf(event), ToggleEvent.prototype, "details dispatches native ToggleEvent");
+  is(event.oldState, "closed", "opening old state");
+  is(event.newState, "open", "opening new state");
+  is(event.source, null, "details toggle source null");
+  is(event.isTrusted, true, "details toggle trusted");
+  is(event.bubbles, false, "details toggle nonbubbling");
+  is(event.cancelable, false, "details toggle not cancelable");
+  is(event.composed, false, "details toggle not composed");
+  event = await nextToggle(details, () => { details.open = false; details.open = true; });
+  is(event.oldState, "open", "coalescing keeps first old state");
+  is(event.newState, "open", "coalescing uses final new state");
+  event = await nextToggle(details, () => { details.open = false; details.open = true; details.open = false; });
+  is(event.oldState, "open", "multiple coalesces first old state");
+  is(event.newState, "closed", "multiple coalesces final state");
+  let samePresenceEvents = 0;
+  details.addEventListener("toggle", () => samePresenceEvents++);
+  details.open = false;
+  await tick();
+  is(samePresenceEvents, 0, "same closed presence queues no event");
+  const parsed = new DOMParser().parseFromString('<details open>', 'text/html').querySelector("details");
+  event = await new Promise(resolve => parsed.addEventListener("toggle", resolve, {once: true}));
+  is(event.oldState, "closed", "parser opening old state");
+  is(event.newState, "open", "parser opening new state");
+  // A toggle listener can queue another task without coalescing with itself.
+  const observed = [];
+  await new Promise(resolve => {
+    function listen(event) {
+      observed.push(event.oldState + ">" + event.newState);
+      if (observed.length === 1) details.open = false;
+      else { details.removeEventListener("toggle", listen); resolve(); }
+    }
+    details.addEventListener("toggle", listen);
+    details.open = true;
+  });
+  is(observed.join(), "closed>open,open>closed", "event listener change queues a new toggle task");
+
+  for (const mode of ["open", "closed"]) {
+    const host = document.createElement("div"); fixture.appendChild(host);
+    const shadow = host.attachShadow({mode});
+    const button = document.createElement("button"), target = document.createElement("div");
+    shadow.appendChild(button); shadow.appendChild(target);
+    const toggle = new ToggleEvent("toggle", {source: button, bubbles: true, composed: true});
+    is(toggle.source, host, mode + " root retargets source against null before dispatch");
+    let insideSource;
+    target.addEventListener("toggle", e => insideSource = e.source);
+    target.dispatchEvent(toggle);
+    is(insideSource, button, mode + " source stays visible inside shadow root");
+    is(toggle.source, host, mode + " source retargets after dispatch");
+    const outer = new ToggleEvent("toggle", {source, bubbles: true, composed: true});
+    let outsideSource, windowSource;
+    host.addEventListener("toggle", e => { if (e === outer) outsideSource = e.source; });
+    const windowListener = e => { if (e === outer) windowSource = e.source; };
+    window.addEventListener("toggle", windowListener);
+    target.dispatchEvent(outer);
+    window.removeEventListener("toggle", windowListener);
+    is(outsideSource, source, mode + " outside source stays visible at host listener");
+    is(windowSource, source, mode + " non-node window currentTarget retargets safely");
+    is(toggle.relatedTarget, undefined, "ToggleEvent exposes no relatedTarget");
+    host.remove();
+  }
+  const detachedHost = document.createElement("div");
+  const detachedShadow = detachedHost.attachShadow({mode: "closed"});
+  const detachedSource = document.createElement("span"); detachedShadow.appendChild(detachedSource);
+  const detachedEvent = new ToggleEvent("toggle", {source: detachedSource});
+  is(detachedEvent.source, detachedHost, "detached shadow source retargeted outside dispatch");
+}
+runToggleEventTests().catch(error => ok(false, String(error) + " " + error.stack))
+  .then(() => SimpleTest.finish());
+</script>

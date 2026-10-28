@@ -2859,6 +2859,20 @@ nsresult
 Element::UnsetAttr(int32_t aNameSpaceID, nsIAtom* aName,
                    bool aNotify)
 {
+  return UnsetAttrInternal(aNameSpaceID, aName, aNotify, true);
+}
+
+nsresult
+Element::UnsetAttrWithoutLegacyMutationEvents(int32_t aNameSpaceID,
+                                               nsIAtom* aName, bool aNotify)
+{
+  return UnsetAttrInternal(aNameSpaceID, aName, aNotify, false);
+}
+
+nsresult
+Element::UnsetAttrInternal(int32_t aNameSpaceID, nsIAtom* aName,
+                            bool aNotify, bool aFireLegacyMutationEvents)
+{
   NS_ASSERTION(nullptr != aName, "must have attribute name");
 
   int32_t index = mAttrsAndChildren.IndexOfAttr(aName, aNameSpaceID);
@@ -2878,7 +2892,7 @@ Element::UnsetAttr(int32_t aNameSpaceID, nsIAtom* aName,
   nsresult rv = BeforeSetAttr(aNameSpaceID, aName, nullptr, aNotify);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  bool hasMutationListeners = aNotify &&
+  bool hasMutationListeners = aNotify && aFireLegacyMutationEvents &&
     nsContentUtils::HasMutationListeners(this,
                                          NS_EVENT_BITS_MUTATION_ATTRMODIFIED,
                                          this);

@@ -7,6 +7,7 @@
 
 #include "mozilla/dom/HTMLDetailsElementBinding.h"
 #include "mozilla/dom/HTMLUnknownElement.h"
+#include "mozilla/dom/ToggleEvent.h"
 #include "mozilla/Preferences.h"
 
 // Expand NS_IMPL_NS_NEW_HTML_ELEMENT(Details) to add pref check.
@@ -71,28 +72,6 @@ HTMLDetailsElement::GetAttributeChangeHint(const nsIAtom* aAttribute,
   return hint;
 }
 
-nsresult
-HTMLDetailsElement::BeforeSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
-                                  const nsAttrValueOrString* aValue, bool aNotify)
-{
-  if (aNameSpaceID == kNameSpaceID_None && aName == nsGkAtoms::open) {
-    bool setOpen = aValue != nullptr;
-    if (Open() != setOpen) {
-      if (mToggleEventDispatcher) {
-        mToggleEventDispatcher->Cancel();
-      }
-      // According to the html spec, a 'toggle' event is a simple event which
-      // does not bubble.
-      mToggleEventDispatcher =
-        new AsyncEventDispatcher(this, NS_LITERAL_STRING("toggle"), false);
-      mToggleEventDispatcher->PostDOMEvent();
-    }
-  }
-
-  return nsGenericHTMLElement::BeforeSetAttr(aNameSpaceID, aName, aValue,
-                                             aNotify);
-}
-
 nsIAtom*
 HTMLDetailsElement::GetDetailsName() const
 {
@@ -127,9 +106,9 @@ HTMLDetailsElement::CloseElementIfNeeded()
   }
   nsIAtom* name = GetDetailsName();
   if (name && FindOpenGroupMember(name)) {
-    ErrorResult rv;
-    SetOpen(false, rv);
-    rv.SuppressException();
+    // Automatic closure is observable through MutationObserver and toggle,
+    // but must not dispatch legacy synchronous mutation events.
+    UnsetAttrWithoutLegacyMutationEvents(kNameSpaceID_None, nsGkAtoms::open, true);
   }
 }
 
@@ -143,9 +122,8 @@ HTMLDetailsElement::CloseOtherElementsIfNeeded()
   }
   RefPtr<HTMLDetailsElement> other = FindOpenGroupMember(name);
   if (other) {
-    ErrorResult rv;
-    other->SetOpen(false, rv);
-    rv.SuppressException();
+    other->UnsetAttrWithoutLegacyMutationEvents(kNameSpaceID_None,
+                                               nsGkAtoms::open, true);
   }
 }
 
@@ -165,9 +143,25 @@ HTMLDetailsElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
     if (aName == nsGkAtoms::name) {
       // Joining a group must preserve its already-open member.
       CloseElementIfNeeded();
-    } else if (aName == nsGkAtoms::open && aValue && !aOldValue) {
-      // Explicit opening wins over the existing member of this group.
-      CloseOtherElementsIfNeeded();
+    } else if (aName == nsGkAtoms::open && !!aValue != !!aOldValue) {
+      ToggleEventInit init;
+      init.mOldState.AssignASCII(aOldValue ? "open" : "closed");
+      init.mNewState.AssignASCII(aValue ? "open" : "closed");
+      if (mToggleEventDispatcher) {
+        // Preserve the initial state of the pending task across coalescing.
+        Event* event = mToggleEventDispatcher->mEvent->InternalDOMEvent();
+        static_cast<ToggleEvent*>(event)->GetOldState(init.mOldState);
+        mToggleEventDispatcher->Cancel();
+      }
+      RefPtr<ToggleEvent> event =
+        ToggleEvent::Constructor(this, NS_LITERAL_STRING("toggle"), init);
+      event->SetTrusted(true);
+      mToggleEventDispatcher = new AsyncEventDispatcher(this, event);
+      mToggleEventDispatcher->PostDOMEvent();
+      if (aValue) {
+        // Explicit opening wins over the existing member of this group.
+        CloseOtherElementsIfNeeded();
+      }
     }
   }
   return NS_OK;
