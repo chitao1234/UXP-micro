@@ -597,7 +597,9 @@ Assumptions::operator==(const Assumptions& rhs) const
 // Encode the code-generation ABI inside the existing build-id vector format.
 // This also invalidates native caches when a developer rebuilds with a fixed
 // application build id. Old engines see a different build id and reject it.
-static const char WasmCodeABI[] = "microgecko-wasm-shared-tls-v1";
+// The metadata alias fix must invalidate code produced while a bounded memory
+// was assumed immovable, even when the embedding build ID has not changed.
+static const char WasmCodeABI[] = "microgecko-wasm-shared-tls-moving-v2";
 
 size_t
 Assumptions::serializedSize() const
