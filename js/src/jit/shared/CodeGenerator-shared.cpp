@@ -85,8 +85,21 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph, Mac
         MOZ_ASSERT(graph->argumentSlotCount() == 0);
         frameDepth_ += gen->wasmMaxStackArgBytes();
 
+#if defined(JS_CODEGEN_X86)
+        // This backend still emits aligned SIMD spill moves. The compact
+        // physical header leaves FP eight bytes off the caller's alignment;
+        // place the local-slot origin below that padding, independently of
+        // outgoing arguments and their instance area.
+        if (SupportsSimd && graph->localSlotCount()) {
+            frameInitialAdjustment_ = ComputeByteAlignment(sizeof(wasm::Frame),
+                                                           SimdMemoryAlignment);
+            frameDepth_ += frameInitialAdjustment_;
+        }
+#endif
+
         if (SupportsSimd) {
-            frameDepth_ = AlignBytes(frameDepth_, SimdMemoryAlignment);
+            frameDepth_ = AlignBytes(frameDepth_ - frameInitialAdjustment_, SimdMemoryAlignment) +
+                          frameInitialAdjustment_;
         }
 
         if (gen->performsCall()) {

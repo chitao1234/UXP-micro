@@ -167,7 +167,7 @@ wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
     masm.andToStackPtr(Imm32(~(WasmStackAlignment - 1)));
 
     // Bump the stack for the call.
-    masm.reserveStack(AlignBytes(StackArgBytes(fe.sig().args()), WasmStackAlignment));
+    masm.reserveStack(AlignBytes(StackArgBytes(fe.sig().args()) + FrameInstanceBytes, WasmStackAlignment));
 
     // Copy parameters out of argv and into the registers/stack-slots specified by
     // the system ABI.
@@ -210,31 +210,31 @@ wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
             switch (type) {
               case MIRType::Int32:
                 masm.load32(src, scratch);
-                masm.storePtr(scratch, Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                masm.storePtr(scratch, Address(masm.getStackPointer(), FrameInstanceBytes + iter->offsetFromArgBase()));
                 break;
               case MIRType::Int64: {
                 Register sp = masm.getStackPointer();
 #if JS_BITS_PER_WORD == 32
                 masm.load32(Address(src.base, src.offset + INT64LOW_OFFSET), scratch);
-                masm.store32(scratch, Address(sp, iter->offsetFromArgBase() + INT64LOW_OFFSET));
+                masm.store32(scratch, Address(sp, FrameInstanceBytes + iter->offsetFromArgBase() + INT64LOW_OFFSET));
                 masm.load32(Address(src.base, src.offset + INT64HIGH_OFFSET), scratch);
-                masm.store32(scratch, Address(sp, iter->offsetFromArgBase() + INT64HIGH_OFFSET));
+                masm.store32(scratch, Address(sp, FrameInstanceBytes + iter->offsetFromArgBase() + INT64HIGH_OFFSET));
 #else
                 Register64 scratch64(scratch);
                 masm.load64(src, scratch64);
-                masm.store64(scratch64, Address(sp, iter->offsetFromArgBase()));
+                masm.store64(scratch64, Address(sp, FrameInstanceBytes + iter->offsetFromArgBase()));
 #endif
                 break;
               }
               case MIRType::Double:
                 masm.loadDouble(src, ScratchDoubleReg);
                 masm.storeDouble(ScratchDoubleReg,
-                                 Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                                 Address(masm.getStackPointer(), FrameInstanceBytes + iter->offsetFromArgBase()));
                 break;
               case MIRType::Float32:
                 masm.loadFloat32(src, ScratchFloat32Reg);
                 masm.storeFloat32(ScratchFloat32Reg,
-                                  Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+                                  Address(masm.getStackPointer(), FrameInstanceBytes + iter->offsetFromArgBase()));
                 break;
               default:
                 MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("unexpected stack arg type");
@@ -245,7 +245,13 @@ wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
 
     // Call into the real function.
     masm.assertStackAlignment(WasmStackAlignment);
-    masm.call(CallSiteDesc(CallSiteDesc::Func), fe.funcIndex());
+    CallSiteDesc entryCall(CallSiteDesc::Func);
+#if defined(JS_CODEGEN_X86)
+    masm.storePtr(WasmTlsReg, Address(masm.getStackPointer(), 0));
+    masm.storePtr(ImmWord(0), Address(masm.getStackPointer(), sizeof(void*)));
+    entryCall.setMightSwitchInstance();
+#endif
+    masm.call(entryCall, fe.funcIndex());
 
     // Recover the stack pointer value before dynamic alignment.
     masm.loadWasmActivationFromTls(scratch);
@@ -420,7 +426,7 @@ wasm::GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, Si
 {
     masm.setFramePushed(0);
 
-    unsigned tlsBytes = sizeof(void*);
+    unsigned tlsBytes = FrameInstanceBytes ? FrameInstanceBytes : sizeof(void*);
     unsigned framePushed = StackDecrementForCall(masm, WasmStackAlignment, fi.sig().args(), tlsBytes);
 
     FuncOffsets offsets;
@@ -431,19 +437,21 @@ wasm::GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, Si
     Register scratch = ABINonArgReg0;
 
     // Copy our frame's stack arguments to the callee frame's stack argument.
-    unsigned offsetToCallerStackArgs = sizeof(Frame) + masm.framePushed();
+    unsigned offsetToCallerStackArgs = FrameArgumentOffset + masm.framePushed();
     ABIArgValTypeIter i(fi.sig().args());
     for (; !i.done(); i++) {
         if (i->kind() != ABIArg::Stack)
             continue;
 
         Address src(masm.getStackPointer(), offsetToCallerStackArgs + i->offsetFromArgBase());
-        Address dst(masm.getStackPointer(), i->offsetFromArgBase());
+        Address dst(masm.getStackPointer(), FrameInstanceBytes + i->offsetFromArgBase());
         StackCopy(masm, i.mirType(), scratch, src, dst);
     }
 
     // Save the TLS register so it can be restored later.
-    uint32_t tlsStackOffset = i.stackBytesConsumedSoFar();
+    uint32_t tlsStackOffset = FrameInstanceBytes
+                              ? FrameCallerTLSOffset - sizeof(Frame)
+                              : i.stackBytesConsumedSoFar();
     masm.storePtr(WasmTlsReg, Address(masm.getStackPointer(), tlsStackOffset));
 
     // Call the import exit stub.
@@ -491,7 +499,7 @@ wasm::GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint3
     GenerateExitPrologue(masm, framePushed, ExitReason::ImportInterp, &offsets);
 
     // Fill the argument array.
-    unsigned offsetToCallerStackArgs = sizeof(Frame) + masm.framePushed();
+    unsigned offsetToCallerStackArgs = FrameArgumentOffset + masm.framePushed();
     Register scratch = ABINonArgReturnReg0;
     FillArgumentArray(masm, fi.sig().args(), argOffset, offsetToCallerStackArgs, scratch, ToValue(false));
 
@@ -640,7 +648,7 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     argOffset += sizeof(Value);
 
     // 5. Fill the arguments
-    unsigned offsetToCallerStackArgs = jitFramePushed + sizeof(Frame);
+    unsigned offsetToCallerStackArgs = jitFramePushed + FrameArgumentOffset;
     FillArgumentArray(masm, fi.sig().args(), argOffset, offsetToCallerStackArgs, scratch, ToValue(true));
     argOffset += fi.sig().args().length() * sizeof(Value);
     MOZ_ASSERT(argOffset == jitFrameBytes);

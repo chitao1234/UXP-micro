@@ -37,6 +37,7 @@ class SigIdDesc;
 struct FuncOffsets;
 struct CallableOffsets;
 struct TrapOffset;
+struct TlsData;
 
 // Iterates over the frames of a single WasmActivation, called synchronously
 // from C++ in the thread of the asm.js.
@@ -113,6 +114,12 @@ class ProfilingFrameIterator
 // shared by arbitrarily many instances. Reject incomplete frames first.
 Instance*
 LookupFaultingInstance(WasmActivation* activation, void* pc, void* fp = nullptr);
+
+// Recover the instance at the nearest recorded entry/instance-switch call.
+// These helpers are safe in native thunks and signal handlers: no allocation,
+// callbacks, locks, or dependence on an already-published activation exit.
+TlsData* FrameTLS(const WasmActivation& activation, void* frame, void* pc = nullptr);
+TlsData* LookupFrameTLS(void* frame);
 
 // Capture a normalized complete frame before redirecting an arbitrary x86
 // instruction to the interrupt stub. No allocation or runtime lock is used.

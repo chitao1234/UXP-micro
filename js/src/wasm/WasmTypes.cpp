@@ -28,6 +28,7 @@
 #include "jit/MacroAssembler.h"
 #include "js/Conversions.h"
 #include "vm/Interpreter.h"
+#include "wasm/WasmFrameIterator.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmSerialize.h"
 #include "wasm/WasmSignalHandlers.h"
@@ -254,6 +255,8 @@ void*
 wasm::AddressOf(SymbolicAddress imm)
 {
     switch (imm) {
+      case SymbolicAddress::LookupFrameTLS:
+        return FuncCast(LookupFrameTLS, Args_General1);
       case SymbolicAddress::HandleThrow:
         return FuncCast(WasmHandleThrow, Args_General0);
       case SymbolicAddress::HandleExecutionInterrupt:
@@ -405,6 +408,7 @@ wasm::SymbolicAddressSignature(SymbolicAddress imm)
       case SymbolicAddress::GrowMemory:
         return Args_General2;
       case SymbolicAddress::CurrentMemory:
+      case SymbolicAddress::LookupFrameTLS:
         return Args_General1;
 #if defined(JS_CODEGEN_ARM)
       case SymbolicAddress::aeabi_idivmod:
@@ -664,9 +668,9 @@ Assumptions::operator==(const Assumptions& rhs) const
 // The metadata alias fix must invalidate code produced while a bounded memory
 // was assumed immovable, even when the embedding build ID has not changed.
 #ifdef JS_CODEGEN_X86
-static const char WasmCodeABI[] = "microgecko-wasm-shared-physical-fp-native-exits-v3";
+static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-frames-v4";
 #else
-static const char WasmCodeABI[] = "microgecko-wasm-shared-tls-moving-v2";
+static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-callsite-v4";
 #endif
 
 size_t

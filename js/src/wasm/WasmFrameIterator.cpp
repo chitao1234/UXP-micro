@@ -202,12 +202,11 @@ static const unsigned PostStorePrePopFP = 4;
 static const unsigned ReturnBytes = 1;
 #elif defined(JS_CODEGEN_X86)
 static const unsigned PushedRetAddr = 0;
-static const unsigned PushedPadding = 3;
-static const unsigned PushedTLS = PushedPadding + 1;
-static const unsigned PushedFP = PushedTLS + 1;
-static const unsigned StoredFP = PushedFP + 2;
-static const unsigned PoppedFPToRet = 4;
-static const unsigned PoppedTLSToRet = 3;
+static const unsigned PushedPadding = 0;
+static const unsigned PushedTLS = 0;
+static const unsigned PushedFP = 1;
+static const unsigned StoredFP = 3;
+static const unsigned PoppedFPToRet = 0;
 static const unsigned PostStorePrePopFP = PoppedFPToRet;
 static const unsigned ReturnBytes = 1;
 #elif defined(JS_CODEGEN_ARM)
@@ -253,15 +252,14 @@ GenerateCallablePrologue(MacroAssembler& masm, unsigned framePushed, ExitReason 
 {
 #if defined(JS_CODEGEN_X86)
     *entry = masm.currentOffset();
-    masm.subFromStackPtr(Imm32(sizeof(void*)));
-    MOZ_ASSERT_IF(!masm.oom(), PushedPadding == masm.currentOffset() - *entry);
-    masm.push(WasmTlsReg);
-    MOZ_ASSERT_IF(!masm.oom(), PushedTLS == masm.currentOffset() - *entry);
     masm.push(FramePointer);
     MOZ_ASSERT_IF(!masm.oom(), PushedFP == masm.currentOffset() - *entry);
     masm.moveStackPtrTo(FramePointer);
     MOZ_ASSERT_IF(!masm.oom(), StoredFP == masm.currentOffset() - *entry);
     if (reason != ExitReason::None) {
+        // Exit stubs can be entered by a trap as well as an instance switch.
+        // Record their stable owner before publishing the physical exit frame.
+        masm.storePtr(WasmTlsReg, Address(FramePointer, FrameCalleeTLSOffset));
         Register scratch = ABINonArgReg0;
         masm.loadWasmActivationFromTls(scratch);
         masm.store32(Imm32(int32_t(reason)), Address(scratch, WasmActivation::offsetOfExitReason()));
@@ -326,7 +324,7 @@ GenerateCallableEpilogue(MacroAssembler& masm, unsigned framePushed, ExitReason 
         // A JS JIT callee may have clobbered every register. The exit's stack
         // header stays intact, so recover both physical FP and its TLS first.
         masm.moveStackPtrTo(FramePointer);
-        masm.loadPtr(Address(FramePointer, offsetof(Frame, tls)), WasmTlsReg);
+        masm.loadPtr(Address(FramePointer, FrameCalleeTLSOffset), WasmTlsReg);
         Register scratch = ABINonArgReturnReg0;
         masm.loadWasmActivationFromTls(scratch);
         masm.storePtr(ImmWord(0), Address(scratch, WasmActivation::offsetOfFP()));
@@ -335,12 +333,8 @@ GenerateCallableEpilogue(MacroAssembler& masm, unsigned framePushed, ExitReason 
     }
     masm.pop(FramePointer);
     DebugOnly<uint32_t> poppedFP = masm.currentOffset();
-    masm.pop(WasmTlsReg);
-    DebugOnly<uint32_t> poppedTLS = masm.currentOffset();
-    masm.addToStackPtr(Imm32(sizeof(void*)));
     *ret = masm.currentOffset();
     MOZ_ASSERT_IF(!masm.oom(), PoppedFPToRet == *ret - poppedFP);
-    MOZ_ASSERT_IF(!masm.oom(), PoppedTLSToRet == *ret - poppedTLS);
     masm.ret();
 #else
     Register scratch = ABINonArgReturnReg0;
@@ -676,14 +670,9 @@ ProfilingFrameIterator::ProfilingFrameIterator(const WasmActivation& activation,
 #if defined(JS_CODEGEN_X86)
         } else if (offsetInModule >= codeRange->ret() - PoppedFPToRet &&
                    offsetInModule <= codeRange->ret()) {
-            // FP already denotes the caller; each following instruction
-            // removes one of TLS, padding and finally the return address.
-            if (offsetInModule == codeRange->ret() - PoppedFPToRet)
-                callerPC_ = sp[2];
-            else if (offsetInModule < codeRange->ret())
-                callerPC_ = sp[1];
-            else
-                callerPC_ = sp[0];
+            // FP already denotes the caller and SP points at the return
+            // address; the compact epilogue has no TLS or padding pops.
+            callerPC_ = sp[0];
             callerFP_ = fp;
             AssertMatchesCallSite(*activation_, callerPC_, callerFP_);
 #else
@@ -713,12 +702,16 @@ ProfilingFrameIterator::ProfilingFrameIterator(const WasmActivation& activation,
             callerPC_ = ReturnAddressFromFP(sp);
 #else
             // Each completed push/reservation adds one word before RA.
+#if defined(JS_CODEGEN_X86)
+            callerPC_ = *sp;
+#else
             if (offsetFromEntry < PushedPadding)
                 callerPC_ = *sp;
             else if (offsetFromEntry < PushedTLS)
                 callerPC_ = sp[1];
             else
                 callerPC_ = sp[2];
+#endif
 #endif
             callerFP_ = fp;
             AssertMatchesCallSite(*activation_, callerPC_, callerFP_);
@@ -888,16 +881,59 @@ wasm::LookupFaultingInstance(WasmActivation* activation, void* pc, void* physica
         return nullptr;
 #endif
 #if defined(JS_CODEGEN_X86)
-    Frame* frame = static_cast<Frame*>(physicalFP);
+    TlsData* tls = FrameTLS(*activation, physicalFP, pc);
 #else
     Frame* frame = reinterpret_cast<Frame*>(activation->fp());
+    TlsData* tls = frame ? frame->tls : nullptr;
 #endif
-    if (!frame || !frame->tls)
+    if (!tls)
         return nullptr;
-    Instance* instance = frame->tls->instance;
+    Instance* instance = tls->instance;
     if (!instance || &instance->code() != code)
         return nullptr;
     return instance;
+}
+
+TlsData*
+wasm::FrameTLS(const WasmActivation& activation, void* rawFrame, void* pc)
+{
+#if defined(JS_CODEGEN_X86)
+    Frame* frame = static_cast<Frame*>(rawFrame);
+    // Instance-switch slots belong to the called frame. Internal calls do not
+    // write them; follow the physical chain to the latest actual switch.
+    for (unsigned depth = 0; frame && depth < 100000; depth++) {
+        void* returnPC = frame->returnAddress;
+        const Code* callerCode = activation.compartment()->wasm.lookupCode(returnPC);
+        if (!callerCode)
+            return nullptr;
+        const CallSite* call = callerCode->lookupCallSite(returnPC);
+        const CodeRange* callerRange = callerCode->lookupRange(returnPC);
+        if ((call && call->mightSwitchInstance()) ||
+            (callerRange && callerRange->kind() == CodeRange::Entry)) {
+            TlsData* tls = static_cast<FrameWithInstances*>(frame)->calleeTLS;
+            if (pc && tls) {
+                const Code* currentCode = activation.compartment()->wasm.lookupCode(pc);
+                if (!currentCode || !tls->instance || &tls->instance->code() != currentCode)
+                    return nullptr;
+            }
+            return tls;
+        }
+        Frame* caller = reinterpret_cast<Frame*>(frame->callerFP);
+        if (caller && caller <= frame)
+            return nullptr;
+        frame = caller;
+    }
+    return nullptr;
+#else
+    Frame* frame = static_cast<Frame*>(rawFrame);
+    return frame ? frame->tls : nullptr;
+#endif
+}
+
+TlsData*
+wasm::LookupFrameTLS(void* frame)
+{
+    return FrameTLS(*JSRuntime::innermostWasmActivation(), frame);
 }
 
 bool
@@ -917,12 +953,9 @@ wasm::StartInterrupt(WasmActivation* activation, void* rawPC, void* rawSP, void*
     uint32_t fromEntry = offset < range->funcNormalEntry()
                          ? 0 : offset - range->funcNormalEntry();
     if (offset >= range->ret() - PoppedFPToRet && offset <= range->ret()) {
-        pc = static_cast<uint8_t*>(offset == range->ret() - PoppedFPToRet ? sp[2]
-                                  : offset < range->ret() ? sp[1] : sp[0]);
+        pc = static_cast<uint8_t*>(sp[0]);
     } else if (fromEntry < StoredFP) {
-        unsigned returnSlot = fromEntry < PushedPadding ? 0
-                              : fromEntry < PushedTLS ? 1
-                              : fromEntry < PushedFP ? 2 : 3;
+        unsigned returnSlot = fromEntry < PushedFP ? 0 : 1;
         pc = static_cast<uint8_t*>(sp[returnSlot]);
     }
     activation->startInterrupt(rawPC, pc, fp);

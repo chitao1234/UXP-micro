@@ -676,6 +676,7 @@ struct Frame
     // epilogue can repoint the chain before releasing any frame storage.
     uint8_t* callerFP;
 
+#if !defined(JS_CODEGEN_X86)
     // The callee's instance data, saved before either compiler can allocate
     // WasmTlsReg for another value. Signal handlers recover the exact instance
     // from this stable slot even when several instances share executable code.
@@ -685,6 +686,7 @@ struct Frame
     // x64 SIMD and ARM/MIPS double slots assume the fixed header has not
     // shifted their existing alignment.
     uintptr_t padding;
+#endif
 
     // The return address pushed by the call (in the case of ARM/MIPS the return
     // address is pushed by the first instruction of the prologue).
@@ -692,9 +694,27 @@ struct Frame
 };
 
 static_assert(offsetof(Frame, callerFP) == 0, "callerFP must be first");
+#if defined(JS_CODEGEN_X86)
+struct FrameWithInstances : Frame
+{
+    TlsData* calleeTLS;
+    TlsData* callerTLS;
+};
+static_assert(sizeof(Frame) == 2 * sizeof(void*), "compact x86 frame header");
+static_assert(sizeof(FrameWithInstances) == 4 * sizeof(void*), "instance call area");
+static const uint32_t FrameInstanceBytes = 2 * sizeof(void*);
+static const uint32_t FrameCalleeTLSOffset = offsetof(FrameWithInstances, calleeTLS);
+static const uint32_t FrameCallerTLSOffset = offsetof(FrameWithInstances, callerTLS);
+#else
+using FrameWithInstances = Frame;
+static const uint32_t FrameInstanceBytes = 0;
+static const uint32_t FrameCalleeTLSOffset = offsetof(Frame, tls);
+static const uint32_t FrameCallerTLSOffset = offsetof(Frame, tls);
 static_assert(offsetof(Frame, tls) == sizeof(void*), "stable TLS slot");
 static_assert(sizeof(Frame) == 4 * sizeof(void*), "aligned fixed wasm header");
 static_assert(sizeof(Frame) % 16 == 0, "preserve local SIMD and double alignment");
+#endif
+static const uint32_t FrameArgumentOffset = sizeof(FrameWithInstances);
 static_assert(sizeof(Frame) == offsetof(Frame, returnAddress) + sizeof(void*),
               "return address must be last");
 static const uint32_t FrameBytesAfterReturnAddress = offsetof(Frame, returnAddress);

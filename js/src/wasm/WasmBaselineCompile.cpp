@@ -2199,7 +2199,9 @@ class BaseCompiler
 
     void startCallArgs(FunctionCall& call, size_t stackArgAreaSize)
     {
-        call.stackArgAreaSize = stackArgAreaSize;
+        call.stackArgAreaSize = AlignBytes(stackArgAreaSize +
+                                           (call.usesSystemAbi ? 0 : FrameInstanceBytes),
+                                           size_t(WasmStackAlignment));
 
         size_t adjustment = call.stackArgAreaSize + call.frameAlignAdjustment;
         if (adjustment)
@@ -2232,13 +2234,14 @@ class BaseCompiler
     // args based on the info we read.
 
     void passArg(FunctionCall& call, ValType type, Stk& arg) {
+        uint32_t argBase = call.usesSystemAbi ? 0 : FrameInstanceBytes;
         switch (type) {
           case ValType::I32: {
             ABIArg argLoc = call.abi.next(MIRType::Int32);
             if (argLoc.kind() == ABIArg::Stack) {
                 ScratchI32 scratch(*this);
                 loadI32(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
             } else {
                 loadI32(argLoc.gpr(), arg);
             }
@@ -2250,15 +2253,15 @@ class BaseCompiler
                 ScratchI32 scratch(*this);
 #if defined(JS_CODEGEN_X64)
                 loadI64(Register64(scratch), arg);
-                masm.movq(scratch, Operand(StackPointer, argLoc.offsetFromArgBase()));
+                masm.movq(scratch, Operand(StackPointer, argBase + argLoc.offsetFromArgBase()));
 #elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM)
                 loadI64Low(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64LOW_OFFSET));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase() + INT64LOW_OFFSET));
                 loadI64High(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64HIGH_OFFSET));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase() + INT64HIGH_OFFSET));
 #elif defined(JS_CODEGEN_LOONGARCH64)
                 loadI64(Register64(scratch), arg);
-                masm.store64(Register64(scratch), Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.store64(Register64(scratch), Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
 #else
                 MOZ_CRASH("BaseCompiler platform hook: passArg I64");
 #endif
@@ -2273,7 +2276,7 @@ class BaseCompiler
               case ABIArg::Stack: {
                 ScratchF64 scratch(*this);
                 loadF64(scratch, arg);
-                masm.storeDouble(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.storeDouble(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
                 break;
               }
 #if defined(JS_CODEGEN_REGISTER_PAIR)
@@ -2304,7 +2307,7 @@ class BaseCompiler
               case ABIArg::Stack: {
                 ScratchF32 scratch(*this);
                 loadF32(scratch, arg);
-                masm.storeFloat32(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.storeFloat32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
                 break;
               }
               case ABIArg::GPR: {
@@ -7879,25 +7882,25 @@ BaseCompiler::init()
             if (i->argInRegister())
                 l.init(MIRType::Int32, pushLocal(4));
             else
-                l.init(MIRType::Int32, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Int32, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Int64:
             if (i->argInRegister())
                 l.init(MIRType::Int64, pushLocal(8));
             else
-                l.init(MIRType::Int64, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Int64, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Double:
             if (i->argInRegister())
                 l.init(MIRType::Double, pushLocal(8));
             else
-                l.init(MIRType::Double, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Double, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Float32:
             if (i->argInRegister())
                 l.init(MIRType::Float32, pushLocal(4));
             else
-                l.init(MIRType::Float32, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Float32, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           default:
             MOZ_CRASH("Argument type");

@@ -30,12 +30,9 @@ namespace {
 
 struct ThunkRange {
     uint32_t begin;
-    uint32_t savedRegister;
-    uint32_t pushedTLS;
     uint32_t pushedFP;
     uint32_t setFP;
     uint32_t poppedFP;
-    uint32_t poppedTLS;
     uint32_t ret;
     uint32_t end;
 };
@@ -61,6 +58,7 @@ static bool
 NeedsThunk(SymbolicAddress address)
 {
     switch (address) {
+      case SymbolicAddress::LookupFrameTLS:
       case SymbolicAddress::HandleThrow:
       case SymbolicAddress::HandleExecutionInterrupt:
       case SymbolicAddress::ReportTrap:
@@ -110,20 +108,31 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
     masm.setFramePushed(0);
     range->begin = masm.currentOffset();
 
-    // A system-ABI call does not keep WasmTlsReg live. Recover callee TLS from
-    // the physical caller frame, preserving the original nonvolatile ESI in
-    // our padding slot. All other nonvolatiles retain their native ABI values.
-    masm.push(WasmTlsReg);
-    range->savedRegister = masm.currentOffset();
-    masm.loadPtr(Address(FramePointer, offsetof(Frame, tls)), WasmTlsReg);
-    masm.push(WasmTlsReg);
-    range->pushedTLS = masm.currentOffset();
+    // System-ABI callers may use ESI for an arbitrary live value. Ordinary
+    // Wasm frames deliberately carry no TLS: recover it from the nearest
+    // instance-switching caller, using only immutable callsite metadata.
+    // Native arguments remain above the two-word header, not above a
+    // FrameWithInstances. The helper neither allocates nor enters JS/GC.
     masm.push(FramePointer);
     range->pushedFP = masm.currentOffset();
     masm.moveStackPtrTo(FramePointer);
     range->setFP = masm.currentOffset();
 
     Register scratch = ecx;
+    static const int32_t SavedESI = -int32_t(sizeof(void*));
+    static const int32_t SavedTLS = -2 * int32_t(sizeof(void*));
+    static const uint32_t LocalBytes = 2 * sizeof(void*);
+    static_assert(sizeof(Frame) + LocalBytes == ABIStackAlignment,
+                  "Native thunk locals preserve x86 call alignment");
+    masm.reserveStack(LocalBytes);
+    masm.storePtr(WasmTlsReg, Address(FramePointer, SavedESI));
+    masm.reserveStack(ABIStackAlignment);
+    masm.loadPtr(Address(FramePointer, offsetof(Frame, callerFP)), scratch);
+    masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
+    masm.call(ImmPtr(JS_FUNC_TO_DATA_PTR(void*, LookupFrameTLS)));
+    masm.freeStack(ABIStackAlignment);
+    masm.movePtr(ReturnReg, WasmTlsReg);
+    masm.storePtr(WasmTlsReg, Address(FramePointer, SavedTLS));
     masm.loadPtr(Address(WasmTlsReg, offsetof(TlsData, cx)), scratch);
     masm.loadPtr(Address(scratch, JSContext::offsetOfWasmActivation()), scratch);
     masm.store32(Imm32(uint32_t(ExitReason::Native)),
@@ -132,7 +141,7 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
 
     uint32_t bytes = NativeArgumentBytes(SymbolicAddressSignature(address));
     // All x86 callers align the outgoing native argument area to 16 bytes.
-    // Four words of return/header preserve that alignment at this point.
+    // Our two-word header plus two locals preserve that alignment here.
     uint32_t framePushed = AlignBytes(bytes, ABIStackAlignment);
     masm.reserveStack(framePushed);
     for (uint32_t offset = 0; offset < bytes; offset += sizeof(uint32_t)) {
@@ -143,18 +152,17 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
 
     // Do not consume the x87 result or clobber EAX:EDX. Existing Baseline,
     // Ion and MacroAssembler call sites still perform their one conversion.
-    masm.loadPtr(Address(FramePointer, offsetof(Frame, tls)), scratch);
+    masm.loadPtr(Address(FramePointer, SavedTLS), scratch);
     masm.loadPtr(Address(scratch, offsetof(TlsData, cx)), scratch);
     masm.loadPtr(Address(scratch, JSContext::offsetOfWasmActivation()), scratch);
     masm.storePtr(ImmWord(0), Address(scratch, WasmActivation::offsetOfFP()));
     masm.store32(Imm32(uint32_t(ExitReason::None)),
                  Address(scratch, WasmActivation::offsetOfExitReason()));
     masm.freeStack(framePushed);
+    masm.loadPtr(Address(FramePointer, SavedESI), WasmTlsReg);
+    masm.freeStack(LocalBytes);
     masm.pop(FramePointer);
     range->poppedFP = masm.currentOffset();
-    masm.pop(WasmTlsReg);
-    range->poppedTLS = masm.currentOffset();
-    masm.pop(WasmTlsReg); // Restore the original system-ABI nonvolatile value.
     range->ret = masm.currentOffset();
     masm.ret();
     range->end = masm.currentOffset();
@@ -275,24 +283,16 @@ wasm::UnwindBuiltinThunk(void* pc, void* sp, void* physicalFP,
     void** stack = static_cast<void**>(sp);
     *callerFP = static_cast<uint8_t*>(physicalFP);
     *stackAddress = sp;
-    if (offset < range->savedRegister)
+    if (offset < range->pushedFP)
         *callerPC = stack[0];
-    else if (offset < range->pushedTLS)
-        *callerPC = stack[1];
-    else if (offset < range->pushedFP)
-        *callerPC = stack[2];
     else if (offset < range->setFP)
-        *callerPC = stack[3];
+        *callerPC = stack[1];
     else if (offset < range->poppedFP) {
         Frame* frame = static_cast<Frame*>(physicalFP);
         *callerPC = frame->returnAddress;
         *callerFP = frame->callerFP;
         *stackAddress = frame;
-    } else if (offset < range->poppedTLS)
-        *callerPC = stack[2];
-    else if (offset < range->ret)
-        *callerPC = stack[1];
-    else
+    } else
         *callerPC = stack[0];
     return *callerPC && *callerFP;
 #else

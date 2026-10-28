@@ -763,7 +763,7 @@ class FunctionCompiler
             outer->childClobbers_ = true;
     }
 
-    bool finishCall(CallCompileState* call, TlsUsage tls)
+    bool finishCall(CallCompileState* call, TlsUsage tls, bool wasmCall = false)
     {
         MOZ_ALWAYS_TRUE(callStack_.popCopy() == call);
 
@@ -777,15 +777,24 @@ class FunctionCompiler
                 return false;
         }
 
-        uint32_t stackBytes = call->abi_.stackBytesConsumedSoFar();
+        uint32_t instanceBytes = wasmCall ? FrameInstanceBytes : 0;
+        uint32_t stackBytes = call->abi_.stackBytesConsumedSoFar() + instanceBytes;
+        if (instanceBytes) {
+            for (MWasmStackArg* stackArg : call->stackArgs_)
+                stackArg->incrementOffset(instanceBytes);
+        }
 
         // If this is a potentially-inter-module call, allocate an extra word of
         // stack space to save/restore the caller's WasmTlsReg during the call.
         // Record the stack offset before including spIncrement since MWasmCall
         // will use this offset after having bumped the stack pointer.
         if (tls == TlsUsage::CallerSaved) {
-            call->tlsStackOffset_ = stackBytes;
-            stackBytes += sizeof(void*);
+            if (instanceBytes) {
+                call->tlsStackOffset_ = FrameCallerTLSOffset - sizeof(Frame);
+            } else {
+                call->tlsStackOffset_ = stackBytes;
+                stackBytes += sizeof(void*);
+            }
         }
 
         if (call->childClobbers_) {
@@ -1695,7 +1704,7 @@ EmitCallArgs(FunctionCompiler& f, const Sig& sig, TlsUsage tls, CallCompileState
     if (!f.iter().readCallArgsEnd(numArgs))
         return false;
 
-    return f.finishCall(call, tls);
+    return f.finishCall(call, tls, /* wasmCall = */ true);
 }
 
 static bool

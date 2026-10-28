@@ -696,8 +696,12 @@ struct TrapOffset
 
 class CallSiteDesc
 {
-    uint32_t lineOrBytecode_ : 30;
+    // Keep offsets independent of the flags: adding instance metadata must
+    // not silently narrow the accepted module/asm.js source position range.
+    uint32_t lineOrBytecode_;
+    uint32_t mightSwitchInstance_ : 1;
     uint32_t kind_ : 2;
+    uint32_t reserved_ : 29;
   public:
     enum Kind {
         Func,      // pc-relative call to a specific function
@@ -705,20 +709,27 @@ class CallSiteDesc
         Symbolic,  // call to a single symbolic callee
         TrapExit   // call to a trap exit
     };
-    CallSiteDesc() {}
+    CallSiteDesc()
+      : lineOrBytecode_(0), mightSwitchInstance_(false), kind_(Func), reserved_(0)
+    { }
     explicit CallSiteDesc(Kind kind)
-      : lineOrBytecode_(0), kind_(kind)
+      : lineOrBytecode_(0), mightSwitchInstance_(false), kind_(kind), reserved_(0)
     {
         MOZ_ASSERT(kind == Kind(kind_));
     }
     CallSiteDesc(uint32_t lineOrBytecode, Kind kind)
-      : lineOrBytecode_(lineOrBytecode), kind_(kind)
+      : lineOrBytecode_(lineOrBytecode), mightSwitchInstance_(false), kind_(kind), reserved_(0)
     {
         MOZ_ASSERT(kind == Kind(kind_));
         MOZ_ASSERT(lineOrBytecode == lineOrBytecode_);
     }
     uint32_t lineOrBytecode() const { return lineOrBytecode_; }
     Kind kind() const { return Kind(kind_); }
+    // Only these callers initialize FrameWithInstances' TLS slots. Ordinary
+    // intra-instance calls leave them untouched and inherit their instance
+    // from the nearest switching call (or the entry stub) in the frame chain.
+    bool mightSwitchInstance() const { return mightSwitchInstance_; }
+    void setMightSwitchInstance() { mightSwitchInstance_ = true; }
 };
 
 class CallSite : public CallSiteDesc
@@ -829,6 +840,7 @@ enum class SymbolicAddress
     Int64ToFloatingPoint,
     GrowMemory,
     CurrentMemory,
+    LookupFrameTLS,
     Limit
 };
 
