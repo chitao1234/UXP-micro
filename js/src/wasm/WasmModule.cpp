@@ -474,6 +474,8 @@ wasm::CompiledModuleAssumptionsMatch(PRFileDesc* compiled, JS::BuildIdCharVector
         return false;
 
     Assumptions assumptions(Move(buildId));
+    assumptions.compilerABI = SharedCodeEnabled() ? WasmCompilerABI::SharedDynamicTLS
+                                                  : WasmCompilerABI::ClassicSpecialized;
     return Module::assumptionsMatch(assumptions, mapping.get(), info.size);
 }
 
@@ -487,14 +489,22 @@ wasm::DeserializeModule(PRFileDesc* bytecodeFile, PRFileDesc* maybeCompiledFile,
     if (!bytecodeMapping)
         return nullptr;
 
+    Assumptions assumptions(Move(buildId));
+    assumptions.compilerABI = SharedCodeEnabled() ? WasmCompilerABI::SharedDynamicTLS
+                                                  : WasmCompilerABI::ClassicSpecialized;
+
     if (PRFileDesc* compiledFile = maybeCompiledFile) {
         PRFileInfo compiledInfo;
         UniqueMapping compiledMapping = MapFile(compiledFile, &compiledInfo);
         if (!compiledMapping)
             return nullptr;
 
-        return Module::deserialize(bytecodeMapping.get(), bytecodeInfo.size,
-                                   compiledMapping.get(), compiledInfo.size);
+        // A compiled cache from the other compiler ABI is stale. Keep the
+        // bytecode source below and transparently recompile for this request.
+        if (Module::assumptionsMatch(assumptions, compiledMapping.get(), compiledInfo.size)) {
+            return Module::deserialize(bytecodeMapping.get(), bytecodeInfo.size,
+                                       compiledMapping.get(), compiledInfo.size);
+        }
     }
 
     // Since the compiled file's assumptions don't match, we must recompile from
@@ -512,7 +522,7 @@ wasm::DeserializeModule(PRFileDesc* bytecodeFile, PRFileDesc* maybeCompiledFile,
     scriptedCaller.line = line;
     scriptedCaller.column = column;
 
-    CompileArgs args(Assumptions(Move(buildId)), Move(scriptedCaller));
+    CompileArgs args(Move(assumptions), Move(scriptedCaller));
 
     UniqueChars error;
     return Compile(*bytecode, Move(args), &error);
@@ -581,6 +591,10 @@ Module::extractCode(JSContext* cx, MutableHandleValue vp)
 
     RootedValue value(cx, ObjectValue(*code));
     if (!JS_DefineProperty(cx, result, "code", value, JSPROP_ENUMERATE))
+        return false;
+
+    value.setBoolean(sharedCode_);
+    if (!JS_DefineProperty(cx, result, "sharedCode", value, JSPROP_ENUMERATE))
         return false;
 
     RootedObject segments(cx, NewDenseEmptyArray(cx));

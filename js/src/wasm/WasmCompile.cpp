@@ -905,6 +905,9 @@ bool
 CompileArgs::initFromContext(ExclusiveContext* cx, ScriptedCaller&& scriptedCaller)
 {
     alwaysBaseline = cx->options().wasmAlwaysBaseline();
+    compilerABI = SharedCodeEnabled() ? WasmCompilerABI::SharedDynamicTLS
+                                      : WasmCompilerABI::ClassicSpecialized;
+    assumptions.compilerABI = compilerABI;
     this->scriptedCaller = Move(scriptedCaller);
     return assumptions.initBuildIdFromContext(cx);
 }

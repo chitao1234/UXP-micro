@@ -717,12 +717,14 @@ SigWithId::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
 
 Assumptions::Assumptions(JS::BuildIdCharVector&& buildId)
   : cpuId(GetCPUID()),
-    buildId(Move(buildId))
+    buildId(Move(buildId)),
+    compilerABI(WasmCompilerABI::ClassicSpecialized)
 {}
 
 Assumptions::Assumptions()
   : cpuId(GetCPUID()),
-    buildId()
+    buildId(),
+    compilerABI(WasmCompilerABI::ClassicSpecialized)
 {}
 
 bool
@@ -739,6 +741,7 @@ bool
 Assumptions::clone(const Assumptions& other)
 {
     cpuId = other.cpuId;
+    compilerABI = other.compilerABI;
     return buildId.appendAll(other.buildId);
 }
 
@@ -746,6 +749,7 @@ bool
 Assumptions::operator==(const Assumptions& rhs) const
 {
     return cpuId == rhs.cpuId &&
+           compilerABI == rhs.compilerABI &&
            buildId.length() == rhs.buildId.length() &&
            PodEqual(buildId.begin(), rhs.buildId.begin(), buildId.length());
 }
@@ -755,17 +759,19 @@ Assumptions::operator==(const Assumptions& rhs) const
 // application build id. Old engines see a different build id and reject it.
 // The metadata alias fix must invalidate code produced while a bounded memory
 // was assumed immovable, even when the embedding build ID has not changed.
+// The serialized ABI marker covers both codegen layout and the tier-selected
+// compiler mode stored in the final byte of the build-id suffix.
 #ifdef JS_CODEGEN_X86
-static const char WasmCodeABI[] = "microgecko-wasm-shared-central-trap-abi-v6";
+static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v7";
 #else
-static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-callsite-v5";
+static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v6";
 #endif
 
 size_t
 Assumptions::serializedSize() const
 {
     return sizeof(uint32_t) +
-           SerializedPodVectorSize(buildId) + sizeof(WasmCodeABI);
+           SerializedPodVectorSize(buildId) + sizeof(WasmCodeABI) + sizeof(uint8_t);
 }
 
 uint8_t*
@@ -776,9 +782,10 @@ Assumptions::serialize(uint8_t* cursor) const
     // assumptions of a different build-id.
 
     cursor = WriteScalar<uint32_t>(cursor, cpuId);
-    cursor = WriteScalar<uint32_t>(cursor, buildId.length() + sizeof(WasmCodeABI));
+    cursor = WriteScalar<uint32_t>(cursor, buildId.length() + sizeof(WasmCodeABI) + sizeof(uint8_t));
     cursor = WriteBytes(cursor, buildId.begin(), buildId.length());
     cursor = WriteBytes(cursor, WasmCodeABI, sizeof(WasmCodeABI));
+    cursor = WriteScalar<uint8_t>(cursor, uint8_t(compilerABI));
     return cursor;
 }
 
@@ -787,12 +794,17 @@ Assumptions::deserialize(const uint8_t* cursor, size_t remain)
 {
     (cursor = ReadScalarChecked<uint32_t>(cursor, &remain, &cpuId)) &&
     (cursor = DeserializePodVectorChecked(cursor, &remain, &buildId));
-    if (!cursor || buildId.length() < sizeof(WasmCodeABI) ||
-        memcmp(buildId.end() - sizeof(WasmCodeABI), WasmCodeABI, sizeof(WasmCodeABI)))
+    const size_t suffixLength = sizeof(WasmCodeABI) + sizeof(uint8_t);
+    if (!cursor || buildId.length() < suffixLength ||
+        memcmp(buildId.end() - suffixLength, WasmCodeABI, sizeof(WasmCodeABI)))
     {
         return nullptr;
     }
-    buildId.shrinkBy(sizeof(WasmCodeABI));
+    uint8_t abi = uint8_t(buildId[buildId.length() - 1]);
+    if (abi > uint8_t(WasmCompilerABI::SharedDynamicTLS))
+        return nullptr;
+    compilerABI = WasmCompilerABI(abi);
+    buildId.shrinkBy(suffixLength);
     return cursor;
 }
 

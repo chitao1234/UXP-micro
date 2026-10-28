@@ -124,6 +124,11 @@ ModuleGenerator::init(UniqueModuleGeneratorData shared, const CompileArgs& args,
         MOZ_ASSERT(!isAsmJS());
     }
 
+    // The ABI is captured on the thread that requested compilation. Asm.js
+    // keeps its historical specialization path until it is qualified too.
+    shared_->compilerABI = isAsmJS() ? WasmCompilerABI::ClassicSpecialized
+                                    : args.compilerABI;
+
     if (args.scriptedCaller.filename) {
         metadata_->filename = DuplicateString(args.scriptedCaller.filename.get());
         if (!metadata_->filename)
@@ -132,6 +137,7 @@ ModuleGenerator::init(UniqueModuleGeneratorData shared, const CompileArgs& args,
 
     if (!assumptions_.clone(args.assumptions))
         return false;
+    assumptions_.compilerABI = shared_->compilerABI;
 
     // For asm.js, the Vectors in ModuleGeneratorData are max-sized reservations
     // and will be initialized in a linear order via init* functions as the

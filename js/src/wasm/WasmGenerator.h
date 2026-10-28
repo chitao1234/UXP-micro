@@ -38,6 +38,7 @@ class FunctionGenerator;
 struct ModuleGeneratorData
 {
     ModuleKind                kind;
+    WasmCompilerABI           compilerABI;
     MemoryUsage               memoryUsage;
     mozilla::Atomic<uint32_t> minMemoryLength;
     Maybe<uint32_t>           maxMemoryLength;
@@ -51,6 +52,7 @@ struct ModuleGeneratorData
 
     explicit ModuleGeneratorData(ModuleKind kind = ModuleKind::Wasm)
       : kind(kind),
+        compilerABI(WasmCompilerABI::ClassicSpecialized),
         memoryUsage(MemoryUsage::None),
         minMemoryLength(0)
     {}

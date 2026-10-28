@@ -888,6 +888,14 @@ bool SymbolicAddressRequiresTLS(SymbolicAddress imm);
 // Native signature used to preserve stack arguments in the x86 exit wrappers.
 jit::ABIFunctionType SymbolicAddressSignature(SymbolicAddress imm);
 
+// The compiler ABI is selected when a module compile is requested and remains
+// immutable for the lifetime of that module, independent of later tier changes.
+enum class WasmCompilerABI : uint8_t
+{
+    ClassicSpecialized,
+    SharedDynamicTLS
+};
+
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
 // the module must be recompiled from scratch.
@@ -896,6 +904,7 @@ struct Assumptions
 {
     uint32_t              cpuId;
     JS::BuildIdCharVector buildId;
+    WasmCompilerABI       compilerABI;
 
     explicit Assumptions(JS::BuildIdCharVector&& buildId);
 

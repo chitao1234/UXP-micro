@@ -1561,6 +1561,8 @@ class MOZ_STACK_CLASS ModuleValidator
         CompileArgs args;
         if (!args.initFromContext(cx_, Move(scriptedCaller)))
             return false;
+        args.compilerABI = WasmCompilerABI::ClassicSpecialized;
+        args.assumptions.compilerABI = WasmCompilerABI::ClassicSpecialized;
 
         auto genData = MakeUnique<ModuleGeneratorData>(ModuleKind::AsmJS);
         if (!genData ||
