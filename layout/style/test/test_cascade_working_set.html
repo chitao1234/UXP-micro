@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Reconstructing evicted media cascades preserves active style semantics</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<body>
+<script>
+SimpleTest.waitForExplicitFinish();
+(async function() {
+  var frames = [];
+  var thresholds = [1200, 1000, 800, 600, 400];
+  var base = '@namespace svg url(http://www.w3.org/2000/svg);' +
+    '@layer early,late;' +
+    '@layer early{.layer{color:rgb(1,2,3)!important}}' +
+    '@layer late{.layer{color:rgb(4,5,6)!important}}' +
+    '.target{--pad:7px;color:rgb(10,20,30);padding-left:var(--pad);margin-left:3px}' +
+    '.target::before{content:"wide"}' +
+    '.state:checked~.target{margin-left:17px}' +
+    '.ancestor:has(.on) .target{padding-top:19px}' +
+    '.target[data-on=yes]{border-left:4px solid black}' +
+    'svg|rect{fill:rgb(11,22,33)}';
+  for (var n=0; n<thresholds.length; ++n) {
+    base += '@media(max-width:'+thresholds[n]+'px){.target{color:rgb('+
+      (40+n)+',50,60)}.target::before{content:"state-'+n+'"}}';
+  }
+  base += '@media(max-width:800px){@layer early{.layer{color:rgb(7,8,9)!important}}}' +
+    '@media(max-width:600px){@layer late{.layer{color:revert-layer!important}}}';
+  for (var i=0; i<2; ++i) {
+    var frame=document.createElement('iframe');
+    frame.style.cssText='height:180px;border:0';frame.width=i?500:1400;
+    var loaded=new Promise(function(resolve){frame.onload=resolve;});
+    frame.srcdoc='<!doctype html><style>'+base+'</style>'+
+      '<div class="ancestor"><input class="state" type="checkbox">'+
+      '<span class="switch"></span><div class="target">value</div></div>'+
+      '<div class="layer">layer</div><svg xmlns="http://www.w3.org/2000/svg">'+
+      '<rect width="10" height="10"/></svg><div id="host"></div>';
+    document.body.appendChild(frame);await loaded;
+    var shadow=frame.contentDocument.querySelector('#host').attachShadow({mode:'open'});
+    shadow.innerHTML='<style>.inside{color:rgb(31,32,33)}'+
+      '@media(max-width:800px){.inside{color:rgb(61,62,63)}}</style><b class="inside">shadow</b>';
+    frames.push(frame);
+  }
+  function value(frame, element, name, pseudo) {
+    return frame.contentWindow.getComputedStyle(element,pseudo).getPropertyValue(name);
+  }
+  function check(frame, label) {
+    var w=frame.contentWindow,d=w.document,e=d.querySelector('.target'),state=-1;
+    for(var n=0;n<thresholds.length;++n)if(w.innerWidth<=thresholds[n])state=n;
+    is(value(frame,e,'color'),state<0?'rgb(10, 20, 30)':'rgb('+(40+state)+', 50, 60)',label+' color');
+    is(value(frame,e,'padding-left'),'7px',label+' inherited token stream');
+    is(value(frame,e,'content','::before'),state<0?'"wide"':'"state-'+state+'"',label+' pseudo');
+    is(value(frame,d.querySelector('.layer'),'color'),w.innerWidth<=800?'rgb(7, 8, 9)':'rgb(1, 2, 3)',label+' layers/revert');
+    is(value(frame,d.querySelector('rect'),'fill'),'rgb(11, 22, 33)',label+' namespace');
+    var inside=d.querySelector('#host').shadowRoot.querySelector('.inside');
+    is(value(frame,inside,'color'),w.innerWidth<=800?'rgb(61, 62, 63)':'rgb(31, 32, 33)',label+' shadow');
+    var input=d.querySelector('input');input.checked=true;
+    is(value(frame,e,'margin-left'),'17px',label+' dynamic state');input.checked=false;
+    is(value(frame,e,'margin-left'),'3px',label+' dynamic state removal');
+    e.setAttribute('data-on','yes');is(value(frame,e,'border-left-width'),'4px',label+' attribute');
+    e.removeAttribute('data-on');is(value(frame,e,'border-left-width'),'0px',label+' attribute removal');
+    d.querySelector('.switch').classList.add('on');is(value(frame,e,'padding-top'),'19px',label+' has');
+    d.querySelector('.switch').classList.remove('on');is(value(frame,e,'padding-top'),'0px',label+' has removal');
+  }
+  var widths=[1400,1100,900,700,500,300,1400,300,900,500,1100,1400];
+  for(var round=0;round<3;++round) {
+    for(var width of widths) {
+      frames[0].width=width;frames[1].width=1700-width;
+      // Flush both simultaneously live documents in alternate orders.
+      var order=round%2?[1,0]:[0,1];
+      for(var index of order) {
+        frames[index].contentDocument.body.offsetHeight;
+        check(frames[index],round+'/'+width+'/'+index);
+      }
+    }
+  }
+  // CSSOM changes after many evictions must invalidate the canonical rules,
+  // not resurrect declarations from an obsolete media-state generation.
+  for(var frame of frames) {
+    var d=frame.contentDocument,s=d.styleSheets[0],e=d.querySelector('.target');
+    s.insertRule('.target{color:rgb(121,122,123)}',s.cssRules.length);
+    for(var width of [300,1400,700]) {
+      frame.width=width;d.body.offsetHeight;
+      is(value(frame,e,'color'),'rgb(121, 122, 123)','CSSOM generation '+width);
+    }
+    s.deleteRule(s.cssRules.length-1);frame.width=1400;d.body.offsetHeight;check(frame,'CSSOM removed');
+    s.disabled=true;is(value(frame,e,'color'),'rgb(0, 0, 0)','disabled');
+    s.disabled=false;check(frame,'reenabled');
+    var last=s.cssRules[s.cssRules.length-1];
+    ok(last.type===4,'last rule remains a media rule');
+  }
+  // Keep these two active documents available for the native residency
+  // reporter and live tier/override tests. Navigation owns their cleanup.
+  window.workingSetExercise=function() {
+    for(var width of [1400,1100,900,700,500,300,1400]) {
+      for(var frame of frames) {
+        frame.width=width;frame.contentDocument.body.offsetHeight;check(frame,'policy '+width);
+      }
+    }
+  };
+  window.workingSetExercise();
+})().catch(function(e){ok(false,String(e)+'\n'+e.stack);}).then(function(){SimpleTest.finish();});
+</script>

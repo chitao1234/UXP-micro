@@ -58,9 +58,18 @@
 #include "nsCSSRuleUtils.h"
 #include "CascadeLayerRuleProcessor.h"
 #include "RuleProcessorGroup.h"
+#include "prenv.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
+
+// Main-thread preference caches: a rule processor is queried on hot style
+// paths, so checking a live tier override must not perform a pref lookup for
+// every element. Negative means tier default; zero preserves unlimited states.
+static int32_t sCascadeMemoryTier = 3;
+static int32_t sCascadeMaxStates = -1;
+static bool sCascadeStatePrefsInitialized = false;
+static bool sCascadeStateDiagnostics = false;
 
 // -------------------------------
 // CSS Style rule processor implementation
@@ -71,9 +80,10 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(const sheet_array_type& aSheets,
                                        Element* aScopeElement,
                                        nsCSSRuleProcessor*
                                          aPreviousCSSRuleProcessor,
-                                       bool aIsShared)
+                                       bool aIsShared,
+                                       bool aIsBinding)
   : nsCSSRuleProcessor(sheet_array_type(aSheets), aSheetType, aScopeElement,
-                       aPreviousCSSRuleProcessor, aIsShared)
+                       aPreviousCSSRuleProcessor, aIsShared, aIsBinding)
 {
 }
 
@@ -82,7 +92,8 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(sheet_array_type&& aSheets,
                                        Element* aScopeElement,
                                        nsCSSRuleProcessor*
                                          aPreviousCSSRuleProcessor,
-                                       bool aIsShared)
+                                       bool aIsShared,
+                                       bool aIsBinding)
   : mSheets(aSheets)
   , mGroup(nullptr)
   , mPreviousCacheKey(aPreviousCSSRuleProcessor
@@ -91,14 +102,29 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(sheet_array_type&& aSheets,
   , mLastPresContext(nullptr)
   , mScopeElement(aScopeElement)
   , mStyleSetRefCnt(0)
+  , mCachedStateLimit(0)
+  , mCascadeBuilds(0)
+  , mCascadeHits(0)
+  , mCascadeEvictions(0)
   , mSheetType(aSheetType)
   , mIsShared(aIsShared)
+  , mIsBinding(aIsBinding)
   , mMustGatherDocumentRules(aIsShared)
   , mInRuleProcessorCache(false)
 #ifdef DEBUG
   , mDocumentRulesAndCacheKeyValid(false)
 #endif
 {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!sCascadeStatePrefsInitialized) {
+    Preferences::AddIntVarCache(&sCascadeMemoryTier, "browser.memoryTier", 3);
+    Preferences::AddIntVarCache(&sCascadeMaxStates,
+                                "layout.css.cascade-index.max-states", -1);
+    sCascadeStatePrefsInitialized = true;
+    const char* diagnostics = PR_GetEnv("MOZ_CSS_CASCADE_STATS");
+    sCascadeStateDiagnostics = diagnostics && diagnostics[0] &&
+                               diagnostics[0] != '0';
+  }
   NS_ASSERTION(!!mScopeElement == (aSheetType == SheetType::ScopedDoc),
                "aScopeElement must be specified iff aSheetType is "
                "eScopedDocSheet");
@@ -334,10 +360,23 @@ nsCSSRuleProcessor::CloneMQCacheKey()
 nsCSSRuleProcessor::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = 0;
+  uint32_t states = 0;
   n += mSheets.ShallowSizeOfExcludingThis(aMallocSizeOf);
   for (RuleProcessorGroup* group = mGroup; group;
        group = group->mNext) {
     n += group->SizeOfIncludingThis(aMallocSizeOf);
+    ++states;
+  }
+
+  // Opt-in inline ownership evidence, emitted only during an explicit memory
+  // report. No debugger attachment or enumeration through CSSOM is necessary.
+  // Timing and acceptance-memory runs leave the environment switch disabled.
+  if (sCascadeStateDiagnostics) {
+    fprintf_stderr(stderr, "CSS_CASCADE_STATS processor=%p type=%u binding=%u "
+                   "shared=%u limit=%u states=%u builds=%u hits=%u evictions=%u "
+                   "bytes=%zu\n", this, unsigned(mSheetType), unsigned(mIsBinding),
+                   unsigned(mIsShared), mCachedStateLimit, states, mCascadeBuilds,
+                   mCascadeHits, mCascadeEvictions, n);
   }
 
   return n;
@@ -694,12 +733,52 @@ nsCSSRuleProcessor::GetGroup(nsPresContext* aPresContext)
   // likely to have @media rules, and thus the cache is pretty likely to
   // hit instantly even when we're switching between pres contexts.)
 
-  if (!mGroup || aPresContext != mLastPresContext) {
+  if (!mGroup || aPresContext != mLastPresContext ||
+      mCachedStateLimit != MediaStateLimit(aPresContext)) {
     RefreshGroup(aPresContext);
   }
   mLastPresContext = aPresContext;
 
   return mGroup;
+}
+
+uint32_t
+nsCSSRuleProcessor::MediaStateLimit(nsPresContext* aPresContext) const
+{
+  // Only an individual content document's author/scoped cascade is bounded.
+  // UA/user processors and XBL are shared between live documents; their
+  // differing media states are a genuine simultaneous working set.
+  if (mIsShared || mIsBinding || aPresContext->IsChrome() ||
+      (mSheetType != SheetType::Doc && mSheetType != SheetType::ScopedDoc)) {
+    return 0;
+  }
+  if (sCascadeMaxStates >= 0) {
+    return uint32_t(sCascadeMaxStates);
+  }
+  return sCascadeMemoryTier <= 0 ? 1 : sCascadeMemoryTier == 1 ? 2 : 0;
+}
+
+void
+nsCSSRuleProcessor::TrimMediaStates(uint32_t aLimit)
+{
+  mCachedStateLimit = aLimit;
+  if (!aLimit || !mGroup) {
+    return;
+  }
+  RuleProcessorGroup* last = mGroup;
+  for (uint32_t count = 1; count < aLimit && last->mNext; ++count) {
+    last = last->mNext;
+  }
+  RuleProcessorGroup* stale = last->mNext;
+  last->mNext = nullptr;
+  while (stale) {
+    RuleProcessorGroup* next = stale->mNext;
+    delete stale;
+    if (sCascadeStateDiagnostics) {
+      ++mCascadeEvictions;
+    }
+    stale = next;
+  }
 }
 
 /**
@@ -718,20 +797,30 @@ CreateChildProcessorsEnumFunc(CascadeLayer* aLayer, void* aData)
 void
 nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
 {
+  uint32_t stateLimit = MediaStateLimit(aPresContext);
   // Having RuleCascadeData objects be per-medium (over all variation
   // caused by media queries, handled through mCacheKey) works for now
   // since nsCSSRuleProcessor objects are per-document.  (For a given
   // set of stylesheets they can vary based on medium (@media) or
   // document (@-moz-document).)
+  // When entering current-state-only mode, rebuild once without the shared
+  // identity/rank infrastructure. Keep the old group alive until the new one
+  // is published; MediumFeaturesChanged compares their identities, and failed
+  // construction must not destroy the previous working cascade.
+  bool rebuildUnshared = stateLimit == 1 && mIndexPool;
   for (RuleProcessorGroup **groupPointer = &mGroup, *group;
        (group = *groupPointer);
        groupPointer = &group->mNext) {
-    if (group->mCacheKey.Matches(aPresContext)) {
+    if (!rebuildUnshared && group->mCacheKey.Matches(aPresContext)) {
+      if (sCascadeStateDiagnostics) {
+        ++mCascadeHits;
+      }
       // Ensure that the current one is always mGroup.
       *groupPointer = group->mNext;
       group->mNext = mGroup;
       mGroup = group;
 
+      TrimMediaStates(stateLimit);
       return;
     }
   }
@@ -741,12 +830,18 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
   // the last time we had rule cascades.
   mPreviousCacheKey = nullptr;
 
+  if (stateLimit == 1) {
+    // Existing groups keep their own pool alive until TrimMediaStates drops
+    // them. A lone current state has no cross-state buckets to canonicalize.
+    mIndexPool = nullptr;
+  }
   if (mSheets.Length() != 0) {
     // Canonicalizing new media states saves memory but adds construction work.
     // Prefer it on low-memory tiers; an explicit pref overrides the tier policy.
     int32_t memoryTier = Preferences::GetInt("browser.memoryTier", 3);
-    bool shareIndexes = Preferences::GetBool("layout.css.cascade-index.share",
-                                            memoryTier <= 1);
+    bool shareIndexes = stateLimit != 1 &&
+                        Preferences::GetBool("layout.css.cascade-index.share",
+                                             memoryTier <= 1);
     // A single media state has nothing to share. Build its normal index first;
     // only introduce identities/canonical buckets once another state is needed.
     if (shareIndexes && !mIndexPool && mGroup) {
@@ -781,6 +876,10 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
       mGroup = ruleProcessorSet.forget();
 
       implicitLayer->EnumerateAllLayers(CreateChildProcessorsEnumFunc, mGroup);
+      if (sCascadeStateDiagnostics) {
+        ++mCascadeBuilds;
+      }
+      TrimMediaStates(stateLimit);
 
       // mMustGatherDocumentRules controls whether we build mDocumentRules
       // and mDocumentCacheKey so that they can be used as keys by the
@@ -817,6 +916,7 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
       }
     }
   }
+  mCachedStateLimit = stateLimit;
   return;
 }
 

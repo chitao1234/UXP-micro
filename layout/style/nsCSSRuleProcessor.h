@@ -64,12 +64,14 @@ public:
                      mozilla::SheetType aSheetType,
                      mozilla::dom::Element* aScopeElement,
                      nsCSSRuleProcessor* aPreviousCSSRuleProcessor,
-                     bool aIsShared = false);
+                     bool aIsShared = false,
+                     bool aIsBinding = false);
   nsCSSRuleProcessor(sheet_array_type&& aSheets,
                      mozilla::SheetType aSheetType,
                      mozilla::dom::Element* aScopeElement,
                      nsCSSRuleProcessor* aPreviousCSSRuleProcessor,
-                     bool aIsShared = false);
+                     bool aIsShared = false,
+                     bool aIsBinding = false);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS(nsCSSRuleProcessor)
@@ -162,6 +164,8 @@ protected:
 private:
   RuleProcessorGroup* GetGroup(nsPresContext* aPresContext);
   void RefreshGroup(nsPresContext* aPresContext);
+  uint32_t MediaStateLimit(nsPresContext* aPresContext) const;
+  void TrimMediaStates(uint32_t aLimit);
 
   nsRestyleHint HasStateDependentStyle(ElementDependentRuleProcessorData* aData,
                                        mozilla::dom::Element* aStatefulElement,
@@ -194,11 +198,20 @@ private:
 
   nsExpirationState mExpirationState;
   MozRefCountType mStyleSetRefCnt;
+  uint32_t mCachedStateLimit;
+  // Only incremented with MOZ_CSS_CASCADE_STATS. These describe resident
+  // ownership/reconstruction, not allocation totals or benchmark timings.
+  uint32_t mCascadeBuilds;
+  uint32_t mCascadeHits;
+  uint32_t mCascadeEvictions;
 
   // type of stylesheet using this processor
   mozilla::SheetType mSheetType;
 
   const bool mIsShared;
+  // Binding processors can alternate between several live presentation
+  // contexts. Do not turn that working set into repeated reconstruction.
+  const bool mIsBinding;
 
   // Whether we need to build up mDocumentCacheKey and mDocumentRules as
   // we build RuleProcessorGroup.  Is true only for shared rule processors

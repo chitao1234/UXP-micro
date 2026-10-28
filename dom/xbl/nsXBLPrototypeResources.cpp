@@ -152,7 +152,9 @@ nsXBLPrototypeResources::GatherRuleProcessor()
   mRuleProcessor = new nsCSSRuleProcessor(Move(sheets),
                                           SheetType::Doc,
                                           nullptr,
-                                          mRuleProcessor);
+                                          mRuleProcessor,
+                                          false /* aIsShared */,
+                                          true /* aIsBinding */);
 }
 
 void
