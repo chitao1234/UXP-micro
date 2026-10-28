@@ -995,6 +995,78 @@ CodeGeneratorX86::visitCompareI64AndBranch(LCompareI64AndBranch* lir)
     }
 }
 
+// Use native x86 division directly whenever the divisor's magnitude fits a
+// word. This is the same quotient decomposition used by compiler runtimes:
+// divide the high word first, then divide the remainder:low pair. If the high
+// word is already below the divisor, one division suffices. All full-width
+// divisors retain the existing native helper and its published exit frame.
+static void
+EmitInlineI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
+                     Register64 output, bool isUnsigned, bool isModulo,
+                     Label* fallback, Label* done)
+{
+    MOZ_ASSERT(lhs == Register64(eax, ebx));
+    MOZ_ASSERT(rhs == Register64(ecx, edx));
+    MOZ_ASSERT(output == Register64(edi, eax));
+
+    Label positiveDivisor, normalizeNumerator, negativeNumerator, divide;
+    Label twoDivisions, divided;
+    if (isUnsigned) {
+        masm.branchTest32(Assembler::NonZero, rhs.high, rhs.high, fallback);
+    } else {
+        // A signed divisor whose absolute value fits uint32 has a high word
+        // of zero or -1. -2^32 has low word zero and needs the full-width path.
+        masm.branchTest32(Assembler::Zero, rhs.high, rhs.high, &positiveDivisor);
+        masm.branch32(Assembler::NotEqual, rhs.high, Imm32(-1), fallback);
+        masm.branchTest32(Assembler::Zero, rhs.low, rhs.low, fallback);
+        masm.negl(rhs.low);
+        masm.move32(Imm32(isModulo ? 0 : 1), output.high);
+        masm.jump(&normalizeNumerator);
+        masm.bind(&positiveDivisor);
+        masm.xorl(output.high, output.high);
+        masm.bind(&normalizeNumerator);
+        masm.branch32(Assembler::LessThan, lhs.high, Imm32(0), &negativeNumerator);
+        masm.jump(&divide);
+        masm.bind(&negativeNumerator);
+        masm.neg64(lhs);
+        masm.xorl(Imm32(1), output.high);
+        masm.bind(&divide);
+        // Save the desired result sign, not an instance or frame pointer.
+        // The physical EBP frame remains valid at every instruction, including
+        // samples taken while this extra stack word is present.
+        masm.push(output.high);
+    }
+
+    // Divide-by-zero and signed overflow were checked before this dispatch.
+    // Every hardware division has a nonzero divisor and a high word strictly
+    // below it, so it cannot raise an x86 division fault.
+    masm.movl(rhs.low, ecx);
+    masm.branch32(Assembler::AboveOrEqual, lhs.high, ecx, &twoDivisions);
+    masm.movl(lhs.high, edx);
+    masm.movl(lhs.low, eax);
+    masm.xorl(output.high, output.high);
+    masm.udiv(ecx);
+    masm.jump(&divided);
+
+    masm.bind(&twoDivisions);
+    masm.xorl(edx, edx);
+    masm.udiv(ecx);
+    masm.movl(eax, output.high);
+    masm.movl(lhs.low, eax);
+    masm.udiv(ecx);
+    masm.bind(&divided);
+    if (isModulo) {
+        masm.movl(edx, output.low);
+        masm.xorl(output.high, output.high);
+    }
+    if (!isUnsigned) {
+        masm.pop(ecx);
+        masm.branchTest32(Assembler::Zero, ecx, ecx, done);
+        masm.neg64(output);
+    }
+    masm.jump(done);
+}
+
 void
 CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
 {
@@ -1039,6 +1111,11 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
         masm.jump(&done);
         masm.bind(&notmin);
     }
+
+    Label native;
+    EmitInlineI64DivOrMod(masm, lhs, rhs, output, false,
+                         lir->isModulo(), &native, &done);
+    masm.bind(&native);
 
     masm.setupUnalignedABICall(temp);
     masm.passABIArg(lhs.high);
@@ -1093,6 +1170,12 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
     if (lir->canBeDivideByZero())
         masm.branchTest64(Assembler::Zero, rhs, rhs, temp, trap(lir, wasm::Trap::IntegerDivideByZero));
 
+    Label done;
+    Label native;
+    EmitInlineI64DivOrMod(masm, lhs, rhs, output, true,
+                         lir->isModulo(), &native, &done);
+    masm.bind(&native);
+
     masm.setupUnalignedABICall(temp);
     masm.passABIArg(lhs.high);
     masm.passABIArg(lhs.low);
@@ -1112,6 +1195,7 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
     // output in edx:eax, move to output register.
     masm.movl(edx, output.high);
     MOZ_ASSERT(eax == output.low);
+    masm.bind(&done);
 }
 
 void
