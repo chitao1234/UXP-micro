@@ -189,6 +189,11 @@ JS_ShutDown(void)
 
     js::wasm::ShutDownInstanceStaticData();
 
+    // Deallocation takes the process executable-region mutex. Keep debug
+    // mutex-order bookkeeping alive until the shared thunks are released.
+    if (!JSRuntime::hasLiveRuntimes())
+        js::wasm::ReleaseBuiltinThunks();
+
     js::Mutex::ShutDown();
 
     // The only difficult-to-address reason for the restriction that you can't
@@ -205,7 +210,6 @@ JS_ShutDown(void)
     u_cleanup();
 
     if (!JSRuntime::hasLiveRuntimes()) {
-        js::wasm::ReleaseBuiltinThunks();
         js::jit::ReleaseProcessExecutableMemory();
     }
 
