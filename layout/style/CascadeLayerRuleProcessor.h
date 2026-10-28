@@ -90,6 +90,8 @@ public:
     MOZ_MUST_OVERRIDE override;
   virtual size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const
     MOZ_MUST_OVERRIDE override;
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes) const;
 
   // The following API methods are consumed by nsStyleSet.
 

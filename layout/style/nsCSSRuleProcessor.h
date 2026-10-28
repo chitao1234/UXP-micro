@@ -79,6 +79,29 @@ public:
 public:
   nsresult ClearGroup();
 
+  // A read-only census overlapping explicit ownership and unclassified heap.
+  // Shared buckets are separated rather than assigned to one media state.
+  struct MemoryStats {
+    size_t mCurrentExclusive = 0;
+    size_t mOtherExclusive = 0;
+    size_t mShared = 0;
+    size_t mProcessor = 0;
+    uint64_t mCurrentStates = 0;
+    uint64_t mOtherStates = 0;
+    uint64_t mOneStateProcessors = 0;
+    uint64_t mBoundedProcessors = 0;
+    uint64_t mUnlimitedProcessors = 0;
+    uint64_t mUninitializedProcessors = 0;
+    uint64_t mMaxOne = 0;
+    uint64_t mMaxBounded = 0;
+    uint64_t mMaxUnlimited = 0;
+    uint64_t mBuilds = 0;
+    uint64_t mHits = 0;
+    uint64_t mEvictions = 0;
+  };
+  static void CollectMemoryStats(mozilla::MallocSizeOf aMallocSizeOf,
+                                MemoryStats& aStats);
+
   // nsIStyleRuleProcessor
   virtual void RulesMatching(ElementRuleProcessorData* aData) override;
 
@@ -199,11 +222,11 @@ private:
   nsExpirationState mExpirationState;
   MozRefCountType mStyleSetRefCnt;
   uint32_t mCachedStateLimit;
-  // Only incremented with MOZ_CSS_CASCADE_STATS. These describe resident
-  // ownership/reconstruction, not allocation totals or benchmark timings.
-  uint32_t mCascadeBuilds;
-  uint32_t mCascadeHits;
-  uint32_t mCascadeEvictions;
+  // Built-in diagnostics for currently live processors. Updated only on a
+  // media-state cache lookup/construction/eviction, not individual rule matches.
+  uint64_t mCascadeBuilds;
+  uint64_t mCascadeHits;
+  uint64_t mCascadeEvictions;
 
   // type of stylesheet using this processor
   mozilla::SheetType mSheetType;
@@ -220,6 +243,12 @@ private:
   bool mMustGatherDocumentRules;
 
   bool mInRuleProcessorCache;
+
+  // Intrusive, non-owning, main-thread registry for memory reporting. It keeps
+  // no processor, sheet or document alive and needs no heap allocation itself.
+  static nsCSSRuleProcessor* sLiveProcessors;
+  nsCSSRuleProcessor* mMemoryNext;
+  nsCSSRuleProcessor** mMemoryPrevious;
 
 #ifdef DEBUG
   bool mDocumentRulesAndCacheKeyValid;

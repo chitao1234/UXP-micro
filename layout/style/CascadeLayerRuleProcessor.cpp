@@ -243,6 +243,14 @@ CascadeLayerRuleProcessor::SizeOfIncludingThis(
   return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
 }
 
+size_t
+CascadeLayerRuleProcessor::SizeOfIncludingThis(
+  mozilla::MallocSizeOf aMallocSizeOf, size_t* aSharedBytes) const
+{
+  return aMallocSizeOf(this) +
+         mLayer->SizeOfIncludingThis(aMallocSizeOf, aSharedBytes);
+}
+
 nsCSSKeyframesRule*
 CascadeLayerRuleProcessor::KeyframesRuleForName(nsPresContext* aPresContext,
                                                 const nsString& aName)

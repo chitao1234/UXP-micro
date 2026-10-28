@@ -833,42 +833,49 @@ RuleHash::EnumerateAllRules(Element* aElement,
 }
 
 static size_t
-SizeOfRuleHashTable(const PLDHashTable& aTable, MallocSizeOf aMallocSizeOf)
+SizeOfRuleHashTable(const PLDHashTable& aTable, MallocSizeOf aMallocSizeOf,
+                    size_t* aSharedBytes = nullptr)
 {
   size_t n = aTable.ShallowSizeOfExcludingThis(aMallocSizeOf);
   for (auto iter = aTable.ConstIter(); !iter.Done(); iter.Next()) {
     auto entry = static_cast<RuleHashTableEntry*>(iter.Get());
-    n += entry->mRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    n += entry->mRules.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
   }
   return n;
 }
 
 size_t
-RuleHash::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
+RuleHash::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf,
+                              size_t* aSharedBytes) const
 {
   size_t n = 0;
 
-  n += SizeOfRuleHashTable(mIdTable, aMallocSizeOf);
+  n += SizeOfRuleHashTable(mIdTable, aMallocSizeOf, aSharedBytes);
 
-  n += SizeOfRuleHashTable(mClassTable, aMallocSizeOf);
+  n += SizeOfRuleHashTable(mClassTable, aMallocSizeOf, aSharedBytes);
 
-  n += SizeOfRuleHashTable(mTagTable, aMallocSizeOf);
+  n += SizeOfRuleHashTable(mTagTable, aMallocSizeOf, aSharedBytes);
 
-  n += SizeOfRuleHashTable(mNameSpaceTable, aMallocSizeOf);
+  n += SizeOfRuleHashTable(mNameSpaceTable, aMallocSizeOf, aSharedBytes);
 
-  n += mUniversalRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mUniversalRules.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
   n += mRanks.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += mSparseRanks.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += mEnumList ? aMallocSizeOf(mEnumList) : 0;
-  if (mPool) n += mPool->SizeOfIncludingThis(this, aMallocSizeOf);
+  if (mPool) {
+    size_t poolBytes = mPool->SizeOfIncludingThis(this, aMallocSizeOf);
+    n += poolBytes;
+    if (aSharedBytes) *aSharedBytes += poolBytes;
+  }
 
   return n;
 }
 
 size_t
-RuleHash::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
+RuleHash::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                              size_t* aSharedBytes) const
 {
-  return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
 }
 
 //--------------------------------
@@ -994,38 +1001,40 @@ RuleCascadeData::ShareIndexes(CascadeIndexPool* aPool)
 }
 
 static size_t
-SizeOfSelectorsHashTable(const PLDHashTable& aTable, MallocSizeOf aMallocSizeOf)
+SizeOfSelectorsHashTable(const PLDHashTable& aTable, MallocSizeOf aMallocSizeOf,
+                         size_t* aSharedBytes)
 {
   size_t n = aTable.ShallowSizeOfExcludingThis(aMallocSizeOf);
   for (auto iter = aTable.ConstIter(); !iter.Done(); iter.Next()) {
     auto entry = static_cast<AtomSelectorEntry*>(iter.Get());
-    n += entry->mSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    n += entry->mSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
   }
   return n;
 }
 
 size_t
-RuleCascadeData::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
+RuleCascadeData::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                                     size_t* aSharedBytes) const
 {
   size_t n = aMallocSizeOf(this);
 
-  n += mRuleHash.SizeOfExcludingThis(aMallocSizeOf);
+  n += mRuleHash.SizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
   for (uint32_t i = 0; i < ArrayLength(mPseudoElementRuleHashes); ++i) {
     if (mPseudoElementRuleHashes[i])
-      n += mPseudoElementRuleHashes[i]->SizeOfIncludingThis(aMallocSizeOf);
+      n += mPseudoElementRuleHashes[i]->SizeOfIncludingThis(aMallocSizeOf, aSharedBytes);
   }
 
-  n += mStateSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mStateSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
 
-  n += SizeOfSelectorsHashTable(mIdSelectors, aMallocSizeOf);
-  n += SizeOfSelectorsHashTable(mClassSelectors, aMallocSizeOf);
+  n += SizeOfSelectorsHashTable(mIdSelectors, aMallocSizeOf, aSharedBytes);
+  n += SizeOfSelectorsHashTable(mClassSelectors, aMallocSizeOf, aSharedBytes);
 
-  n += mPossiblyNegatedClassSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  n += mPossiblyNegatedIDSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  n += mPossiblyNegatedClassSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
+  n += mPossiblyNegatedIDSelectors.ShallowSizeOfExcludingThis(aMallocSizeOf, aSharedBytes);
 
-  n += SizeOfSelectorsHashTable(mAttributeSelectors, aMallocSizeOf);
-  n += SizeOfRuleHashTable(mAnonBoxRules, aMallocSizeOf);
-  n += SizeOfRuleHashTable(mXULTreeRules, aMallocSizeOf);
+  n += SizeOfSelectorsHashTable(mAttributeSelectors, aMallocSizeOf, aSharedBytes);
+  n += SizeOfRuleHashTable(mAnonBoxRules, aMallocSizeOf, aSharedBytes);
+  n += SizeOfRuleHashTable(mXULTreeRules, aMallocSizeOf, aSharedBytes);
 
   n += mFontFaceRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
   n += mKeyframesRules.ShallowSizeOfExcludingThis(aMallocSizeOf);
@@ -1820,11 +1829,12 @@ CascadeLayer::~CascadeLayer()
 }
 
 size_t
-CascadeLayer::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
+CascadeLayer::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                                  size_t* aSharedBytes) const
 {
   size_t n = aMallocSizeOf(this);
   if (mData) {
-    n += mData->SizeOfIncludingThis(aMallocSizeOf);
+    n += mData->SizeOfIncludingThis(aMallocSizeOf, aSharedBytes);
   }
   n += mName.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
   n += mStyleRules.ShallowSizeOfExcludingThis(aMallocSizeOf);

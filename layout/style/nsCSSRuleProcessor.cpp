@@ -59,6 +59,8 @@
 #include "CascadeLayerRuleProcessor.h"
 #include "RuleProcessorGroup.h"
 #include "prenv.h"
+#include "nsIMemoryReporter.h"
+#include <inttypes.h>
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -70,6 +72,82 @@ static int32_t sCascadeMemoryTier = 3;
 static int32_t sCascadeMaxStates = -1;
 static bool sCascadeStatePrefsInitialized = false;
 static bool sCascadeStateDiagnostics = false;
+
+nsCSSRuleProcessor* nsCSSRuleProcessor::sLiveProcessors = nullptr;
+
+// This KIND_OTHER census overlaps existing explicit ownership reports. It also
+// sees live binding/CC-orphaned processors those reports may not visit. Do NOT
+// use MOZ_DEFINE_MALLOC_SIZE_OF here: its DMD marking would report overlapping
+// allocations a second time. Ownership reports retain their existing marking.
+static size_t
+CascadeDiagnosticSizeOf(const void* aPointer)
+{
+  return moz_malloc_size_of(aPointer);
+}
+
+class CSSCascadeMemoryReporter final : public nsIMemoryReporter
+{
+  ~CSSCascadeMemoryReporter() {}
+public:
+  NS_DECL_ISUPPORTS
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    // Finish the main-thread weak-list traversal before invoking callbacks,
+    // which may allocate or run collection. No live processor pointers escape.
+    nsCSSRuleProcessor::MemoryStats stats;
+    nsCSSRuleProcessor::CollectMemoryStats(CascadeDiagnosticSizeOf, stats);
+    MOZ_COLLECT_REPORT("css-cascade-memory/current-exclusive", KIND_OTHER, UNITS_BYTES,
+      stats.mCurrentExclusive,
+      "Exclusive storage of the most recently selected media state in each live CSS rule processor. "
+      "Shared buckets are excluded. This census overlaps explicit/layout/style-sets and "
+      "rule-processor-cache accounting, but also visits live binding and CC-orphaned processors. "
+      "Do not add it to explicit or resident memory.");
+    MOZ_COLLECT_REPORT("css-cascade-memory/other-exclusive", KIND_OTHER, UNITS_BYTES,
+      stats.mOtherExclusive,
+      "Exclusive storage of other retained media states, excluding shared buckets. "
+      "Shared UA/user/XBL processors may use these states in other live presentation contexts. "
+      "This is an alternate census overlapping explicit ownership and unclassified heap.");
+    MOZ_COLLECT_REPORT("css-cascade-memory/shared-and-canonicalization", KIND_OTHER, UNITS_BYTES,
+      stats.mShared,
+      "Bucket backing with multiple list owners, plus weak interning tables and rule identity metadata, "
+      "each counted once. Owners can be in the same state or different states. This storage is not "
+      "necessarily reclaimable by dropping one state. This census overlaps explicit ownership "
+      "and unclassified heap; do not add it to explicit.");
+    MOZ_COLLECT_REPORT("css-cascade-memory/processor-storage", KIND_OTHER, UNITS_BYTES,
+      stats.mProcessor,
+      "CSS rule processor objects and their measured sheet-pointer storage, excluding state groups. "
+      "Parsed stylesheets are measured separately. This census overlaps explicit ownership and "
+      "unclassified heap; do not add it to explicit.");
+    MOZ_COLLECT_REPORT("css-cascade-processors/one-state", KIND_OTHER, UNITS_COUNT,
+      stats.mOneStateProcessors, "Live initialized CSS processors with an applied one-state retention limit.");
+    MOZ_COLLECT_REPORT("css-cascade-processors/bounded", KIND_OTHER, UNITS_COUNT,
+      stats.mBoundedProcessors, "Live initialized CSS processors with a positive retention limit greater than one.");
+    MOZ_COLLECT_REPORT("css-cascade-processors/unlimited", KIND_OTHER, UNITS_COUNT,
+      stats.mUnlimitedProcessors, "Live initialized CSS processors with unlimited state retention, including exempt processors.");
+    MOZ_COLLECT_REPORT("css-cascade-processors/uninitialized", KIND_OTHER, UNITS_COUNT,
+      stats.mUninitializedProcessors, "Live CSS processors without a constructed media state.");
+    MOZ_COLLECT_REPORT("css-cascade-states/current", KIND_OTHER, UNITS_COUNT,
+      stats.mCurrentStates, "Most recently selected state groups in live CSS rule processors.");
+    MOZ_COLLECT_REPORT("css-cascade-states/other", KIND_OTHER, UNITS_COUNT,
+      stats.mOtherStates, "Other retained state groups. Some shared processors serve several live contexts.");
+    MOZ_COLLECT_REPORT("css-cascade-max-states-one", KIND_OTHER, UNITS_COUNT,
+      stats.mMaxOne, "Maximum actual retained state count of any live processor with an applied one-state limit.");
+    MOZ_COLLECT_REPORT("css-cascade-max-states-bounded", KIND_OTHER, UNITS_COUNT,
+      stats.mMaxBounded, "Maximum actual retained state count of any live processor with an applied multi-state limit.");
+    MOZ_COLLECT_REPORT("css-cascade-max-states-unlimited", KIND_OTHER, UNITS_COUNT,
+      stats.mMaxUnlimited, "Maximum actual retained state count of any live processor with unlimited retention.");
+    MOZ_COLLECT_REPORT("css-cascade-builds", KIND_OTHER, UNITS_COUNT,
+      stats.mBuilds, "Complete media-state groups constructed by currently live processors. Destroyed processors' histories are excluded.");
+    MOZ_COLLECT_REPORT("css-cascade-cache-hits", KIND_OTHER, UNITS_COUNT,
+      stats.mHits, "Media-state cache lookup hits of currently live processors. The ordinary unchanged-context fast path is not counted.");
+    MOZ_COLLECT_REPORT("css-cascade-evictions", KIND_OTHER, UNITS_COUNT,
+      stats.mEvictions, "Retention-budget evictions by currently live processors. CSSOM invalidation and destruction are not budget evictions.");
+    return NS_OK;
+  }
+};
+
+NS_IMPL_ISUPPORTS(CSSCascadeMemoryReporter, nsIMemoryReporter)
 
 // -------------------------------
 // CSS Style rule processor implementation
@@ -111,6 +189,8 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(sheet_array_type&& aSheets,
   , mIsBinding(aIsBinding)
   , mMustGatherDocumentRules(aIsShared)
   , mInRuleProcessorCache(false)
+  , mMemoryNext(nullptr)
+  , mMemoryPrevious(nullptr)
 #ifdef DEBUG
   , mDocumentRulesAndCacheKeyValid(false)
 #endif
@@ -124,6 +204,7 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(sheet_array_type&& aSheets,
     const char* diagnostics = PR_GetEnv("MOZ_CSS_CASCADE_STATS");
     sCascadeStateDiagnostics = diagnostics && diagnostics[0] &&
                                diagnostics[0] != '0';
+    RegisterStrongMemoryReporter(new CSSCascadeMemoryReporter());
   }
   NS_ASSERTION(!!mScopeElement == (aSheetType == SheetType::ScopedDoc),
                "aScopeElement must be specified iff aSheetType is "
@@ -131,10 +212,19 @@ nsCSSRuleProcessor::nsCSSRuleProcessor(sheet_array_type&& aSheets,
   for (sheet_array_type::size_type i = mSheets.Length(); i-- != 0; ) {
     mSheets[i]->AddRuleProcessor(this);
   }
+  // Resolve the head at insertion time: initializing the reporter/service
+  // above may reenter construction of another processor.
+  mMemoryNext = sLiveProcessors;
+  mMemoryPrevious = &sLiveProcessors;
+  if (mMemoryNext) mMemoryNext->mMemoryPrevious = &mMemoryNext;
+  sLiveProcessors = this;
 }
 
 nsCSSRuleProcessor::~nsCSSRuleProcessor()
 {
+  MOZ_ASSERT(NS_IsMainThread());
+  *mMemoryPrevious = mMemoryNext;
+  if (mMemoryNext) mMemoryNext->mMemoryPrevious = mMemoryPrevious;
   if (mInRuleProcessorCache) {
     RuleProcessorCache::RemoveRuleProcessor(this);
   }
@@ -373,13 +463,55 @@ nsCSSRuleProcessor::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   // Timing and acceptance-memory runs leave the environment switch disabled.
   if (sCascadeStateDiagnostics) {
     fprintf_stderr(stderr, "CSS_CASCADE_STATS processor=%p type=%u binding=%u "
-                   "shared=%u limit=%u states=%u builds=%u hits=%u evictions=%u "
+                   "shared=%u limit=%u states=%u builds=%" PRIu64 " hits=%" PRIu64 " evictions=%" PRIu64 " "
                    "bytes=%zu\n", this, unsigned(mSheetType), unsigned(mIsBinding),
                    unsigned(mIsShared), mCachedStateLimit, states, mCascadeBuilds,
                    mCascadeHits, mCascadeEvictions, n);
   }
 
   return n;
+}
+
+/* static */ void
+nsCSSRuleProcessor::CollectMemoryStats(MallocSizeOf aMallocSizeOf,
+                                      MemoryStats& aStats)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  for (const nsCSSRuleProcessor* processor = sLiveProcessors; processor;
+       processor = processor->mMemoryNext) {
+    aStats.mProcessor += aMallocSizeOf(processor) +
+      processor->mSheets.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    uint64_t states = 0;
+    for (const RuleProcessorGroup* group = processor->mGroup; group;
+         group = group->mNext) {
+      size_t shared = 0;
+      size_t bytes = group->SizeOfIncludingThis(aMallocSizeOf, &shared);
+      MOZ_RELEASE_ASSERT(shared <= bytes);
+      aStats.mShared += shared;
+      if (group == processor->mGroup) aStats.mCurrentExclusive += bytes - shared;
+      else aStats.mOtherExclusive += bytes - shared;
+      ++states;
+    }
+    if (states) {
+      ++aStats.mCurrentStates;
+      aStats.mOtherStates += states - 1;
+      if (processor->mCachedStateLimit == 1) {
+        ++aStats.mOneStateProcessors;
+        aStats.mMaxOne = std::max(aStats.mMaxOne, states);
+      } else if (processor->mCachedStateLimit) {
+        ++aStats.mBoundedProcessors;
+        aStats.mMaxBounded = std::max(aStats.mMaxBounded, states);
+      } else {
+        ++aStats.mUnlimitedProcessors;
+        aStats.mMaxUnlimited = std::max(aStats.mMaxUnlimited, states);
+      }
+    } else {
+      ++aStats.mUninitializedProcessors;
+    }
+    aStats.mBuilds += processor->mCascadeBuilds;
+    aStats.mHits += processor->mCascadeHits;
+    aStats.mEvictions += processor->mCascadeEvictions;
+  }
 }
 
 /* virtual */ size_t
@@ -774,9 +906,7 @@ nsCSSRuleProcessor::TrimMediaStates(uint32_t aLimit)
   while (stale) {
     RuleProcessorGroup* next = stale->mNext;
     delete stale;
-    if (sCascadeStateDiagnostics) {
-      ++mCascadeEvictions;
-    }
+    ++mCascadeEvictions;
     stale = next;
   }
 }
@@ -812,9 +942,7 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
        (group = *groupPointer);
        groupPointer = &group->mNext) {
     if (!rebuildUnshared && group->mCacheKey.Matches(aPresContext)) {
-      if (sCascadeStateDiagnostics) {
-        ++mCascadeHits;
-      }
+      ++mCascadeHits;
       // Ensure that the current one is always mGroup.
       *groupPointer = group->mNext;
       group->mNext = mGroup;
@@ -876,9 +1004,7 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
       mGroup = ruleProcessorSet.forget();
 
       implicitLayer->EnumerateAllLayers(CreateChildProcessorsEnumFunc, mGroup);
-      if (sCascadeStateDiagnostics) {
-        ++mCascadeBuilds;
-      }
+      ++mCascadeBuilds;
       TrimMediaStates(stateLimit);
 
       // mMustGatherDocumentRules controls whether we build mDocumentRules

@@ -149,15 +149,22 @@ public:
     mBlock->mNext = table->Get(hash);
     table->Put(hash, mBlock);
   }
-  size_t ShallowSizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+  size_t ShallowSizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                                  size_t* aSharedBytes = nullptr) const {
     if (!mBlock || mBlock->mOwners != this) return 0;
     size_t n = aMallocSizeOf(mBlock) +
       mBlock->mValues.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    if (aSharedBytes && mBlock->mOwners->mNextOwner) {
+      *aSharedBytes += n;
+    }
     if (mBlock->mPool) {
       Cache* table = Block::Table();
       auto iter = table->ConstIter();
       if (iter.Data() == mBlock) {
-        n += aMallocSizeOf(table) + table->ShallowSizeOfExcludingThis(aMallocSizeOf);
+        size_t tableBytes = aMallocSizeOf(table) +
+          table->ShallowSizeOfExcludingThis(aMallocSizeOf);
+        n += tableBytes;
+        if (aSharedBytes) *aSharedBytes += tableBytes;
       }
     }
     return n;

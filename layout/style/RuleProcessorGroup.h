@@ -20,7 +20,8 @@ struct RuleProcessorGroup
   nsMediaQueryResultCacheKey mCacheKey;
   RuleProcessorGroup* mNext; // for a different medium
 
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes = nullptr) const;
 };
 
 #endif /* RuleProcessorGroup_h___ */

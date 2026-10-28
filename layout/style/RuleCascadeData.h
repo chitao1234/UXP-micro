@@ -208,8 +208,10 @@ public:
   void Freeze();
   void ShareIndexes(CascadeIndexPool* aPool);
 
-  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes = nullptr) const;
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes = nullptr) const;
 
   static void AppendRuleToTagTable(PLDHashTable* aTable,
                                    nsIAtom* aKey,
@@ -309,7 +311,8 @@ struct RuleCascadeData
   RuleCascadeData(bool aQuirksMode, CascadeIndexPool* aPool = nullptr);
   ~RuleCascadeData();
 
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes = nullptr) const;
 
   RuleHash mRuleHash;
   RuleHash* mPseudoElementRuleHashes[static_cast<CSSPseudoElementTypeBase>(
@@ -391,7 +394,8 @@ struct CascadeLayer
                CascadeIndexPool* aIndexPool = nullptr);
   ~CascadeLayer();
 
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
+                           size_t* aSharedBytes = nullptr) const;
 
   nsPresContext* mPresContext;
   nsString mName;
