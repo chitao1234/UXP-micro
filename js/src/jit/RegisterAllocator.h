@@ -280,6 +280,9 @@ class RegisterAllocator
         allRegisters_(RegisterSet::All())
     {
         if (mir->compilingWasm()) {
+#if defined(JS_CODEGEN_X86)
+            allRegisters_.take(AnyRegister(FramePointer));
+#endif
 #if defined(JS_CODEGEN_X64)
             allRegisters_.take(AnyRegister(HeapReg));
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || \

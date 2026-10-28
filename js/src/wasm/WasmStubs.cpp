@@ -117,6 +117,11 @@ wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
     masm.setFramePushed(0);
     masm.PushRegsInMask(NonVolatileRegs);
     MOZ_ASSERT(masm.framePushed() == FramePushedAfterSave);
+#if defined(JS_CODEGEN_X86)
+    // The bottom Wasm frame must terminate its own chain, rather than link to
+    // the native caller's unrelated C++ frame layout. Native EBP was saved.
+    masm.movePtr(ImmWord(0), FramePointer);
+#endif
 
     // Put the 'argv' argument into a non-argument/return/TLS register so that
     // we can use 'argv' while we fill in the arguments for the asm.js callee.
@@ -672,6 +677,11 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
     masm.callJitNoProfiler(callee);
     AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
+#if defined(JS_CODEGEN_X86)
+    // The JIT ABI can clobber EBP. Reconstitute the published exit frame before
+    // conversion paths call C++ or the ordinary physical-FP epilogue runs.
+    masm.computeEffectiveAddress(Address(masm.getStackPointer(), jitFramePushed), FramePointer);
+#endif
     masm.loadPtr(Address(masm.getStackPointer(), jitFrameBytes), WasmTlsReg);
 
     {

@@ -93,10 +93,11 @@ class MOZ_NON_PARAM JS_PUBLIC_API(ProfilingFrameIterator)
   public:
     struct RegisterState
     {
-        RegisterState() : pc(nullptr), sp(nullptr), lr(nullptr) {}
+        RegisterState() : pc(nullptr), sp(nullptr), lr(nullptr), fp(nullptr) {}
         void* pc;
         void* sp;
         void* lr;
+        void* fp;
     };
 
     ProfilingFrameIterator(JSContext* cx, const RegisterState& state,

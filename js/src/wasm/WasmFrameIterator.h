@@ -112,7 +112,12 @@ class ProfilingFrameIterator
 // Recover the exact callee from its stable frame TLS; executable code can be
 // shared by arbitrarily many instances. Reject incomplete frames first.
 Instance*
-LookupFaultingInstance(WasmActivation* activation, void* pc);
+LookupFaultingInstance(WasmActivation* activation, void* pc, void* fp = nullptr);
+
+// Capture a normalized complete frame before redirecting an arbitrary x86
+// instruction to the interrupt stub. No allocation or runtime lock is used.
+bool
+StartInterrupt(WasmActivation* activation, void* pc, void* sp, void* fp);
 
 // Prologue/epilogue code generation
 

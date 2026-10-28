@@ -1685,6 +1685,8 @@ class WasmActivation : public Activation
     WasmActivation* prevWasm_;
     void* entrySP_;
     void* resumePC_;
+    void* interruptUnwindPC_;
+    uint8_t* interruptFP_;
     uint8_t* fp_;
     wasm::ExitReason exitReason_;
 
@@ -1698,8 +1700,8 @@ class WasmActivation : public Activation
         return true;
     }
 
-    // Returns a pointer to the base of the innermost stack frame of wasm code
-    // in this activation.
+    // On x86 this is a published native/JS exit frame; ordinary Wasm functions
+    // use the physical FP chain instead. Other backends retain the old ABI.
     uint8_t* fp() const { return fp_; }
 
     // Returns the reason why wasm code called out of wasm code.
@@ -1713,6 +1715,19 @@ class WasmActivation : public Activation
     // Read/written from SIGSEGV handler:
     void setResumePC(void* pc) { resumePC_ = pc; }
     void* resumePC() const { return resumePC_; }
+    void startInterrupt(void* resumePC, void* unwindPC, uint8_t* fp) {
+        MOZ_ASSERT(!resumePC_);
+        interruptUnwindPC_ = unwindPC;
+        interruptFP_ = fp;
+        resumePC_ = resumePC;
+    }
+    void* interruptUnwindPC() const { return interruptUnwindPC_; }
+    uint8_t* interruptFP() const { return interruptFP_; }
+    void clearInterruptState() {
+        resumePC_ = nullptr;
+        interruptUnwindPC_ = nullptr;
+        interruptFP_ = nullptr;
+    }
 };
 
 // A FrameIter walks over the runtime's stack of JS script activations,

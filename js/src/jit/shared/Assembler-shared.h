@@ -671,8 +671,9 @@ struct TlsData;
 
 struct Frame
 {
-    // The previous WasmActivation::fp. This must remain the first field:
-    // the epilogue publishes it before releasing any stack storage.
+    // The caller's physical frame pointer on x86, or the previous activation
+    // frame on backends that retain the older frame ABI. Keep it first so the
+    // epilogue can repoint the chain before releasing any frame storage.
     uint8_t* callerFP;
 
     // The callee's instance data, saved before either compiler can allocate

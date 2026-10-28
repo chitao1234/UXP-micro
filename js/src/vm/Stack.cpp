@@ -1642,6 +1642,8 @@ WasmActivation::WasmActivation(JSContext* cx)
   : Activation(cx, Wasm),
     entrySP_(nullptr),
     resumePC_(nullptr),
+    interruptUnwindPC_(nullptr),
+    interruptFP_(nullptr),
     fp_(nullptr),
     exitReason_(wasm::ExitReason::None)
 {
