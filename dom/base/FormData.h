@@ -34,7 +34,6 @@ private:
   struct FormDataTuple
   {
     nsString name;
-    bool wasNullBlob;
     OwningBlobOrDirectoryOrUSVString value;
   };
 
@@ -45,8 +44,7 @@ private:
 
   void SetNameValuePair(FormDataTuple* aData,
                         const nsAString& aName,
-                        const nsAString& aValue,
-                        bool aWasNullBlob = false);
+                        const nsAString& aValue);
 
   void SetNameFilePair(FormDataTuple* aData,
                        const nsAString& aName,
@@ -58,6 +56,8 @@ private:
 
 public:
   explicit FormData(nsISupports* aOwner = nullptr);
+  FormData(nsISupports* aOwner, const nsACString& aCharset,
+           nsIContent* aSubmitter);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_AMBIGUOUS(FormData,
@@ -79,7 +79,12 @@ public:
   static already_AddRefed<FormData>
   Constructor(const GlobalObject& aGlobal,
               const Optional<NonNull<HTMLFormElement> >& aFormElement,
+              nsGenericHTMLElement* aSubmitter,
               ErrorResult& aRv);
+
+  already_AddRefed<FormData> Clone() const;
+  nsresult CopySubmissionDataTo(HTMLFormSubmission* aSubmission) const;
+  void ClearSubmitter() { mOriginatingElement = nullptr; }
 
   void Append(const nsAString& aName, const nsAString& aValue,
               ErrorResult& aRv);
@@ -117,8 +122,12 @@ public:
   virtual nsresult AddNameValuePair(const nsAString& aName,
                                     const nsAString& aValue) override
   {
+    nsAutoString name(aName);
+    nsAutoString value(aValue);
+    NormalizeUSVString(name);
+    NormalizeUSVString(value);
     FormDataTuple* data = mFormData.AppendElement();
-    SetNameValuePair(data, aName, aValue);
+    SetNameValuePair(data, name, value);
     return NS_OK;
   }
 

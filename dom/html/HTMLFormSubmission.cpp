@@ -360,7 +360,13 @@ FSURLEncoded::GetEncodedSubmission(nsIURI* aURI,
 
     nsCOMPtr<nsIURL> url = do_QueryInterface(aURI);
     if (url) {
-      url->SetQuery(mQueryString);
+      // SetQuery("") removes the query component. An empty form submission
+      // must still produce a non-null query, including its '?' delimiter.
+      if (mQueryString.IsEmpty()) {
+        rv = url->SetQuery(NS_LITERAL_CSTRING("?"));
+      } else {
+        rv = url->SetQuery(mQueryString);
+      }
     }
     else {
       nsAutoCString path;
@@ -856,7 +862,7 @@ EncodingFormSubmission::EncodeVal(const nsAString& aStr, nsCString& aOut,
 namespace {
 
 void
-GetSubmitCharset(nsGenericHTMLElement* aForm,
+GetSubmitCharsetInternal(nsGenericHTMLElement* aForm,
                  nsACString& oCharset)
 {
   oCharset.AssignLiteral("UTF-8"); // default to utf-8
@@ -903,9 +909,20 @@ GetEnumAttr(nsGenericHTMLElement* aContent,
 
 } // anonymous namespace
 
+/* static */ void
+HTMLFormSubmission::GetSubmitCharset(nsGenericHTMLElement* aForm,
+                                     nsACString& aCharset)
+{
+  GetSubmitCharsetInternal(aForm, aCharset);
+  if (StringBeginsWith(aCharset, NS_LITERAL_CSTRING("UTF-16"))) {
+    aCharset.AssignLiteral("UTF-8");
+  }
+}
+
 /* static */ nsresult
 HTMLFormSubmission::GetFromForm(nsGenericHTMLElement* aForm,
                                 nsGenericHTMLElement* aOriginatingElement,
+                                const nsACString& charset,
                                 HTMLFormSubmission** aFormSubmission)
 {
   // Get all the information necessary to encode the form data
@@ -928,19 +945,6 @@ HTMLFormSubmission::GetFromForm(nsGenericHTMLElement* aForm,
     GetEnumAttr(aOriginatingElement, nsGkAtoms::formmethod, &method);
   } else {
     GetEnumAttr(aForm, nsGkAtoms::method, &method);
-  }
-
-  // Get charset
-  nsAutoCString charset;
-  GetSubmitCharset(aForm, charset);
-
-  // We now have a canonical charset name, so we only have to check it
-  // against canonical names.
-
-  // use UTF-8 for UTF-16* (per WHATWG and existing practice of
-  // MS IE/Opera).
-  if (StringBeginsWith(charset, NS_LITERAL_CSTRING("UTF-16"))) {
-    charset.AssignLiteral("UTF-8");
   }
 
   if (method == NS_FORM_METHOD_DIALOG) {

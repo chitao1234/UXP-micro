@@ -3506,16 +3506,9 @@ HTMLInputElement::MaybeSubmitForm(nsPresContext* aPresContext)
     WidgetMouseEvent event(true, eMouseClick, nullptr, WidgetMouseEvent::eReal);
     nsEventStatus status = nsEventStatus_eIgnore;
     shell->HandleDOMEventWithTarget(submitContent, &event, &status);
-  } else if (!mForm->ImplicitSubmissionIsDisabled() &&
-             mForm->SubmissionCanProceed(nullptr)) {
-    // TODO: removing this code and have the submit event sent by the form,
-    // bug 592124.
-    // If there's only one text control, just submit the form
-    // Hold strong ref across the event
+  } else if (!mForm->ImplicitSubmissionIsDisabled()) {
     RefPtr<mozilla::dom::HTMLFormElement> form = mForm;
-    InternalFormEvent event(true, eFormSubmit);
-    nsEventStatus status = nsEventStatus_eIgnore;
-    shell->HandleDOMEventWithTarget(form, &event, &status);
+    form->MaybeSubmit(nullptr);
   }
 
   return NS_OK;
@@ -4848,6 +4841,12 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
         case NS_FORM_INPUT_SUBMIT:
         case NS_FORM_INPUT_IMAGE:
           if (mForm) {
+            if (mType != NS_FORM_INPUT_RESET) {
+              RefPtr<mozilla::dom::HTMLFormElement> form(mForm);
+              form->MaybeSubmit(this);
+              aVisitor.mEventStatus = nsEventStatus_eConsumeNoDefault;
+              break;
+            }
             InternalFormEvent event(true,
               (mType == NS_FORM_INPUT_RESET) ? eFormReset : eFormSubmit);
             event.mOriginator = this;
@@ -4861,8 +4860,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
             // pres shell.  See bug 125624.
             // TODO: removing this code and have the submit event sent by the
             // form, see bug 592124.
-            if (presShell && (event.mMessage != eFormSubmit ||
-                              mForm->SubmissionCanProceed(this))) {
+            if (presShell) {
               // Hold a strong ref while dispatching
               RefPtr<mozilla::dom::HTMLFormElement> form(mForm);
               presShell->HandleDOMEventWithTarget(form, &event, &status);

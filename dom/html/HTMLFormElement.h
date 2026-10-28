@@ -33,6 +33,7 @@ class EventChainPreVisitor;
 namespace dom {
 class HTMLFormControlsCollection;
 class HTMLImageElement;
+class FormData;
 
 class HTMLFormElement final : public nsGenericHTMLElement,
                               public nsIDOMHTMLFormElement,
@@ -286,14 +287,13 @@ public:
    * it must be a valid submit control.
    */
   bool SubmissionCanProceed(Element* aSubmitter);
+  void MaybeSubmit(nsGenericHTMLElement* aSubmitter);
 
   /**
-   * Walk over the form elements and call SubmitNamesValues() on them to get
-   * their data pumped into the FormSubmitter.
-   *
-   * @param aFormSubmission the form submission object
+   * Construct entries and synchronously fire formdata while preventing
+   * recursive entry construction and submission of this form.
    */
-  nsresult WalkFormElements(HTMLFormSubmission* aFormSubmission);
+  nsresult ConstructEntryList(FormData* aFormData);
 
   /**
    * Whether the submission of this form has been ever prevented because of
@@ -591,6 +591,10 @@ protected:
   bool mGeneratingReset;
   /** Whether we are submitting currently */
   bool mIsSubmitting;
+  /** Whether this form is constructing an entry list (including formdata). */
+  bool mIsConstructingEntryList;
+  /** Covers constraint validation and submit event dispatch. */
+  bool mIsFiringSubmissionEvents;
   /** Whether the submission is to be deferred in case a script triggers it */
   bool mDeferSubmission;
   /** Whether we notified NS_FORMSUBMIT_SUBJECT listeners already */

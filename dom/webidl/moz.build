@@ -178,6 +178,7 @@ WEBIDL_FILES = [
     'FontFaceSet.webidl',
     'FontFaceSource.webidl',
     'FormData.webidl',
+    'FormDataEvent.webidl',
     'Function.webidl',
     'GainNode.webidl',
     'Geolocation.webidl',

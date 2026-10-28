@@ -42,7 +42,10 @@ public:
   static nsresult
   GetFromForm(nsGenericHTMLElement* aForm,
               nsGenericHTMLElement* aOriginatingElement,
+              const nsACString& aCharset,
               HTMLFormSubmission** aFormSubmission);
+
+  static void GetSubmitCharset(nsGenericHTMLElement* aForm, nsACString& aCharset);
 
   virtual ~HTMLFormSubmission()
   {

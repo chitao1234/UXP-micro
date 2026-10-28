@@ -237,6 +237,10 @@ EVENT(fullscreenchange,
       eFullscreenChange,
       EventNameType_HTML,
       eBasicEventClass)
+EVENT(formdata,
+      eFormData,
+      EventNameType_HTML,
+      eBasicEventClass)
 EVENT(fullscreenerror,
       eFullscreenError,
       EventNameType_HTML,

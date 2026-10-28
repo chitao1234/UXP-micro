@@ -1,0 +1,181 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native formdata entry construction and FormDataEvent</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+function throwsName(fn, name, message) {
+  let error;
+  try { fn(); } catch (e) { error = e; }
+  is(error && error.name, name, message);
+}
+function entries(data) {
+  return JSON.stringify(Array.from(data, entry => [entry[0],
+    entry[1] instanceof File ? {name:entry[1].name, type:entry[1].type, size:entry[1].size} : entry[1]]));
+}
+function makeForm(markup) {
+  const form = document.createElement('form');
+  form.innerHTML = markup || '';
+  document.body.appendChild(form);
+  return form;
+}
+window.addEventListener('load', async function() {
+try {
+  is(typeof FormDataEvent, 'function', 'native constructor exposed on Window');
+  const fd = new FormData();
+  throwsName(() => FormDataEvent('x', {formData:fd}), 'TypeError', 'requires new');
+  for (const args of [[], ['x'], ['x',null], ['x',undefined], ['x',{}],
+                      ['x',{formData:null}], ['x',{formData:'bad'}]]) {
+    throwsName(() => new FormDataEvent(...args), 'TypeError', 'formData is required and non-null');
+  }
+  const event = new FormDataEvent('custom', {formData:fd,bubbles:true,cancelable:true,composed:true});
+  is(event.type, 'custom', 'event type');
+  is(event.formData, fd, 'constructor keeps entry-list object identity');
+  ok(event instanceof Event, 'inherits Event');
+  ok(!event.isTrusted, 'script event is untrusted');
+  ok(event.bubbles && event.cancelable && event.composed, 'inherited flags');
+  try { event.formData = new FormData(); } catch (e) {}
+  is(event.formData, fd, 'readonly formData');
+  const defaults = new FormDataEvent('x',{formData:fd});
+  ok(!defaults.bubbles && !defaults.cancelable && !defaults.composed, 'constructor default flags');
+  is(document.createElement('div').onformdata, null, 'GlobalEventHandlers on elements');
+  is(document.onformdata, null, 'GlobalEventHandlers on Document');
+  is(window.onformdata, null, 'GlobalEventHandlers on Window');
+  const inline=makeForm('<input name=original value=entry>');
+  inline.setAttribute('onformdata',"event.formData.append('inline','yes')");
+  is(new FormData(inline).get('inline'),'yes','inline onformdata content attribute executes');
+
+  const form = makeForm('<input name=a value=one><input name=duplicate value=first>' +
+    '<input name=duplicate value=second><input type=file name=empty>' +
+    '<input type=hidden name=_charset_><button name=send value=go></button>' +
+    '<input type=image name=image><input name=disabled disabled value=bad>');
+  let observed, calls=0, bubbling=[];
+  const bubble = e => { if (e.target===form) bubbling.push(e.currentTarget); };
+  document.addEventListener('formdata',bubble);
+  window.addEventListener('formdata',bubble);
+  form.addEventListener('formdata',e => {
+    calls++;
+    observed=e.formData;
+    is(e.target,form,'construction event target');
+    ok(e instanceof FormDataEvent,'trusted native event uses native interface');
+    ok(e.isTrusted && e.bubbles && !e.cancelable && !e.composed,'native flags');
+    e.preventDefault();
+    ok(!e.defaultPrevented,'preventDefault cannot cancel construction');
+    is(observed.get('a'),'one','controls read before event');
+    is(observed.get('_charset_'),'UTF-8','constructor encoding is UTF-8');
+    ok(observed.get('empty') instanceof File,'empty file is a File');
+    is(observed.get('empty').name,'','empty filename');
+    is(observed.get('empty').type,'application/octet-stream','empty file MIME');
+    is(observed.get('empty').size,0,'empty file length');
+    ok(!observed.has('disabled'),'disabled excluded');
+    observed.delete('a');
+    observed.set('duplicate','replacement');
+    observed.append('added','yes');
+    form.elements.a.value='after';
+    const control=document.createElement('input');
+    control.name='late';control.value='ignored';form.appendChild(control);
+  },{once:true});
+  const constructed=new FormData(form,form.querySelector('button'));
+  is(calls,1,'exactly one construction event');
+  is(bubbling.length,2,'native event reaches Document and Window');
+  document.removeEventListener('formdata',bubble);
+  window.removeEventListener('formdata',bubble);
+  ok(constructed!==observed,'constructor clones entry-list object');
+  ok(!constructed.has('a')&&!constructed.has('late'),'entry deletion works; later control ignored');
+  is(constructed.getAll('duplicate').length,1,'set removes duplicate entries');
+  is(constructed.get('duplicate'),'replacement','set value reaches constructor');
+  is(constructed.get('added'),'yes','append reaches constructor');
+  is(constructed.get('send'),'go','explicit submitter included');
+  ok(!constructed.has('image.x'),'non-submitter image excluded');
+  is(constructed.get('empty'),observed.get('empty'),'clone is shallow for File entries');
+  observed.append('after-event','isolated');
+  ok(!constructed.has('after-event'),'retained event cannot mutate returned list');
+  constructed.delete('empty');
+  ok(observed.has('empty'),'returned mutation cannot mutate retained event');
+
+  const button=form.querySelector('button');
+  throwsName(()=>new FormData(form,form.elements.a),'TypeError','non-submit control rejected');
+  throwsName(()=>new FormData(form,document.body),'TypeError','non-control rejected');
+  throwsName(()=>new FormData(form,{}),'TypeError','non-element submitter rejected');
+  const other=makeForm('<button></button>');
+  throwsName(()=>new FormData(form,other.firstChild),'NotFoundError','wrong owner rejected');
+  throwsName(()=>new FormData(null),'TypeError','null form rejected');
+  is(Array.from(new FormData(undefined,null)).length,0,'undefined form accepted');
+  is(Array.from(new FormData(undefined,button)).length,0,'submitter ignored without form');
+  ok(!new FormData(form,null).has('send'),'null submitter excludes button');
+  button.disabled=true;
+  ok(!new FormData(form,button).has('send'),'disabled valid submitter contributes nothing');
+  button.disabled=false;
+  const image=form.querySelector('[type=image]');
+  const imageData=new FormData(form,image);
+  is(imageData.get('image.x'),'0','unactivated image x');
+  is(imageData.get('image.y'),'0','unactivated image y');
+  image.removeAttribute('name');
+  is(new FormData(form,image).get('x'),'0','unnamed image x');
+
+  const recursive=makeForm('<input required><button></button>');
+  let nested=0, submitted=0, invalid=0, otherCount=0;
+  recursive.onsubmit=e=>{submitted++;e.preventDefault();};
+  recursive.firstChild.oninvalid=()=>invalid++;
+  other.onformdata=()=>otherCount++;
+  recursive.onformdata=e=>{
+    nested++;
+    throwsName(()=>new FormData(recursive),'InvalidStateError','recursive construction rejected');
+    recursive.submit();
+    recursive.requestSubmit();
+    recursive.querySelector('button').click();
+    new FormData(other);
+  };
+  new FormData(recursive);
+  is(nested,1,'recursive submissions do not reconstruct entries');
+  is(submitted,0,'requestSubmit/click blocked before submit event');
+  is(invalid,0,'requestSubmit/click blocked before constraint validation');
+  is(otherCount,1,'another form can construct during callback');
+  recursive.onformdata=null;
+  new FormData(recursive);
+  ok(true,'entry-construction guard resets on return');
+
+  const orphan=document.createElement('div'), detached=document.createElement('form');
+  orphan.appendChild(detached);let detachedEvent;
+  orphan.onformdata=e=>detachedEvent=e;
+  new FormData(detached);
+  is(detachedEvent.target,detached,'event bubbles in detached tree');
+  const root=document.createElement('div');document.body.appendChild(root);
+  const shadow=root.attachShadow({mode:'open'}), shadowForm=document.createElement('form');
+  shadow.appendChild(shadowForm);let escaped=false;
+  root.onformdata=()=>escaped=true;
+  new FormData(shadowForm);
+  ok(!escaped,'non-composed event stays inside shadow tree');
+
+  const values=makeForm('<datalist><input name=skip value=bad></datalist>' +
+    '<input name=text dirname=direction value=word dir=rtl>' +
+    '<textarea name=area dirname=areaDir dir=ltr>lines\r\nnext</textarea>');
+  const odd=document.createElement('input');odd.name='n\ud800';odd.value='v\udc00';values.appendChild(odd);
+  const valueData=new FormData(values);
+  ok(!valueData.has('skip'),'datalist descendants skipped');
+  is(valueData.get('direction'),'rtl','dirname entry for input');
+  is(valueData.get('areaDir'),'ltr','dirname entry for textarea');
+  is(valueData.get('area'),'lines\nnext','raw entry list uses LF textarea value');
+  is(valueData.get('n\ufffd'),'v\ufffd','form control names/values converted to USVString');
+  values.onformdata=e=>e.formData.append('a\nb','c\rd');
+  is(new FormData(values).get('a\nb'),'c\rd','event entries not newline normalized');
+
+  const errorFrame=document.createElement('iframe');
+  const errorLoaded=new Promise(resolve=>errorFrame.onload=resolve);
+  errorFrame.srcdoc='<form></form>';document.body.appendChild(errorFrame);await errorLoaded;
+  errorFrame.contentWindow.eval("window.expectedErrors=0;window.onerror=function(){expectedErrors++;return true;};document.querySelector('form').onformdata=function(){throw Error('formdata deliberate');};new FormData(document.querySelector('form'));document.querySelector('form').onformdata=null;new FormData(document.querySelector('form'));");
+  is(errorFrame.contentWindow.expectedErrors,1,'listener exception reported and construction guard restored in same-origin iframe');
+
+  const worker=await new Promise((resolve,reject)=>{
+    const worker=new Worker('formdata_event_worker.js');
+    worker.onmessage=e=>{worker.terminate();resolve(e.data);};
+    worker.onerror=e=>{worker.terminate();reject(Error(e.message));};
+  });
+  is(worker.event,'undefined','FormDataEvent is Window-only');
+  is(worker.value,'value','FormData remains exposed and usable in Workers');
+  is(worker.invalid,'TypeError','Worker FormData rejects invalid form');
+} catch(e) { ok(false,String(e)+' '+e.stack); }
+SimpleTest.finish();
+});
+</script>
+<body></body>

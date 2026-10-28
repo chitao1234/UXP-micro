@@ -31,6 +31,7 @@ interface mixin GlobalEventHandlers {
 // below.
 //         attribute OnErrorEventHandler onerror;
            attribute EventHandler onfocus;
+           attribute EventHandler onformdata;
            //(Not implemented)attribute EventHandler oncancel;
            attribute EventHandler onauxclick;
            attribute EventHandler oncanplay;

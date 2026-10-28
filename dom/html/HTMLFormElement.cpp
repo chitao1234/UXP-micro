@@ -37,6 +37,9 @@
 // form submission
 #include "HTMLFormSubmissionConstants.h"
 #include "mozilla/dom/FormData.h"
+#include "mozilla/dom/FormDataEvent.h"
+#include "mozilla/AutoRestore.h"
+#include "mozilla/ScopeExit.h"
 #include "nsIFormSubmitObserver.h"
 #include "nsIObserverService.h"
 #include "nsICategoryManager.h"
@@ -81,6 +84,7 @@ namespace dom {
 
 static const uint8_t NS_FORM_AUTOCOMPLETE_ON  = 1;
 static const uint8_t NS_FORM_AUTOCOMPLETE_OFF = 0;
+static const uint16_t NS_FORM_RESTORE_DEFER_SUBMISSION = 1;
 
 static const nsAttrValue::EnumTable kFormAutocompleteTable[] = {
   { "on",  NS_FORM_AUTOCOMPLETE_ON },
@@ -102,6 +106,8 @@ HTMLFormElement::HTMLFormElement(already_AddRefed<mozilla::dom::NodeInfo>& aNode
     mGeneratingSubmit(false),
     mGeneratingReset(false),
     mIsSubmitting(false),
+    mIsConstructingEntryList(false),
+    mIsFiringSubmissionEvents(false),
     mDeferSubmission(false),
     mNotifiedObservers(false),
     mNotifiedObserversResult(false),
@@ -256,6 +262,9 @@ NS_IMPL_STRING_ATTR(HTMLFormElement, Target, target)
 void
 HTMLFormElement::Submit(ErrorResult& aRv)
 {
+  if (mIsConstructingEntryList) {
+    return;
+  }
   // Send the submit event
   if (mPendingSubmission) {
     // aha, we have a pending submission that was not flushed
@@ -300,14 +309,43 @@ HTMLFormElement::RequestSubmit(nsGenericHTMLElement* aSubmitter,
 
   // 2. Otherwise, set submitter to this form element.
   // 3. Submit this form element, from submitter.
-  // We go through the presShell here for the corner case a submit event
-  // is pending while the window is being destroyed.
+  MaybeSubmit(aSubmitter);
+}
+
+void
+HTMLFormElement::MaybeSubmit(nsGenericHTMLElement* aSubmitter)
+{
+  nsCOMPtr<nsIDocument> document = GetComposedDoc();
+  if (mIsConstructingEntryList || mIsFiringSubmissionEvents || !document ||
+      (document->GetSandboxFlags() & SANDBOXED_FORMS)) {
+    return;
+  }
+  // The spec's firing-submission-events flag covers invalid callbacks too;
+  // mGeneratingSubmit only covers the later submit event dispatch.
+  AutoRestore<bool> resetFiringSubmissionEvents(mIsFiringSubmissionEvents);
+  mIsFiringSubmissionEvents = true;
+  // Keep scripted submit() calls pending until the submit event's default
+  // action has either replaced them (with the actual submitter) or canceled.
+  // Old click activation ends its own deferral before calling MaybeSubmit;
+  // requestSubmit() can also run inside an outer click's existing deferral.
+  bool wasDeferring = mDeferSubmission;
+  mDeferSubmission = true;
+  auto finishSubmit = MakeScopeExit([&] {
+    mDeferSubmission = wasDeferring;
+    if (!wasDeferring) {
+      FlushPendingSubmission();
+    }
+  });
+  if (!SubmissionCanProceed(aSubmitter)) {
+    return;
+  }
+
+  // Preserve the presShell/window-destruction check when dispatching.
   InternalFormEvent event(true, eFormSubmit);
   event.mOriginator = aSubmitter;
   nsEventStatus status = nsEventStatus_eIgnore;
-  nsCOMPtr<nsIDocument> document = GetComposedDoc();
-  if (MOZ_UNLIKELY(!document)) {
-    aRv.Throw(NS_ERROR_DOM_NOT_FOUND_ERR);
+  document = GetComposedDoc();
+  if (!document || (document->GetSandboxFlags() & SANDBOXED_FORMS)) {
     return;
   }
   nsCOMPtr<nsIPresShell> presShell = document->GetShell();
@@ -555,7 +593,12 @@ HTMLFormElement::GetEventTargetParent(EventChainPreVisitor& aVisitor)
       // let the form know that it needs to defer the submission,
       // that means that if there are scripted submissions, the
       // latest one will be deferred until after the exit point of the handler.
-      mDeferSubmission = true;
+      if (!aVisitor.mEvent->IsTrusted()) {
+        if (mDeferSubmission) {
+          aVisitor.mItemFlags |= NS_FORM_RESTORE_DEFER_SUBMISSION;
+        }
+        mDeferSubmission = true;
+      }
     } else if (msg == eFormReset) {
       if (mGeneratingReset) {
         aVisitor.mCanHandle = false;
@@ -587,9 +630,11 @@ HTMLFormElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
 {
   if (aVisitor.mEvent->mOriginalTarget == static_cast<nsIContent*>(this)) {
     EventMessage msg = aVisitor.mEvent->mMessage;
-    if (msg == eFormSubmit) {
-      // let the form know not to defer subsequent submissions
-      mDeferSubmission = false;
+    if (msg == eFormSubmit && !aVisitor.mEvent->IsTrusted()) {
+      // A synthetic submit may be nested inside a submit-button click.
+      // Restore the enclosing click's deferral instead of flushing it early.
+      mDeferSubmission =
+          !!(aVisitor.mItemFlags & NS_FORM_RESTORE_DEFER_SUBMISSION);
     }
 
     if (aVisitor.mEventStatus == nsEventStatus_eIgnore) {
@@ -605,13 +650,18 @@ HTMLFormElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
             mPendingSubmission = nullptr;
           }
           DoSubmitOrReset(aVisitor.mEvent, msg);
+          if (msg == eFormSubmit && !aVisitor.mEvent->IsTrusted() &&
+              !mDeferSubmission) {
+            FlushPendingSubmission();
+          }
           break;
         }
         default:
           break;
       }
     } else {
-      if (msg == eFormSubmit) {
+      if (msg == eFormSubmit && !aVisitor.mEvent->IsTrusted() &&
+          !mDeferSubmission) {
         // tell the form to flush a possible pending submission.
         // the reason is that the script returned false (the event was
         // not ignored) so if there is a stored submission, it needs to
@@ -649,7 +699,8 @@ HTMLFormElement::DoSubmitOrReset(WidgetEvent* aEvent,
   if (eFormSubmit == aMessage) {
     // Don't submit if we're not in a document or if we're in
     // a sandboxed frame and form submit is disabled.
-    if (!doc || (doc->GetSandboxFlags() & SANDBOXED_FORMS)) {
+    if (mIsConstructingEntryList || !doc ||
+        (doc->GetSandboxFlags() & SANDBOXED_FORMS)) {
       return NS_OK;
     }
     return DoSubmit(aEvent);
@@ -724,17 +775,8 @@ HTMLFormElement::DoSubmit(WidgetEvent* aEvent)
   //
   if (!submission) {
     mIsSubmitting = false;
-#ifdef DEBUG
-    HTMLDialogElement* dialog = nullptr;
-    for (nsIContent* parent = GetParent(); parent;
-         parent = parent->GetParent()) {
-      dialog = HTMLDialogElement::FromContentOrNull(parent);
-      if (dialog) {
-        break;
-      }
-    }
-    MOZ_ASSERT(!dialog || !dialog->Open());
-#endif
+    // formdata listeners can remove or sandbox the form (including an open
+    // ancestor dialog); a canceled navigation legitimately has no submission.
     return NS_OK;
   }
 
@@ -763,7 +805,7 @@ HTMLFormElement::BuildSubmission(HTMLFormSubmission** aFormSubmission,
   NS_ASSERTION(!mPendingSubmission, "tried to build two submissions!");
 
   // Get the originating frame (failure is non-fatal)
-  nsGenericHTMLElement* originatingElement = nullptr;
+  RefPtr<nsGenericHTMLElement> originatingElement;
   if (aEvent) {
     InternalFormEvent* formEvent = aEvent->AsFormEvent();
     if (formEvent) {
@@ -777,12 +819,20 @@ HTMLFormElement::BuildSubmission(HTMLFormSubmission** aFormSubmission,
     }
   }
 
-  nsresult rv;
+  // Choose encoding before formdata, but choose method/enctype afterwards:
+  // listeners may change submission attributes as well as mutate entries.
+  nsAutoCString charset;
+  HTMLFormSubmission::GetSubmitCharset(this, charset);
+  RefPtr<FormData> formData = new FormData(OwnerDoc()->GetScopeObject(),
+                                           charset, originatingElement);
+  nsresult rv = ConstructEntryList(formData);
+  NS_ENSURE_SUBMIT_SUCCESS(rv);
+  if (!GetComposedDoc() ||
+      (OwnerDoc()->GetSandboxFlags() & SANDBOXED_FORMS)) {
+    return NS_OK;
+  }
 
-  //
-  // Get the submission object
-  //
-  rv = HTMLFormSubmission::GetFromForm(this, originatingElement,
+  rv = HTMLFormSubmission::GetFromForm(this, originatingElement, charset,
                                        aFormSubmission);
   NS_ENSURE_SUBMIT_SUCCESS(rv);
 
@@ -790,7 +840,7 @@ HTMLFormElement::BuildSubmission(HTMLFormSubmission** aFormSubmission,
   // Dump the data into the submission object
   //
   if (!(*aFormSubmission)->GetAsDialogSubmission()) {
-    rv = WalkFormElements(*aFormSubmission);
+    rv = formData->CopySubmissionDataTo(*aFormSubmission);
     NS_ENSURE_SUBMIT_SUCCESS(rv);
   }
 
@@ -1115,8 +1165,13 @@ HTMLFormElement::NotifySubmitObservers(nsIURI* aActionURL,
 
 
 nsresult
-HTMLFormElement::WalkFormElements(HTMLFormSubmission* aFormSubmission)
+HTMLFormElement::ConstructEntryList(FormData* aFormData)
 {
+  if (mIsConstructingEntryList) {
+    return NS_ERROR_DOM_INVALID_STATE_ERR;
+  }
+  AutoRestore<bool> resetConstructingEntryList(mIsConstructingEntryList);
+  mIsConstructingEntryList = true;
   nsTArray<nsGenericHTMLFormElement*> sortedControls;
   nsresult rv = mControls->GetSortedControls(sortedControls);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1132,15 +1187,67 @@ HTMLFormElement::WalkFormElements(HTMLFormSubmission* aFormSubmission)
   //
   // Walk the list of nodes and call SubmitNamesValues() on the controls
   //
+  nsresult entryResult = NS_OK;
   for (uint32_t i = 0; i < len; ++i) {
-    // Tell the control to submit its name/value pairs to the submission
-    sortedControls[i]->SubmitNamesValues(aFormSubmission);
+    nsGenericHTMLFormElement* control = sortedControls[i];
+    // Controls inside datalist never contribute entries, even if they are
+    // associated with this form through the form attribute.
+    bool inDataList = false;
+    for (nsIContent* parent = control->GetParent(); parent;
+         parent = parent->GetParent()) {
+      if (parent->IsHTMLElement(nsGkAtoms::datalist)) {
+        inDataList = true;
+        break;
+      }
+    }
+    if (inDataList || control->IsDisabled()) {
+      continue;
+    }
+    entryResult = control->SubmitNamesValues(aFormData);
+    if (NS_FAILED(entryResult)) {
+      break;
+    }
+    // dirname contributes a second entry for auto-directionality controls.
+    // Reset/button controls and submit controls other than the submitter
+    // were skipped by the entry-list algorithm and contribute no dirname.
+    uint32_t type = control->GetType();
+    if (type == NS_FORM_TEXTAREA || type == NS_FORM_INPUT_TEXT ||
+        type == NS_FORM_INPUT_SEARCH || type == NS_FORM_INPUT_TEL ||
+        type == NS_FORM_INPUT_URL || type == NS_FORM_INPUT_EMAIL ||
+        type == NS_FORM_INPUT_HIDDEN || type == NS_FORM_INPUT_PASSWORD ||
+        (type == NS_FORM_INPUT_SUBMIT &&
+         aFormData->GetOriginatingElement() == control)) {
+      nsAutoString name, dirname;
+      control->GetAttr(kNameSpaceID_None, nsGkAtoms::name, name);
+      control->GetAttr(kNameSpaceID_None, nsGkAtoms::dirname, dirname);
+      if (!name.IsEmpty() && !dirname.IsEmpty()) {
+        entryResult = aFormData->AddNameValuePair(dirname,
+            control->GetDirectionality() == eDir_RTL
+                ? NS_LITERAL_STRING("rtl") : NS_LITERAL_STRING("ltr"));
+        if (NS_FAILED(entryResult)) {
+          break;
+        }
+      }
+    }
   }
 
   // Release the references.
   for (uint32_t i = 0; i < len; ++i) {
     static_cast<nsGenericHTMLElement*>(sortedControls[i])->Release();
   }
+  NS_ENSURE_SUCCESS(entryResult, entryResult);
+
+  // Control selection needs the submitter only while entries are gathered.
+  // Retained event/constructor lists must not keep the submitter subtree alive.
+  aFormData->ClearSubmitter();
+  FormDataEventInit init;
+  init.mBubbles = true;
+  init.mFormData = aFormData;
+  RefPtr<FormDataEvent> event = FormDataEvent::Constructor(
+      this, NS_LITERAL_STRING("formdata"), init);
+  event->SetTrusted(true);
+  EventDispatcher::DispatchDOMEvent(static_cast<nsIContent*>(this), nullptr,
+                                     event, nullptr, nullptr);
 
   return NS_OK;
 }
@@ -2127,7 +2234,8 @@ HTMLFormElement::SubmissionCanProceed(Element* aSubmitter)
   // Modified step 2 of
   // https://html.spec.whatwg.org/multipage/forms.html#concept-form-submit --
   // we're not checking whether the node document is disconnected yet...
-  if (OwnerDoc()->GetSandboxFlags() & SANDBOXED_FORMS) {
+  if (mIsConstructingEntryList ||
+      (OwnerDoc()->GetSandboxFlags() & SANDBOXED_FORMS)) {
     return false;
   }
 

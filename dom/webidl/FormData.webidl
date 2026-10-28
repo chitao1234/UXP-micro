@@ -9,7 +9,7 @@
 
 typedef (Blob or Directory or USVString) FormDataEntryValue;
 
-[Constructor(optional HTMLFormElement form),
+[Constructor(optional HTMLFormElement form, optional HTMLElement? submitter = null),
  Exposed=(Window,Worker)]
 interface FormData {
   [Throws]

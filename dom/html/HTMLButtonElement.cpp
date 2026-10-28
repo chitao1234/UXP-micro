@@ -304,6 +304,12 @@ HTMLButtonElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
     if (aVisitor.mItemFlags & NS_OUTER_ACTIVATE_EVENT) {
       if (mForm && (mType == NS_FORM_BUTTON_SUBMIT ||
                     mType == NS_FORM_BUTTON_RESET)) {
+        if (mType == NS_FORM_BUTTON_SUBMIT) {
+          RefPtr<HTMLFormElement> form(mForm);
+          form->MaybeSubmit(this);
+          aVisitor.mEventStatus = nsEventStatus_eConsumeNoDefault;
+          return rv;
+        }
         InternalFormEvent event(true,
           (mType == NS_FORM_BUTTON_RESET) ? eFormReset : eFormSubmit);
         event.mOriginator = this;
@@ -317,8 +323,7 @@ HTMLButtonElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
         //
         // Using presShell to dispatch the event. It makes sure that
         // event is not handled if the window is being destroyed.
-        if (presShell && (event.mMessage != eFormSubmit ||
-                          mForm->SubmissionCanProceed(this))) {
+        if (presShell) {
           // TODO: removing this code and have the submit event sent by the form
           // see bug 592124.
           // Hold a strong ref while dispatching

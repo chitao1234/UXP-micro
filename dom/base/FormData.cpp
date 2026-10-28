@@ -9,6 +9,9 @@
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/Directory.h"
 #include "mozilla/dom/HTMLFormElement.h"
+#include "nsIFormControl.h"
+#include "nsQueryObject.h"
+#include "prtime.h"
 
 #include "MultipartBlobImpl.h"
 
@@ -16,7 +19,13 @@ using namespace mozilla;
 using namespace mozilla::dom;
 
 FormData::FormData(nsISupports* aOwner)
-  : HTMLFormSubmission(NS_LITERAL_CSTRING("UTF-8"), nullptr)
+  : FormData(aOwner, NS_LITERAL_CSTRING("UTF-8"), nullptr)
+{
+}
+
+FormData::FormData(nsISupports* aOwner, const nsACString& aCharset,
+                   nsIContent* aSubmitter)
+  : HTMLFormSubmission(aCharset, aSubmitter)
   , mOwner(aOwner)
 {
 }
@@ -67,6 +76,7 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(FormData)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(FormData)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOriginatingElement)
 
   for (uint32_t i = 0, len = tmp->mFormData.Length(); i < len; ++i) {
     ImplCycleCollectionUnlink(tmp->mFormData[i].value);
@@ -77,6 +87,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(FormData)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOriginatingElement)
 
   for (uint32_t i = 0, len = tmp->mFormData.Length(); i < len; ++i) {
     ImplCycleCollectionTraverse(cb, tmp->mFormData[i].value,
@@ -189,19 +200,20 @@ FormData::AddNameBlobOrNullPair(const nsAString& aName, Blob* aBlob)
   RefPtr<File> file;
 
   if (!aBlob) {
-    FormDataTuple* data = mFormData.AppendElement();
-    SetNameValuePair(data, aName, EmptyString(), true /* aWasNullBlob */);
-    return NS_OK;
+    RefPtr<BlobImpl> empty = new EmptyBlobImpl(EmptyString(),
+        NS_LITERAL_STRING("application/octet-stream"), PR_Now());
+    file = File::Create(mOwner, empty);
+  } else {
+    ErrorResult rv;
+    file = GetOrCreateFileCalledBlob(*aBlob, rv);
+    if (NS_WARN_IF(rv.Failed())) {
+      return rv.StealNSResult();
+    }
   }
-
-  ErrorResult rv;
-  file = GetOrCreateFileCalledBlob(*aBlob, rv);
-  if (NS_WARN_IF(rv.Failed())) {
-    return rv.StealNSResult();
-  }
-
+  nsAutoString name(aName);
+  NormalizeUSVString(name);
   FormDataTuple* data = mFormData.AppendElement();
-  SetNameFilePair(data, aName, file);
+  SetNameFilePair(data, name, file);
   return NS_OK;
 }
 
@@ -209,9 +221,10 @@ nsresult
 FormData::AddNameDirectoryPair(const nsAString& aName, Directory* aDirectory)
 {
   MOZ_ASSERT(aDirectory);
-
+  nsAutoString name(aName);
+  NormalizeUSVString(name);
   FormDataTuple* data = mFormData.AppendElement();
-  SetNameDirectoryPair(data, aName, aDirectory);
+  SetNameDirectoryPair(data, name, aDirectory);
   return NS_OK;
 }
 
@@ -290,12 +303,10 @@ FormData::GetValueAtIndex(uint32_t aIndex) const
 void
 FormData::SetNameValuePair(FormDataTuple* aData,
                            const nsAString& aName,
-                           const nsAString& aValue,
-                           bool aWasNullBlob)
+                           const nsAString& aValue)
 {
   MOZ_ASSERT(aData);
   aData->name = aName;
-  aData->wasNullBlob = aWasNullBlob;
   aData->value.SetAsUSVString() = aValue;
 }
 
@@ -308,7 +319,6 @@ FormData::SetNameFilePair(FormDataTuple* aData,
   MOZ_ASSERT(aFile);
 
   aData->name = aName;
-  aData->wasNullBlob = false;
   aData->value.SetAsBlob() = aFile;
 }
 
@@ -321,7 +331,6 @@ FormData::SetNameDirectoryPair(FormDataTuple* aData,
   MOZ_ASSERT(aDirectory);
 
   aData->name = aName;
-  aData->wasNullBlob = false;
   aData->value.SetAsDirectory() = aDirectory;
 }
 
@@ -384,13 +393,59 @@ FormData::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto)
 /* static */ already_AddRefed<FormData>
 FormData::Constructor(const GlobalObject& aGlobal,
                       const Optional<NonNull<HTMLFormElement> >& aFormElement,
+                      nsGenericHTMLElement* aSubmitter,
                       ErrorResult& aRv)
 {
-  RefPtr<FormData> formData = new FormData(aGlobal.GetAsSupports());
   if (aFormElement.WasPassed()) {
-    aRv = aFormElement.Value().WalkFormElements(formData);
+    if (aSubmitter) {
+      nsCOMPtr<nsIFormControl> control = do_QueryObject(aSubmitter);
+      if (!control || !control->IsSubmitControl()) {
+        aRv.ThrowTypeError<MSG_NOT_SUBMIT_BUTTON>();
+        return nullptr;
+      }
+      if (control->GetFormElement() != &aFormElement.Value()) {
+        aRv.Throw(NS_ERROR_DOM_NOT_FOUND_ERR);
+        return nullptr;
+      }
+    }
+    RefPtr<FormData> formData = new FormData(aGlobal.GetAsSupports(),
+        NS_LITERAL_CSTRING("UTF-8"), aSubmitter);
+    aRv = aFormElement.Value().ConstructEntryList(formData);
+    if (aRv.Failed()) {
+      return nullptr;
+    }
+    // Event listeners may retain their FormData. The constructor adopts a
+    // shallow clone of the entries, not the event's mutable entry list.
+    return formData->Clone();
   }
+  RefPtr<FormData> formData = new FormData(aGlobal.GetAsSupports());
   return formData.forget();
+}
+
+already_AddRefed<FormData>
+FormData::Clone() const
+{
+  RefPtr<FormData> copy = new FormData(mOwner, mCharset, nullptr);
+  copy->mFormData = mFormData;
+  return copy.forget();
+}
+
+nsresult
+FormData::CopySubmissionDataTo(HTMLFormSubmission* aSubmission) const
+{
+  for (const FormDataTuple& data : mFormData) {
+    nsresult rv;
+    if (data.value.IsUSVString()) {
+      rv = aSubmission->AddNameValuePair(data.name, data.value.GetAsUSVString());
+    } else if (data.value.IsBlob()) {
+      rv = aSubmission->AddNameBlobOrNullPair(data.name, data.value.GetAsBlob());
+    } else {
+      MOZ_ASSERT(data.value.IsDirectory());
+      rv = aSubmission->AddNameDirectoryPair(data.name, data.value.GetAsDirectory());
+    }
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+  return NS_OK;
 }
 
 // -------------------------------------------------------------------------
@@ -401,23 +456,8 @@ FormData::GetSendInfo(nsIInputStream** aBody, uint64_t* aContentLength,
                       nsACString& aContentTypeWithCharset, nsACString& aCharset)
 {
   FSMultipartFormData fs(NS_LITERAL_CSTRING("UTF-8"), nullptr);
-
-  for (uint32_t i = 0; i < mFormData.Length(); ++i) {
-    if (mFormData[i].wasNullBlob) {
-      MOZ_ASSERT(mFormData[i].value.IsUSVString());
-      fs.AddNameBlobOrNullPair(mFormData[i].name, nullptr);
-    } else if (mFormData[i].value.IsUSVString()) {
-      fs.AddNameValuePair(mFormData[i].name,
-                          mFormData[i].value.GetAsUSVString());
-    } else if (mFormData[i].value.IsBlob()) {
-      fs.AddNameBlobOrNullPair(mFormData[i].name,
-                               mFormData[i].value.GetAsBlob());
-    } else {
-      MOZ_ASSERT(mFormData[i].value.IsDirectory());
-      fs.AddNameDirectoryPair(mFormData[i].name,
-                              mFormData[i].value.GetAsDirectory());
-    }
-  }
+  nsresult rv = CopySubmissionDataTo(&fs);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   fs.GetContentType(aContentTypeWithCharset);
   aCharset.Truncate();
