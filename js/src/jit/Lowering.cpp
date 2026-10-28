@@ -4234,6 +4234,20 @@ LIRGenerator::visitWasmLoadTls(MWasmLoadTls* ins)
     // from Tls, but in the mean time it keeps us sane.
     MOZ_CRASH("No WasmLoadTls here at the moment");
 #endif
+    // Upstream folds a single-use instance-field load into its bounds check.
+    // Keep that optimization valid for capped memories by retaining the heap
+    // metadata alias; the value may change after a moving grow.
+    if (ins->canEmitAtUses() && ins->hasOneUse()) {
+        MUseIterator iter(ins->usesBegin());
+        MNode* node = iter->consumer();
+        if (node->isDefinition() && node->toDefinition()->isInstruction() &&
+            node->toDefinition()->toInstruction()->isWasmBoundsCheck())
+        {
+            emitAtUses(ins);
+            return;
+        }
+    }
+
     auto* lir = new(alloc()) LWasmLoadTls(useRegisterAtStart(ins->tlsPtr()));
     define(lir, ins);
 }
@@ -4254,6 +4268,14 @@ LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 
     MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
     MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
+
+    if (boundsCheckLimit->isWasmLoadTls() && boundsCheckLimit->isEmittedAtUses()) {
+        MWasmLoadTls* load = boundsCheckLimit->toWasmLoadTls();
+        auto* lir = new(alloc()) LWasmBoundsCheckTlsField(
+            useRegisterAtStart(index), useRegisterAtStart(load->tlsPtr()), load->offset());
+        add(lir, ins);
+        return;
+    }
 
     auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(index),
                                               useRegisterAtStart(boundsCheckLimit));

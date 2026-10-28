@@ -11873,6 +11873,19 @@ CodeGenerator::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
 }
 
 void
+CodeGenerator::visitWasmBoundsCheckTlsField(LWasmBoundsCheckTlsField* ins)
+{
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No wasm bounds check for huge memory");
+#else
+    const MWasmBoundsCheck* mir = ins->mir();
+    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ins->ptr()),
+                         Address(ToRegister(ins->tlsPtr()), ins->offset()),
+                         trap(mir, wasm::Trap::OutOfBounds));
+#endif
+}
+
+void
 CodeGenerator::visitWasmLoadTls(LWasmLoadTls* ins)
 {
     switch (ins->mir()->type()) {

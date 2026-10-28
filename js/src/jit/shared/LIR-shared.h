@@ -7374,6 +7374,33 @@ class LWasmBoundsCheck : public LInstructionHelper<0, 2, 0>
     }
 };
 
+// Fold a single-use TLS bounds-limit load into the comparison. This keeps the
+// instance-local limit live in memory while avoiding a temporary register on
+// 32-bit x86; the field is mutable for capped/moving memories.
+class LWasmBoundsCheckTlsField : public LInstructionHelper<0, 2, 0>
+{
+    uint32_t offset_;
+
+  public:
+    LIR_HEADER(WasmBoundsCheckTlsField);
+
+    LWasmBoundsCheckTlsField(const LAllocation& ptr, const LAllocation& tlsPtr,
+                             uint32_t offset)
+      : offset_(offset)
+    {
+        setOperand(0, ptr);
+        setOperand(1, tlsPtr);
+    }
+
+    MWasmBoundsCheck* mir() const {
+        return mir_->toWasmBoundsCheck();
+    }
+
+    const LAllocation* ptr() { return getOperand(0); }
+    const LAllocation* tlsPtr() { return getOperand(1); }
+    uint32_t offset() const { return offset_; }
+};
+
 class LWasmLoadTls : public LInstructionHelper<1, 1, 0>
 {
   public:

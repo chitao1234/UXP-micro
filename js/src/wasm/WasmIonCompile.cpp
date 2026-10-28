@@ -544,8 +544,10 @@ class FunctionCompiler
     MWasmLoadTls* maybeLoadMemoryBase() {
         MWasmLoadTls* load = nullptr;
 #ifdef JS_CODEGEN_X86
-        AliasSet aliases = mg_.maxMemoryLength.isSome() ? AliasSet::None()
-                                                         : AliasSet::Load(AliasSet::WasmHeapMeta);
+        // A declared maximum no longer guarantees an immutable base: the
+        // low-tier reservation policy can relocate bounded memories. Keep the
+        // metadata load dependent on heap state in every case.
+        AliasSet aliases = AliasSet::Load(AliasSet::WasmHeapMeta);
         load = MWasmLoadTls::New(alloc(), tlsPointer_, offsetof(wasm::TlsData, memoryBase),
                                  MIRType::Pointer, aliases);
         curBlock_->add(load);
@@ -556,8 +558,7 @@ class FunctionCompiler
     MWasmLoadTls* maybeLoadBoundsCheckLimit() {
         MWasmLoadTls* load = nullptr;
 #ifndef WASM_HUGE_MEMORY
-        AliasSet aliases = mg_.maxMemoryLength.isSome() ? AliasSet::None()
-                                                         : AliasSet::Load(AliasSet::WasmHeapMeta);
+        AliasSet aliases = AliasSet::Load(AliasSet::WasmHeapMeta);
         load = MWasmLoadTls::New(alloc(), tlsPointer_, offsetof(wasm::TlsData, boundsCheckLimit),
                                  MIRType::Int32, aliases);
         curBlock_->add(load);

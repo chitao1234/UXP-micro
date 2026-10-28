@@ -439,6 +439,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitWasmTrap(LWasmTrap* lir);
     void visitWasmLoadTls(LWasmLoadTls* ins);
     void visitWasmBoundsCheck(LWasmBoundsCheck* ins);
+    void visitWasmBoundsCheckTlsField(LWasmBoundsCheckTlsField* ins);
     void visitRecompileCheck(LRecompileCheck* ins);
     void visitRotate(LRotate* ins);
 
