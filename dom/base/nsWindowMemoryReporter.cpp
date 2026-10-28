@@ -36,10 +36,37 @@ public:
   NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
                             nsISupports* aData, bool aAnonymize) override
   {
+    CSSVariableValues::MemoryUsage usage = CSSVariableValues::MeasureMemory(MallocSizeOf);
     MOZ_COLLECT_REPORT(
       "explicit/layout/style/variable-values", KIND_HEAP, UNITS_BYTES,
-      CSSVariableValues::SizeOfLive(MallocSizeOf),
+      usage.mTotal,
       "Heap memory used by computed CSS custom-property values.");
+#define VARIABLE_BYTES(path, value) \
+    MOZ_COLLECT_REPORT("css-variable-values/" path, KIND_OTHER, UNITS_BYTES, \
+                       value, "Alternate breakdown of computed custom-property " \
+                       "storage already included in explicit/layout/style/variable-values.")
+    VARIABLE_BYTES("representation/flat", usage.mFlat);
+    VARIABLE_BYTES("representation/factored", usage.mFactored);
+    VARIABLE_BYTES("allocation/strings", usage.mStrings);
+    VARIABLE_BYTES("allocation/records", usage.mRecords);
+    VARIABLE_BYTES("allocation/indexes", usage.mIndexes);
+    VARIABLE_BYTES("allocation/metadata", usage.mMetadata);
+    VARIABLE_BYTES("flat-origin/no-rejection", usage.mRejected[CSSVariableValues::NoFailure]);
+    VARIABLE_BYTES("flat-origin/own-base", usage.mRejected[CSSVariableValues::OwnBase]);
+    VARIABLE_BYTES("flat-origin/parent-base", usage.mRejected[CSSVariableValues::ParentBase]);
+    VARIABLE_BYTES("flat-origin/empty-base", usage.mRejected[CSSVariableValues::EmptyBase]);
+    VARIABLE_BYTES("flat-origin/fewer-names", usage.mRejected[CSSVariableValues::FewerNames]);
+    VARIABLE_BYTES("flat-origin/different-order", usage.mRejected[CSSVariableValues::DifferentOrder]);
+    VARIABLE_BYTES("flat-origin/too-many-overrides", usage.mRejected[CSSVariableValues::TooManyOverrides]);
+#undef VARIABLE_BYTES
+#define VARIABLE_COUNT(path, value) \
+    MOZ_COLLECT_REPORT("css-variable-values/" path, KIND_OTHER, UNITS_COUNT, \
+                       value, "Current computed custom-property storage population.")
+    VARIABLE_COUNT("references", usage.mReferences);
+    VARIABLE_COUNT("flat-blocks", usage.mFlatBlocks);
+    VARIABLE_COUNT("factored-blocks", usage.mFactoredBlocks);
+    VARIABLE_COUNT("local-variables", usage.mLocalVariables);
+#undef VARIABLE_COUNT
     return NS_OK;
   }
 };

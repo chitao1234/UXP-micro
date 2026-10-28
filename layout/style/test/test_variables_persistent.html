@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Computed custom-property storage preserves values and ordering</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="root"></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+var root = document.getElementById("root");
+function value(node, name) { return getComputedStyle(node).getPropertyValue(name).trim(); }
+function names(node) {
+  var style = getComputedStyle(node), result = [];
+  for (var i = 0; i < style.length; i++) {
+    var name = style.item(i);
+    if (name.substr(0, 3) === "--v") result.push(name);
+  }
+  return result;
+}
+for (var i = 0; i < 512; i++) root.style.setProperty("--v" + i, String(i));
+// Resolve in the engine's existing stable order, rather than assuming authored
+// hash-table insertion order is the computed enumeration order.
+var rootOrder = names(root), dependent = rootOrder[0], dependency = rootOrder[511];
+var dependencyValue = value(root, dependency), unchanged = rootOrder[510];
+var overrideNames = rootOrder.slice(1, 65);
+var children = [];
+for (var row = 0; row < 64; row++) {
+  var child = document.createElement("div");
+  for (var j = 0; j < 64; j++) child.style.setProperty(overrideNames[j], String(1000 + row + j));
+  // This dependency moves an inherited name ahead of the first output entry.
+  child.style.setProperty(dependent, "var(" + dependency + ")");
+  root.appendChild(child); children.push(child);
+  is(value(child, dependent), dependencyValue, "dependency with a later inherited name");
+  is(value(child, overrideNames[0]), String(1000 + row), "more than 32 overrides survive");
+  is(value(child, unchanged), value(root, unchanged), "unchanged inherited entry survives");
+  var order = names(child);
+  is(order.length, 512, "computed custom-property count");
+  is(order[0], dependency, "dependency output retains its original enumeration order");
+  is(order[1], dependent, "dependent output follows the dependency");
+}
+var parent = children[0], nested = document.createElement("div");
+nested.style.setProperty(overrideNames[0], "nested"); parent.appendChild(nested);
+is(value(nested, overrideNames[0]), "nested", "nested override");
+is(value(nested, overrideNames[1]), "1001", "nested set retains its parent's override");
+is(value(nested, unchanged), value(root, unchanged), "nested set retains its ancestor's value");
+nested.style.removeProperty(overrideNames[0]);
+is(value(nested, overrideNames[0]), "1000", "removing a local override restores inheritance");
+nested.style.setProperty(overrideNames[0], "again");
+is(value(nested, overrideNames[0]), "again", "readding an override");
+is(value(parent, overrideNames[0]), "1000", "copy-on-write preserves the parent");
+root.style.setProperty(dependency, "changed");
+is(value(nested, dependent), "changed", "ancestor change invalidates a dependent inherited value");
+is(value(children[63], dependent), "changed", "a different sharing branch is invalidated");
+root.style.setProperty(dependency, dependencyValue);
+is(value(nested, dependent), dependencyValue, "ancestor value is restored");
+var cycle = document.createElement("div");
+cycle.style.cssText = "--v1:var(--v2);--v2:var(--v1);--v3:var(--v1,37)";
+parent.appendChild(cycle);
+is(value(cycle, "--v1"), "", "cycle remains invalid");
+is(value(cycle, "--v2"), "", "the other cycle member remains invalid");
+is(value(cycle, "--v3"), "37", "cycle fallback is preserved");
+is(value(cycle, unchanged), value(parent, unchanged), "cycle does not remove unrelated inherited entries");
+cycle.remove(); nested.remove();
+for (var child of children) child.remove();
+is(value(root, "--v7"), "7", "teardown leaves the root unchanged");
+SimpleTest.finish();
+</script>

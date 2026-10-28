@@ -120,3 +120,32 @@ TEST(CSSVariableValues, EqualsInOrder)
   EXPECT_TRUE(a == b);
   EXPECT_FALSE(a.EqualsInOrder(b));
 }
+
+TEST(CSSVariableValues, RemoveFactoredValueUsesFlattenedIndex)
+{
+  CSSVariableValues parent;
+  parent.Put(NS_LITERAL_STRING("a"), NS_LITERAL_STRING("1"),
+             eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  parent.Put(NS_LITERAL_STRING("b"), NS_LITERAL_STRING("2"),
+             eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  parent.Put(NS_LITERAL_STRING("c"), NS_LITERAL_STRING("3"),
+             eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  parent.Intern();
+  CSSVariableValues child(parent);
+  child.Put(NS_LITERAL_STRING("c"), NS_LITERAL_STRING("changed"),
+            eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  ASSERT_TRUE(child.Factor(parent, 32));
+  child.Intern();
+  child.Remove(NS_LITERAL_STRING("c"));
+  nsString value;
+  EXPECT_FALSE(child.Get(NS_LITERAL_STRING("c"), value));
+  ASSERT_TRUE(child.Get(NS_LITERAL_STRING("a"), value));
+  EXPECT_TRUE(value.EqualsLiteral("1"));
+  ASSERT_TRUE(parent.Get(NS_LITERAL_STRING("c"), value));
+  EXPECT_TRUE(value.EqualsLiteral("3"));
+  child.Put(NS_LITERAL_STRING("c"), NS_LITERAL_STRING("again"),
+            eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  nsString name;
+  child.GetVariableAt(2, name);
+  EXPECT_TRUE(name.EqualsLiteral("c"));
+}

@@ -32,6 +32,28 @@ public:
    */
   static size_t SizeOfLive(mozilla::MallocSizeOf aMallocSizeOf);
 
+  enum FactorFailure {
+    NoFailure, OwnBase, ParentBase, EmptyBase, FewerNames, DifferentOrder,
+    TooManyOverrides, FactorFailureCount
+  };
+  struct MemoryUsage {
+    size_t mTotal = 0;
+    size_t mFlat = 0;
+    size_t mFactored = 0;
+    size_t mStrings = 0;
+    size_t mRecords = 0;
+    size_t mIndexes = 0;
+    size_t mMetadata = 0;
+    size_t mReferences = 0;
+    size_t mFlatBlocks = 0;
+    size_t mFactoredBlocks = 0;
+    size_t mLocalVariables = 0;
+    size_t mRejected[FactorFailureCount] = {};
+  };
+  // Alternate views of the same uniquely owned allocations. Callers must not
+  // add these views to mTotal or invoke MallocSizeOf a second time for them.
+  static MemoryUsage MeasureMemory(mozilla::MallocSizeOf aMallocSizeOf);
+
   bool operator==(const CSSVariableValues& aOther) const;
   bool operator!=(const CSSVariableValues& aOther) const
     { return !(*this == aOther); }
@@ -116,7 +138,9 @@ public:
 
   /**
    * Share the immutable entries of aBase and retain only this object's
-   * resolved overrides where that is profitable.
+   * resolved overrides where that is profitable. The override limit applies
+   * to differences from aBase, including when its own flat ancestor is used
+   * as backing. Stored lookups never traverse more than that one ancestor.
    */
   bool Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides);
 

@@ -104,6 +104,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     , mHash(0)
     , mFrozen(false)
     , mInCache(false)
+    , mFactorFailure(NoFailure)
   {}
 
   explicit Data(const Data& aOther)
@@ -116,6 +117,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     , mHash(0)
     , mFrozen(false)
     , mInCache(false)
+    , mFactorFailure(NoFailure)
   {
     if (mUseCompact) {
       if (!mVariables.IsEmpty() && mIndex.IsEmpty()) {
@@ -231,11 +233,23 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   bool IsOverridden(size_t aBaseIndex, const Variable** aVariable) const
   {
-    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
-      if (mVariables[i].mBaseIndex == aBaseIndex) {
-        *aVariable = &mVariables[i];
-        return true;
+    MOZ_ASSERT(mBase && !mBase->mBase);
+    // Factoring visits the stable base prefix in order, then appended names
+    // (UINT32_MAX). Search integer base positions without hashing long names
+    // or linearly scanning a potentially large effective delta.
+    size_t low = 0, high = mVariables.Length();
+    while (low < high) {
+      size_t middle = low + (high - low) / 2;
+      if (mVariables[middle].mBaseIndex < aBaseIndex) {
+        low = middle + 1;
+      } else {
+        high = middle;
       }
+    }
+    if (low < mVariables.Length() &&
+        mVariables[low].mBaseIndex == aBaseIndex) {
+      *aVariable = &mVariables[low];
+      return true;
     }
     return false;
   }
@@ -270,7 +284,13 @@ struct CSSVariableValues::Data : public RefCounted<Data>
         slot = (slot + 1) & mIndexMask;
       }
     }
-    return mBase && mBase->Find(aName, aIndex);
+    return false;
+  }
+
+  bool Contains(const nsAString& aName) const
+  {
+    size_t index;
+    return Find(aName, &index) || (mBase && mBase->Find(aName, &index));
   }
 
   bool Get(const nsAString& aName, nsString& aValue,
@@ -301,31 +321,26 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     return mBase && mBase->Get(aName, aValue, aFirstToken, aLastToken);
   }
 
-  bool GetAt(uint32_t aIndex, nsAString& aName, nsString& aValue,
-             nsCSSTokenSerializationType& aFirstToken,
-             nsCSSTokenSerializationType& aLastToken) const
+  bool EntryAt(uint32_t aIndex, const Data** aOwner,
+               const Variable** aEntry) const
   {
     if (mBase) {
       uint32_t baseCount = mBase->Count();
       if (aIndex < baseCount) {
         const Variable* override = nullptr;
         if (IsOverridden(aIndex, &override)) {
-          aName.Assign(Name(*override));
-          aValue.Assign(Value(*override));
-          aFirstToken = override->FirstToken();
-          aLastToken = override->LastToken();
+          *aOwner = this;
+          *aEntry = override;
           return true;
         }
-        return mBase->GetAt(aIndex, aName, aValue, aFirstToken, aLastToken);
+        return mBase->EntryAt(aIndex, aOwner, aEntry);
       }
       aIndex -= baseCount;
       for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
         if (mVariables[i].mBaseIndex == UINT32_MAX) {
           if (aIndex == 0) {
-            aName.Assign(Name(mVariables[i]));
-            aValue.Assign(Value(mVariables[i]));
-            aFirstToken = mVariables[i].FirstToken();
-            aLastToken = mVariables[i].LastToken();
+            *aOwner = this;
+            *aEntry = &mVariables[i];
             return true;
           }
           aIndex--;
@@ -336,11 +351,24 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     if (aIndex >= mVariables.Length()) {
       return false;
     }
-    const Variable& v = mVariables[aIndex];
-    aName.Assign(Name(v));
-    aValue.Assign(Value(v));
-    aFirstToken = v.FirstToken();
-    aLastToken = v.LastToken();
+    *aOwner = this;
+    *aEntry = &mVariables[aIndex];
+    return true;
+  }
+
+  bool GetAt(uint32_t aIndex, nsAString& aName, nsString& aValue,
+             nsCSSTokenSerializationType& aFirstToken,
+             nsCSSTokenSerializationType& aLastToken) const
+  {
+    const Data* owner = nullptr;
+    const Variable* entry = nullptr;
+    if (!EntryAt(aIndex, &owner, &entry)) {
+      return false;
+    }
+    aName.Assign(owner->Name(*entry));
+    aValue.Assign(owner->Value(*entry));
+    aFirstToken = entry->FirstToken();
+    aLastToken = entry->LastToken();
     return true;
   }
 
@@ -355,8 +383,9 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     uint32_t count = Count();
     for (uint32_t i = 0; i < count; i++) {
       nsString name, value;
-      nsCSSTokenSerializationType first, last;
-      GetAt(i, name, value, first, last);
+      nsCSSTokenSerializationType first = eCSSTokenSerialization_Nothing;
+      nsCSSTokenSerializationType last = eCSSTokenSerialization_Nothing;
+      MOZ_ALWAYS_TRUE(GetAt(i, name, value, first, last));
       flat->PutFull(name, value, first, last);
     }
     return flat.forget();
@@ -380,54 +409,111 @@ struct CSSVariableValues::Data : public RefCounted<Data>
                                                            aLastToken)));
     if (mUseCompact) {
       InsertIndex(id);
+    } else {
+      if (!mLegacyIDs) {
+        mLegacyIDs = new nsDataHashtable<nsStringHashKey, size_t>();
+      }
+      nsString name(aName);
+      mLegacyIDs->Put(name, id);
     }
   }
 
-  bool Factor(const Data& aBase, uint32_t aMaxOverrides)
+  bool Factor(const Data& aParent, uint32_t aMaxOverrides, bool aPersistent)
   {
-    if (mBase || aBase.mBase || !aBase.mVariables.Length()) {
+    if (mBase) {
+      mFactorFailure = OwnBase;
+      return false;
+    }
+    // Retain the complete effective delta against the same flat ancestor,
+    // rather than constructing a chain of inherited dictionary lookups.
+    const Data& aBase = aPersistent && aParent.mBase
+                      ? *aParent.mBase : aParent;
+    if (aBase.mBase) {
+      mFactorFailure = ParentBase;
+      return false;
+    }
+    if (!aBase.mVariables.Length()) {
+      mFactorFailure = EmptyBase;
       return false;
     }
     uint32_t baseCount = aBase.Count();
+    uint32_t parentCount = aParent.Count();
     uint32_t fullCount = mVariables.Length();
-    if (fullCount < baseCount) {
+    if (fullCount < parentCount) {
+      mFactorFailure = FewerNames;
       return false;
     }
     RefPtr<Data> overrides = new Data();
     overrides->mUseCompact = mUseCompact;
-    uint32_t overrideCount = 0;
+    uint32_t parentOverrides = 0;
     for (uint32_t i = 0; i < fullCount; i++) {
-      nsString name, value;
-      nsCSSTokenSerializationType first, last;
-      GetAt(i, name, value, first, last);
-      bool isBase = i < baseCount;
-      if (isBase) {
-        nsString baseName, baseValue;
-        nsCSSTokenSerializationType baseFirst, baseLast;
-        aBase.GetAt(i, baseName, baseValue, baseFirst, baseLast);
-        if (!name.Equals(baseName)) {
+      const Variable& variable = mVariables[i];
+      if (i < parentCount) {
+        const Data* owner = nullptr;
+        const Variable* entry = nullptr;
+        MOZ_ALWAYS_TRUE(aParent.EntryAt(i, &owner, &entry));
+        if (variable.mNameLength != entry->mNameLength ||
+            memcmp(NameData(variable), owner->NameData(*entry),
+                   variable.mNameLength * sizeof(char16_t))) {
+          mFactorFailure = DifferentOrder;
           return false;
         }
-        if (value.Equals(baseValue) && first == baseFirst && last == baseLast) {
+        if (variable.mValueLength != entry->mValueLength ||
+            variable.mTokens != entry->mTokens ||
+            memcmp(ValueData(variable), owner->ValueData(*entry),
+                   variable.mValueLength * sizeof(char16_t))) {
+          parentOverrides++;
+        }
+      } else {
+        parentOverrides++;
+      }
+      // Keep the API's limit relative to the immediate parent. The stored
+      // delta also includes inherited overrides against the flat ancestor.
+      if (parentOverrides > aMaxOverrides) {
+        mFactorFailure = TooManyOverrides;
+        return false;
+      }
+      bool isBase = i < baseCount;
+      if (isBase) {
+        const Variable& base = aBase.mVariables[i];
+        if (variable.mNameLength != base.mNameLength ||
+            memcmp(NameData(variable), aBase.NameData(base),
+                   variable.mNameLength * sizeof(char16_t))) {
+          mFactorFailure = DifferentOrder;
+          return false;
+        }
+        if (variable.mValueLength == base.mValueLength &&
+            variable.mTokens == base.mTokens &&
+            !memcmp(ValueData(variable), aBase.ValueData(base),
+                    variable.mValueLength * sizeof(char16_t))) {
           continue;
         }
       }
-      uint32_t nameOffset = overrides->AppendString(name);
-      uint32_t valueOffset = overrides->AppendString(value);
+      uint32_t nameOffset = overrides->AppendString(Name(variable));
+      uint32_t valueOffset = overrides->AppendString(Value(variable));
       overrides->mVariables.AppendElement(
-        Variable(nameOffset, name.Length(), valueOffset, value.Length(),
-                 Variable::PackTokens(first, last),
+        Variable(nameOffset, variable.mNameLength, valueOffset, variable.mValueLength,
+                 variable.mTokens,
                  isBase ? i : UINT32_MAX));
-      overrideCount++;
-      if (overrideCount > aMaxOverrides) {
+    }
+    uint32_t overrideCount = overrides->mVariables.Length();
+    if (aPersistent && overrideCount) {
+      uint64_t oldBytes = uint64_t(mStrings.Length()) * sizeof(char16_t) +
+                          uint64_t(mVariables.Length()) * (sizeof(Variable) + 8);
+      uint64_t newBytes = uint64_t(overrides->mStrings.Length()) * sizeof(char16_t) +
+                          uint64_t(overrides->mVariables.Length()) * (sizeof(Variable) + 8);
+      if (newBytes * 4 > oldBytes * 3) {
+        mFactorFailure = TooManyOverrides;
         return false;
       }
     }
+    mFactorFailure = NoFailure;
     if (overrideCount == 0) {
       mBase = const_cast<Data*>(&aBase);
       mVariables.Clear();
       mStrings.Clear();
       mIndex.Clear();
+      mLegacyIDs = nullptr;
       mIndexMask = 0;
       return true;
     }
@@ -435,7 +521,11 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     mStrings.SwapElements(overrides->mStrings);
     mVariables.SwapElements(overrides->mVariables);
     mIndex.Clear();
-    BuildIndex(mVariables.Length() + 8);
+    if (mUseCompact) {
+      BuildIndex(mVariables.Length() * 2);
+    } else {
+      RebuildLegacyIndex();
+    }
     return true;
   }
 
@@ -489,18 +579,18 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   uint64_t Hash() const
   {
-    if (mBase) {
-      RefPtr<Data> flat = Flatten();
-      return flat->Hash();
-    }
     uint64_t hash = 1469598103934665603ULL;
-    Mix(hash, static_cast<uint64_t>(mVariables.Length()));
-    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
-      const Variable& variable = mVariables[i];
+    uint32_t count = Count();
+    Mix(hash, static_cast<uint64_t>(count));
+    for (uint32_t i = 0; i < count; i++) {
+      const Data* owner = nullptr;
+      const Variable* entry = nullptr;
+      MOZ_ALWAYS_TRUE(EntryAt(i, &owner, &entry));
+      const Variable& variable = *entry;
       Mix(hash, static_cast<uint64_t>(variable.mNameLength));
-      Mix(hash, NameData(variable), variable.mNameLength);
+      Mix(hash, owner->NameData(variable), variable.mNameLength);
       Mix(hash, static_cast<uint64_t>(variable.mValueLength));
-      Mix(hash, ValueData(variable), variable.mValueLength);
+      Mix(hash, owner->ValueData(variable), variable.mValueLength);
       Mix(hash, static_cast<uint64_t>(variable.mTokens));
     }
     return hash;
@@ -508,23 +598,25 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   bool EqualsInOrder(const Data& aOther) const
   {
-    if (mBase || aOther.mBase) {
-      RefPtr<Data> left = Flatten();
-      RefPtr<Data> right = const_cast<Data&>(aOther).Flatten();
-      return left->EqualsInOrder(*right);
-    }
-    if (mVariables.Length() != aOther.mVariables.Length()) {
+    uint32_t count = Count();
+    if (count != aOther.Count()) {
       return false;
     }
-    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
-      const Variable& left = mVariables[i];
-      const Variable& right = aOther.mVariables[i];
+    for (uint32_t i = 0; i < count; i++) {
+      const Data* leftOwner = nullptr;
+      const Data* rightOwner = nullptr;
+      const Variable* leftEntry = nullptr;
+      const Variable* rightEntry = nullptr;
+      MOZ_ALWAYS_TRUE(EntryAt(i, &leftOwner, &leftEntry));
+      MOZ_ALWAYS_TRUE(aOther.EntryAt(i, &rightOwner, &rightEntry));
+      const Variable& left = *leftEntry;
+      const Variable& right = *rightEntry;
       if (left.mNameLength != right.mNameLength ||
           left.mValueLength != right.mValueLength ||
           left.mTokens != right.mTokens ||
-          memcmp(NameData(left), aOther.NameData(right),
+          memcmp(leftOwner->NameData(left), rightOwner->NameData(right),
                  left.mNameLength * sizeof(char16_t)) ||
-          memcmp(ValueData(left), aOther.ValueData(right),
+          memcmp(leftOwner->ValueData(left), rightOwner->ValueData(right),
                  left.mValueLength * sizeof(char16_t))) {
         return false;
       }
@@ -532,19 +624,21 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     return true;
   }
 
-  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
+  MemoryUsage MeasureMemory(MallocSizeOf aMallocSizeOf) const
   {
-    size_t n = aMallocSizeOf(this);
-    n += mStrings.ShallowSizeOfExcludingThis(aMallocSizeOf);
-    n += mVariables.ShallowSizeOfExcludingThis(aMallocSizeOf);
-    n += mIndex.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    MemoryUsage usage;
+    usage.mMetadata = aMallocSizeOf(this);
+    usage.mStrings = mStrings.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    usage.mRecords = mVariables.ShallowSizeOfExcludingThis(aMallocSizeOf);
+    usage.mIndexes = mIndex.ShallowSizeOfExcludingThis(aMallocSizeOf);
     if (mLegacyIDs) {
-      n += mLegacyIDs->ShallowSizeOfExcludingThis(aMallocSizeOf);
+      usage.mIndexes += mLegacyIDs->ShallowSizeOfExcludingThis(aMallocSizeOf);
       for (auto iter = mLegacyIDs->ConstIter(); !iter.Done(); iter.Next()) {
-        n += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+        usage.mIndexes += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
       }
     }
-    return n;
+    usage.mTotal = usage.mMetadata + usage.mStrings + usage.mRecords + usage.mIndexes;
+    return usage;
   }
 
   nsTArray<char16_t> mStrings;
@@ -557,6 +651,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
   uint64_t mHash;
   bool mFrozen;
   bool mInCache;
+  uint8_t mFactorFailure;
 };
 
 CSSVariableValues::CSSVariableValues()
@@ -615,10 +710,11 @@ CSSVariableValues::operator==(const CSSVariableValues& aOther) const
     return false;
   }
 
-  for (size_t i = 0; i < mData->Count(); ++i) {
+  for (size_t i = 0, n = mData->Count(); i < n; ++i) {
     nsString name, value;
-    nsCSSTokenSerializationType first, last;
-    mData->GetAt(i, name, value, first, last);
+    nsCSSTokenSerializationType first = eCSSTokenSerialization_Nothing;
+    nsCSSTokenSerializationType last = eCSSTokenSerialization_Nothing;
+    MOZ_ALWAYS_TRUE(mData->GetAt(i, name, value, first, last));
     nsString otherValue;
     nsCSSTokenSerializationType otherFirst, otherLast;
     if (!aOther.mData->Get(name, otherValue, otherFirst, otherLast) ||
@@ -723,15 +819,17 @@ CSSVariableValues::Put(const nsAString& aName,
 void
 CSSVariableValues::Remove(const nsAString& aName)
 {
-  if (!mData) {
-    return;
-  }
-  size_t id;
-  if (!mData->Find(aName, &id)) {
+  if (!mData || !mData->Contains(aName)) {
     return;
   }
 
+  // A local overlay index is not its index after flattening. Detach first,
+  // then find the entry in the writable dictionary's enumeration order.
   Data* data = EnsureWritableData();
+  size_t id;
+  if (!data->Find(aName, &id)) {
+    return;
+  }
   data->mVariables.RemoveElementAt(id);
   if (data->mVariables.IsEmpty()) {
     mData = nullptr;
@@ -750,7 +848,20 @@ CSSVariableValues::Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides
   if (!mData || !aBase.mData) {
     return false;
   }
-  return mData->Factor(*aBase.mData, aMaxOverrides);
+  if (mData == aBase.mData) {
+    return true;
+  }
+  int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+  bool persistent = Preferences::GetBool("layout.css.variables.persistent",
+                                       tier >= 0 && tier <= 1);
+  if (persistent && aBase.mData->HasBase() &&
+      mData->EqualsInOrder(*aBase.mData)) {
+    mData = aBase.mData;
+    return true;
+  }
+  // Factor mutates the representation, even though its computed values stay
+  // identical. Shared, frozen and interned dictionaries must detach first.
+  return EnsureWritableData()->Factor(*aBase.mData, aMaxOverrides, persistent);
 }
 
 void
@@ -761,12 +872,15 @@ CSSVariableValues::Intern()
     return;
   }
 
-  // Freeze only a block that this object exclusively owns.  A shared mutable
-  // block must be detached before compaction changes its offsets.
-  if (!mData->hasOneRef()) {
-    mData = new Data(*mData);
+  // Shared mutable data must detach before compaction changes its offsets.
+  // Already-frozen data needs no copy, including factored sets outside the
+  // weak whole-dictionary cache.
+  if (!mData->mFrozen) {
+    if (!mData->hasOneRef()) {
+      mData = new Data(*mData);
+    }
+    mData->Freeze();
   }
-  mData->Freeze();
   if (mData->HasBase() ||
       !Preferences::GetBool("layout.css.variables.intern", true)) {
     return;
@@ -798,8 +912,9 @@ CSSVariableValues::AddVariablesToResolver(CSSVariableResolver* aResolver) const
   }
   for (size_t i = 0, n = mData->Count(); i < n; i++) {
     nsString name, value;
-    nsCSSTokenSerializationType first, last;
-    mData->GetAt(i, name, value, first, last);
+    nsCSSTokenSerializationType first = eCSSTokenSerialization_Nothing;
+    nsCSSTokenSerializationType last = eCSSTokenSerialization_Nothing;
+    MOZ_ALWAYS_TRUE(mData->GetAt(i, name, value, first, last));
     aResolver->Put(name, value, first, last, true);
   }
 }
@@ -807,18 +922,42 @@ CSSVariableValues::AddVariablesToResolver(CSSVariableResolver* aResolver) const
 /* static */ size_t
 CSSVariableValues::SizeOfLive(MallocSizeOf aMallocSizeOf)
 {
-  size_t n = 0;
+  return MeasureMemory(aMallocSizeOf).mTotal;
+}
+
+CSSVariableValues::MemoryUsage
+CSSVariableValues::MeasureMemory(MallocSizeOf aMallocSizeOf)
+{
+  MemoryUsage usage;
   nsTHashtable<nsPtrHashKey<Data> > seen;
   MutexAutoLock lock(*sLiveValuesMutex);
+  usage.mReferences = sLiveValues->Length();
   for (size_t i = 0, len = sLiveValues->Length(); i < len; i++) {
     Data* data = (*sLiveValues)[i]->mData;
     while (data && !seen.GetEntry(data)) {
       seen.PutEntry(data);
-      n += data->SizeOfExcludingThis(aMallocSizeOf);
+      // Invoke the size-of callback once per allocation. DMD treats a second
+      // callback as another report of that allocation, even for alternate views.
+      MemoryUsage local = data->MeasureMemory(aMallocSizeOf);
+      size_t bytes = local.mTotal;
+      usage.mTotal += bytes;
+      if (data->mBase) {
+        usage.mFactored += bytes;
+        usage.mFactoredBlocks++;
+      } else {
+        usage.mFlat += bytes;
+        usage.mFlatBlocks++;
+        usage.mRejected[data->mFactorFailure] += bytes;
+      }
+      usage.mLocalVariables += data->mVariables.Length();
+      usage.mStrings += local.mStrings;
+      usage.mRecords += local.mRecords;
+      usage.mIndexes += local.mIndexes;
+      usage.mMetadata += local.mMetadata;
       data = data->mBase;
     }
   }
-  return n;
+  return usage;
 }
 
 } // namespace mozilla
