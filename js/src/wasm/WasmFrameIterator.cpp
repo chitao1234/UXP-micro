@@ -901,7 +901,10 @@ wasm::FrameTLS(const WasmActivation& activation, void* rawFrame, void* pc)
     Frame* frame = static_cast<Frame*>(rawFrame);
     // Instance-switch slots belong to the called frame. Internal calls do not
     // write them; follow the physical chain to the latest actual switch.
-    for (unsigned depth = 0; frame && depth < 100000; depth++) {
+    // A compact recursive frame can legitimately exceed 100,000 links within
+    // the embedding's stack quota. Bound traversal by its strictly increasing
+    // physical addresses and actual entry/switch, never an arbitrary count.
+    while (frame) {
         void* returnPC = frame->returnAddress;
         const Code* callerCode = activation.compartment()->wasm.lookupCode(returnPC);
         if (!callerCode)
@@ -919,7 +922,7 @@ wasm::FrameTLS(const WasmActivation& activation, void* rawFrame, void* pc)
             return tls;
         }
         Frame* caller = reinterpret_cast<Frame*>(frame->callerFP);
-        if (caller && caller <= frame)
+        if (caller && uintptr_t(caller) <= uintptr_t(frame))
             return nullptr;
         frame = caller;
     }
