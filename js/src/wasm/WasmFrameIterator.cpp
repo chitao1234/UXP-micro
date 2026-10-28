@@ -595,6 +595,12 @@ ProfilingFrameIterator::ProfilingFrameIterator(const WasmActivation& activation,
         initFromFP();
         return;
     }
+    // A sampler may lack the hardware frame pointer. Even prologue/epilogue
+    // reconstruction needs it to walk beyond the current frame; accepting a
+    // PC/SP-only transition would leave a caller PC with a null caller FP.
+    // Published exits above remain usable without the raw register snapshot.
+    if (!state.fp)
+        return;
 #endif
     // If pc isn't in the instance's code, we must have exited the code via an
     // exit trampoline or signal handler.
