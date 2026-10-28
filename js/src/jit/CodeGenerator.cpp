@@ -6748,9 +6748,13 @@ CodeGenerator::visitModD(LModD* ins)
     masm.passABIArg(lhs, MoveOp::DOUBLE);
     masm.passABIArg(rhs, MoveOp::DOUBLE);
 
-    if (gen->compilingWasm())
-        masm.callWithABI(wasm::SymbolicAddress::ModD, MoveOp::DOUBLE);
-    else
+    if (gen->compilingWasm()) {
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), temp != WasmTlsReg);
+        masm.callWithABI(ins->hasInstance()
+                        ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ModD)
+                        : wasm::SymbolicAddress::ModD, MoveOp::DOUBLE);
+    } else
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, NumberMod), MoveOp::DOUBLE);
 }
 
@@ -11861,9 +11865,52 @@ CodeGenerator::visitWasmTrap(LWasmTrap* lir)
 void
 CodeGenerator::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
 {
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No wasm bounds check for huge memory");
+#else
     const MWasmBoundsCheck* mir = ins->mir();
     Register ptr = ToRegister(ins->ptr());
-    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, trap(mir, wasm::Trap::OutOfBounds));
+#if defined(JS_CODEGEN_X86)
+    if (ins->boundsCheckLimit()->isBogus()) {
+        masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr,
+                                    trap(mir, wasm::Trap::OutOfBounds));
+        return;
+    }
+#endif
+    Register boundsCheckLimit = ToRegister(ins->boundsCheckLimit());
+    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, boundsCheckLimit,
+                         trap(mir, wasm::Trap::OutOfBounds));
+#endif
+}
+
+void
+CodeGenerator::visitWasmBoundsCheckTlsField(LWasmBoundsCheckTlsField* ins)
+{
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No wasm bounds check for huge memory");
+#else
+    const MWasmBoundsCheck* mir = ins->mir();
+    masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ins->ptr()),
+                         Address(ToRegister(ins->tlsPtr()), ins->offset()),
+                         trap(mir, wasm::Trap::OutOfBounds));
+#endif
+}
+
+void
+CodeGenerator::visitWasmLoadTls(LWasmLoadTls* ins)
+{
+    switch (ins->mir()->type()) {
+      case MIRType::Pointer:
+        masm.loadPtr(Address(ToRegister(ins->tlsPtr()), ins->mir()->offset()),
+                     ToRegister(ins->output()));
+        break;
+      case MIRType::Int32:
+        masm.load32(Address(ToRegister(ins->tlsPtr()), ins->mir()->offset()),
+                    ToRegister(ins->output()));
+        break;
+      default:
+        MOZ_CRASH("MIRType not supported in WasmLoadTls");
+    }
 }
 
 typedef bool (*RecompileFn)(JSContext*);

@@ -418,6 +418,14 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
         bool trapOnError = !mg().isAsmJS();
+#if defined(JS_CODEGEN_X86)
+        if (type == MIRType::Int64) {
+            auto* ins = MWasmBuiltinDivI64::New(alloc(), lhs, rhs, tlsPointer_, unsignd,
+                                               trapOnError, trapOffset());
+            curBlock_->add(ins);
+            return ins;
+        }
+#endif
         auto* ins = MDiv::New(alloc(), lhs, rhs, type, unsignd, trapOnError, trapOffset(),
                               mustPreserveNaN(type));
         curBlock_->add(ins);
@@ -429,6 +437,19 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
         bool trapOnError = !mg().isAsmJS();
+#if defined(JS_CODEGEN_X86)
+        if (type == MIRType::Int64) {
+            auto* ins = MWasmBuiltinModI64::New(alloc(), lhs, rhs, tlsPointer_, unsignd,
+                                               trapOnError, trapOffset());
+            curBlock_->add(ins);
+            return ins;
+        }
+        if (type == MIRType::Double) {
+            auto* ins = MWasmBuiltinModD::New(alloc(), lhs, rhs, tlsPointer_);
+            curBlock_->add(ins);
+            return ins;
+        }
+#endif
         auto* ins = MMod::New(alloc(), lhs, rhs, type, unsignd, trapOnError, trapOffset());
         curBlock_->add(ins);
         return ins;
@@ -505,6 +526,19 @@ class FunctionCompiler
         return ins;
     }
 
+    MDefinition* truncateAsmJS(MDefinition* op)
+    {
+        if (inDeadCode())
+            return nullptr;
+#if defined(JS_CODEGEN_X86)
+        auto* ins = MWasmBuiltinTruncateToInt32::New(alloc(), op, tlsPointer_);
+#else
+        auto* ins = MTruncateToInt32::New(alloc(), op);
+#endif
+        curBlock_->add(ins);
+        return ins;
+    }
+
     MDefinition* rotate(MDefinition* input, MDefinition* count, MIRType type, bool left)
     {
         if (inDeadCode())
@@ -541,6 +575,49 @@ class FunctionCompiler
     }
 
   private:
+    bool classicAccesses() const {
+#if defined(JS_CODEGEN_X86)
+        return mg_.compilerABI == WasmCompilerABI::ClassicSpecialized;
+#else
+        return false;
+#endif
+    }
+
+    MDefinition* classicOperand() {
+        auto* value = MConstant::New(alloc(), Int32Value(0));
+        curBlock_->add(value);
+        return value;
+    }
+
+    MDefinition* maybeLoadMemoryBase() {
+        if (classicAccesses())
+            return classicOperand();
+        MWasmLoadTls* load = nullptr;
+#ifdef JS_CODEGEN_X86
+        // A declared maximum no longer guarantees an immutable base: the
+        // low-tier reservation policy can relocate bounded memories. Keep the
+        // metadata load dependent on heap state in every case.
+        AliasSet aliases = AliasSet::Load(AliasSet::WasmHeapMeta);
+        load = MWasmLoadTls::New(alloc(), tlsPointer_, offsetof(wasm::TlsData, memoryBase),
+                                 MIRType::Pointer, aliases);
+        curBlock_->add(load);
+#endif
+        return load;
+    }
+
+    MDefinition* maybeLoadBoundsCheckLimit() {
+        if (classicAccesses())
+            return classicOperand();
+        MWasmLoadTls* load = nullptr;
+#ifndef WASM_HUGE_MEMORY
+        AliasSet aliases = AliasSet::Load(AliasSet::WasmHeapMeta);
+        load = MWasmLoadTls::New(alloc(), tlsPointer_, offsetof(wasm::TlsData, boundsCheckLimit),
+                                 MIRType::Int32, aliases);
+        curBlock_->add(load);
+#endif
+        return load;
+    }
+
     void checkOffsetAndBounds(MemoryAccessDesc* access, MDefinition** base)
     {
         // If the offset is bigger than the guard region, a separate instruction
@@ -553,9 +630,9 @@ class FunctionCompiler
             access->clearOffset();
         }
 
-#ifndef WASM_HUGE_MEMORY
-        curBlock_->add(MWasmBoundsCheck::New(alloc(), *base, trapOffset()));
-#endif
+        MDefinition* boundsCheckLimit = maybeLoadBoundsCheckLimit();
+        if (boundsCheckLimit)
+            curBlock_->add(MWasmBoundsCheck::New(alloc(), *base, boundsCheckLimit, trapOffset()));
     }
 
   public:
@@ -564,13 +641,14 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
 
+        MDefinition* memoryBase = maybeLoadMemoryBase();
         MInstruction* load = nullptr;
         if (access.isPlainAsmJS()) {
             MOZ_ASSERT(access.offset() == 0);
-            load = MAsmJSLoadHeap::New(alloc(), base, access.type());
+            load = MAsmJSLoadHeap::New(alloc(), memoryBase, base, maybeLoadBoundsCheckLimit(), access.type());
         } else {
             checkOffsetAndBounds(&access, &base);
-            load = MWasmLoad::New(alloc(), base, access, ToMIRType(result));
+            load = MWasmLoad::New(alloc(), memoryBase, base, access, ToMIRType(result));
         }
 
         curBlock_->add(load);
@@ -582,13 +660,14 @@ class FunctionCompiler
         if (inDeadCode())
             return;
 
+        MDefinition* memoryBase = maybeLoadMemoryBase();
         MInstruction* store = nullptr;
         if (access.isPlainAsmJS()) {
             MOZ_ASSERT(access.offset() == 0);
-            store = MAsmJSStoreHeap::New(alloc(), base, access.type(), v);
+            store = MAsmJSStoreHeap::New(alloc(), memoryBase, base, maybeLoadBoundsCheckLimit(), access.type(), v);
         } else {
             checkOffsetAndBounds(&access, &base);
-            store = MWasmStore::New(alloc(), base, access, v);
+            store = MWasmStore::New(alloc(), memoryBase, base, access, v);
         }
 
         curBlock_->add(store);
@@ -601,7 +680,7 @@ class FunctionCompiler
             return nullptr;
 
         checkOffsetAndBounds(&access, &base);
-        auto* cas = MAsmJSCompareExchangeHeap::New(alloc(), base, access, oldv, newv, tlsPointer_);
+        auto* cas = MAsmJSCompareExchangeHeap::New(alloc(), maybeLoadMemoryBase(), base, access, oldv, newv, tlsPointer_);
         curBlock_->add(cas);
         return cas;
     }
@@ -613,7 +692,7 @@ class FunctionCompiler
             return nullptr;
 
         checkOffsetAndBounds(&access, &base);
-        auto* cas = MAsmJSAtomicExchangeHeap::New(alloc(), base, access, value, tlsPointer_);
+        auto* cas = MAsmJSAtomicExchangeHeap::New(alloc(), maybeLoadMemoryBase(), base, access, value, tlsPointer_);
         curBlock_->add(cas);
         return cas;
     }
@@ -626,7 +705,7 @@ class FunctionCompiler
             return nullptr;
 
         checkOffsetAndBounds(&access, &base);
-        auto* binop = MAsmJSAtomicBinopHeap::New(alloc(), op, base, access, v, tlsPointer_);
+        auto* binop = MAsmJSAtomicBinopHeap::New(alloc(), op, maybeLoadMemoryBase(), base, access, v, tlsPointer_);
         curBlock_->add(binop);
         return binop;
     }
@@ -636,7 +715,7 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
 
-        auto* load = MWasmLoadGlobalVar::New(alloc(), type, globalDataOffset, isConst);
+        auto* load = MWasmLoadGlobalVar::New(alloc(), type, globalDataOffset, isConst, tlsPointer_, classicAccesses());
         curBlock_->add(load);
         return load;
     }
@@ -645,7 +724,7 @@ class FunctionCompiler
     {
         if (inDeadCode())
             return;
-        curBlock_->add(MWasmStoreGlobalVar::New(alloc(), globalDataOffset, v));
+        curBlock_->add(MWasmStoreGlobalVar::New(alloc(), globalDataOffset, v, tlsPointer_, classicAccesses()));
     }
 
     void addInterruptCheck()
@@ -736,7 +815,7 @@ class FunctionCompiler
             outer->childClobbers_ = true;
     }
 
-    bool finishCall(CallCompileState* call, TlsUsage tls)
+    bool finishCall(CallCompileState* call, TlsUsage tls, bool wasmCall = false)
     {
         MOZ_ALWAYS_TRUE(callStack_.popCopy() == call);
 
@@ -750,15 +829,24 @@ class FunctionCompiler
                 return false;
         }
 
-        uint32_t stackBytes = call->abi_.stackBytesConsumedSoFar();
+        uint32_t instanceBytes = wasmCall ? FrameInstanceBytes : 0;
+        uint32_t stackBytes = call->abi_.stackBytesConsumedSoFar() + instanceBytes;
+        if (instanceBytes) {
+            for (MWasmStackArg* stackArg : call->stackArgs_)
+                stackArg->incrementOffset(instanceBytes);
+        }
 
         // If this is a potentially-inter-module call, allocate an extra word of
         // stack space to save/restore the caller's WasmTlsReg during the call.
         // Record the stack offset before including spIncrement since MWasmCall
         // will use this offset after having bumped the stack pointer.
         if (tls == TlsUsage::CallerSaved) {
-            call->tlsStackOffset_ = stackBytes;
-            stackBytes += sizeof(void*);
+            if (instanceBytes) {
+                call->tlsStackOffset_ = FrameCallerTLSOffset - sizeof(Frame);
+            } else {
+                call->tlsStackOffset_ = stackBytes;
+                stackBytes += sizeof(void*);
+            }
         }
 
         if (call->childClobbers_) {
@@ -879,8 +967,16 @@ class FunctionCompiler
         }
 
         CallSiteDesc desc(call.lineOrBytecode_, CallSiteDesc::Symbolic);
-        auto callee = CalleeDesc::builtin(builtin);
-        auto* ins = MWasmCall::New(alloc(), desc, callee, call.regArgs_, ToMIRType(ret),
+        auto callee = CalleeDesc::builtin(SymbolicAddressWithTLS(builtin));
+        MWasmCall::Args args;
+        if (!args.appendAll(call.regArgs_))
+            return false;
+#if defined(JS_CODEGEN_X86)
+        // A hidden fixed register operand, not another native ABI argument.
+        if (!args.append(MWasmCall::Arg(AnyRegister(WasmTlsReg), tlsPointer_)))
+            return false;
+#endif
+        auto* ins = MWasmCall::New(alloc(), desc, callee, args, ToMIRType(ret),
                                    call.spIncrement_, MWasmCall::DontSaveTls);
         if (!ins)
             return false;
@@ -899,7 +995,9 @@ class FunctionCompiler
         }
 
         CallSiteDesc desc(call.lineOrBytecode_, CallSiteDesc::Symbolic);
-        auto* ins = MWasmCall::NewBuiltinInstanceMethodCall(alloc(), desc, builtin,
+        // finishCall already appends the TLS operand for these instance
+        // methods (Need/CallerSaved), unlike ordinary native math calls.
+        auto* ins = MWasmCall::NewBuiltinInstanceMethodCall(alloc(), desc, SymbolicAddressWithTLS(builtin),
                                                             call.instanceArg_, call.regArgs_,
                                                             ToMIRType(ret), call.spIncrement_,
                                                             call.tlsStackOffset_);
@@ -1668,7 +1766,7 @@ EmitCallArgs(FunctionCompiler& f, const Sig& sig, TlsUsage tls, CallCompileState
     if (!f.iter().readCallArgsEnd(numArgs))
         return false;
 
-    return f.finishCall(call, tls);
+    return f.finishCall(call, tls, /* wasmCall = */ true);
 }
 
 static bool
@@ -1920,7 +2018,7 @@ EmitTruncate(FunctionCompiler& f, ValType operandType, ValType resultType,
 
     if (resultType == ValType::I32) {
         if (f.mg().isAsmJS())
-            f.iter().setResult(f.unary<MTruncateToInt32>(input));
+            f.iter().setResult(f.truncateAsmJS(input));
         else
             f.iter().setResult(f.truncate<MWasmTruncateToInt32>(input, isUnsigned));
     } else {

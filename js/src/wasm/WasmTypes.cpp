@@ -28,6 +28,7 @@
 #include "jit/MacroAssembler.h"
 #include "js/Conversions.h"
 #include "vm/Interpreter.h"
+#include "wasm/WasmFrameIterator.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmSerialize.h"
 #include "wasm/WasmSignalHandlers.h"
@@ -68,25 +69,22 @@ __aeabi_uidivmod(int, int);
 }
 #endif
 
-static void
-WasmReportOverRecursed()
+static WasmActivation*
+WasmHandleThrow()
 {
-    ReportOverRecursed(JSRuntime::innermostWasmActivation()->cx());
+    WasmActivation* activation = JSRuntime::innermostWasmActivation();
+    activation->clearInterruptState();
+    return activation;
 }
 
-static bool
+static void*
 WasmHandleExecutionInterrupt()
 {
     WasmActivation* activation = JSRuntime::innermostWasmActivation();
     bool success = CheckForInterrupt(activation->cx());
-
-    // Preserve the invariant that having a non-null resumePC means that we are
-    // handling an interrupt.  Note that resumePC has already been copied onto
-    // the stack by the interrupt stub, so we can clear it before returning
-    // to the stub.
-    activation->setResumePC(nullptr);
-
-    return success;
+    void* resumePC = activation->resumePC();
+    activation->clearInterruptState();
+    return success ? resumePC : nullptr;
 }
 
 static void
@@ -253,16 +251,101 @@ FuncCast(F* pf, ABIFunctionType type)
     return pv;
 }
 
-void*
-wasm::AddressOf(SymbolicAddress imm, ExclusiveContext* cx)
+SymbolicAddress
+wasm::CanonicalSymbolicAddress(SymbolicAddress imm)
 {
     switch (imm) {
-      case SymbolicAddress::Context:
-        return cx->contextAddressForJit();
-      case SymbolicAddress::InterruptUint32:
-        return cx->runtimeAddressOfInterruptUint32();
-      case SymbolicAddress::ReportOverRecursed:
-        return FuncCast(WasmReportOverRecursed, Args_General0);
+      case SymbolicAddress::ToInt32TLS: return SymbolicAddress::ToInt32;
+      case SymbolicAddress::ModDTLS: return SymbolicAddress::ModD;
+      case SymbolicAddress::SinDTLS: return SymbolicAddress::SinD;
+      case SymbolicAddress::CosDTLS: return SymbolicAddress::CosD;
+      case SymbolicAddress::TanDTLS: return SymbolicAddress::TanD;
+      case SymbolicAddress::ASinDTLS: return SymbolicAddress::ASinD;
+      case SymbolicAddress::ACosDTLS: return SymbolicAddress::ACosD;
+      case SymbolicAddress::ATanDTLS: return SymbolicAddress::ATanD;
+      case SymbolicAddress::CeilDTLS: return SymbolicAddress::CeilD;
+      case SymbolicAddress::CeilFTLS: return SymbolicAddress::CeilF;
+      case SymbolicAddress::FloorDTLS: return SymbolicAddress::FloorD;
+      case SymbolicAddress::FloorFTLS: return SymbolicAddress::FloorF;
+      case SymbolicAddress::TruncDTLS: return SymbolicAddress::TruncD;
+      case SymbolicAddress::TruncFTLS: return SymbolicAddress::TruncF;
+      case SymbolicAddress::NearbyIntDTLS: return SymbolicAddress::NearbyIntD;
+      case SymbolicAddress::NearbyIntFTLS: return SymbolicAddress::NearbyIntF;
+      case SymbolicAddress::ExpDTLS: return SymbolicAddress::ExpD;
+      case SymbolicAddress::LogDTLS: return SymbolicAddress::LogD;
+      case SymbolicAddress::PowDTLS: return SymbolicAddress::PowD;
+      case SymbolicAddress::ATan2DTLS: return SymbolicAddress::ATan2D;
+      case SymbolicAddress::DivI64TLS: return SymbolicAddress::DivI64;
+      case SymbolicAddress::UDivI64TLS: return SymbolicAddress::UDivI64;
+      case SymbolicAddress::ModI64TLS: return SymbolicAddress::ModI64;
+      case SymbolicAddress::UModI64TLS: return SymbolicAddress::UModI64;
+      case SymbolicAddress::TruncateDoubleToInt64TLS: return SymbolicAddress::TruncateDoubleToInt64;
+      case SymbolicAddress::TruncateDoubleToUint64TLS: return SymbolicAddress::TruncateDoubleToUint64;
+      case SymbolicAddress::Uint64ToFloatingPointTLS: return SymbolicAddress::Uint64ToFloatingPoint;
+      case SymbolicAddress::Int64ToFloatingPointTLS: return SymbolicAddress::Int64ToFloatingPoint;
+      case SymbolicAddress::GrowMemoryTLS: return SymbolicAddress::GrowMemory;
+      case SymbolicAddress::CurrentMemoryTLS: return SymbolicAddress::CurrentMemory;
+      default: return imm;
+    }
+}
+
+bool
+wasm::SymbolicAddressRequiresTLS(SymbolicAddress imm)
+{
+    return CanonicalSymbolicAddress(imm) != imm;
+}
+
+SymbolicAddress
+wasm::SymbolicAddressWithTLS(SymbolicAddress imm)
+{
+#if defined(JS_CODEGEN_X86)
+    switch (imm) {
+      case SymbolicAddress::ToInt32: return SymbolicAddress::ToInt32TLS;
+      case SymbolicAddress::ModD: return SymbolicAddress::ModDTLS;
+      case SymbolicAddress::SinD: return SymbolicAddress::SinDTLS;
+      case SymbolicAddress::CosD: return SymbolicAddress::CosDTLS;
+      case SymbolicAddress::TanD: return SymbolicAddress::TanDTLS;
+      case SymbolicAddress::ASinD: return SymbolicAddress::ASinDTLS;
+      case SymbolicAddress::ACosD: return SymbolicAddress::ACosDTLS;
+      case SymbolicAddress::ATanD: return SymbolicAddress::ATanDTLS;
+      case SymbolicAddress::CeilD: return SymbolicAddress::CeilDTLS;
+      case SymbolicAddress::CeilF: return SymbolicAddress::CeilFTLS;
+      case SymbolicAddress::FloorD: return SymbolicAddress::FloorDTLS;
+      case SymbolicAddress::FloorF: return SymbolicAddress::FloorFTLS;
+      case SymbolicAddress::TruncD: return SymbolicAddress::TruncDTLS;
+      case SymbolicAddress::TruncF: return SymbolicAddress::TruncFTLS;
+      case SymbolicAddress::NearbyIntD: return SymbolicAddress::NearbyIntDTLS;
+      case SymbolicAddress::NearbyIntF: return SymbolicAddress::NearbyIntFTLS;
+      case SymbolicAddress::ExpD: return SymbolicAddress::ExpDTLS;
+      case SymbolicAddress::LogD: return SymbolicAddress::LogDTLS;
+      case SymbolicAddress::PowD: return SymbolicAddress::PowDTLS;
+      case SymbolicAddress::ATan2D: return SymbolicAddress::ATan2DTLS;
+      case SymbolicAddress::DivI64: return SymbolicAddress::DivI64TLS;
+      case SymbolicAddress::UDivI64: return SymbolicAddress::UDivI64TLS;
+      case SymbolicAddress::ModI64: return SymbolicAddress::ModI64TLS;
+      case SymbolicAddress::UModI64: return SymbolicAddress::UModI64TLS;
+      case SymbolicAddress::TruncateDoubleToInt64: return SymbolicAddress::TruncateDoubleToInt64TLS;
+      case SymbolicAddress::TruncateDoubleToUint64: return SymbolicAddress::TruncateDoubleToUint64TLS;
+      case SymbolicAddress::Uint64ToFloatingPoint: return SymbolicAddress::Uint64ToFloatingPointTLS;
+      case SymbolicAddress::Int64ToFloatingPoint: return SymbolicAddress::Int64ToFloatingPointTLS;
+      case SymbolicAddress::GrowMemory: return SymbolicAddress::GrowMemoryTLS;
+      case SymbolicAddress::CurrentMemory: return SymbolicAddress::CurrentMemoryTLS;
+      default: return imm;
+    }
+#else
+    return imm;
+#endif
+}
+
+void*
+wasm::AddressOf(SymbolicAddress imm)
+{
+    imm = CanonicalSymbolicAddress(imm);
+    switch (imm) {
+      case SymbolicAddress::LookupFrameTLS:
+        return FuncCast(LookupFrameTLS, Args_General1);
+      case SymbolicAddress::HandleThrow:
+        return FuncCast(WasmHandleThrow, Args_General0);
       case SymbolicAddress::HandleExecutionInterrupt:
         return FuncCast(WasmHandleExecutionInterrupt, Args_General0);
       case SymbolicAddress::ReportTrap:
@@ -368,6 +451,70 @@ wasm::AddressOf(SymbolicAddress imm, ExclusiveContext* cx)
     }
 
     MOZ_CRASH("Bad SymbolicAddress");
+}
+
+ABIFunctionType
+wasm::SymbolicAddressSignature(SymbolicAddress imm)
+{
+    imm = CanonicalSymbolicAddress(imm);
+    switch (imm) {
+      case SymbolicAddress::ToInt32:
+        return Args_Int_Double;
+      case SymbolicAddress::DivI64:
+      case SymbolicAddress::UDivI64:
+      case SymbolicAddress::ModI64:
+      case SymbolicAddress::UModI64:
+        return Args_General4;
+      case SymbolicAddress::TruncateDoubleToUint64:
+      case SymbolicAddress::TruncateDoubleToInt64:
+        return Args_Int64_Double;
+      case SymbolicAddress::Uint64ToFloatingPoint:
+      case SymbolicAddress::Int64ToFloatingPoint:
+        return Args_Double_IntInt;
+      case SymbolicAddress::ModD:
+      case SymbolicAddress::PowD:
+      case SymbolicAddress::ATan2D:
+        return Args_Double_DoubleDouble;
+      case SymbolicAddress::SinD:
+      case SymbolicAddress::CosD:
+      case SymbolicAddress::TanD:
+      case SymbolicAddress::ASinD:
+      case SymbolicAddress::ACosD:
+      case SymbolicAddress::ATanD:
+      case SymbolicAddress::CeilD:
+      case SymbolicAddress::FloorD:
+      case SymbolicAddress::TruncD:
+      case SymbolicAddress::NearbyIntD:
+      case SymbolicAddress::ExpD:
+      case SymbolicAddress::LogD:
+        return Args_Double_Double;
+      case SymbolicAddress::CeilF:
+      case SymbolicAddress::FloorF:
+      case SymbolicAddress::TruncF:
+      case SymbolicAddress::NearbyIntF:
+        return Args_Float32_Float32;
+      case SymbolicAddress::GrowMemory:
+        return Args_General2;
+      case SymbolicAddress::CurrentMemory:
+      case SymbolicAddress::LookupFrameTLS:
+        return Args_General1;
+#if defined(JS_CODEGEN_ARM)
+      case SymbolicAddress::aeabi_idivmod:
+      case SymbolicAddress::aeabi_uidivmod:
+        return Args_General2;
+      case SymbolicAddress::AtomicCmpXchg:
+        return Args_General5;
+      case SymbolicAddress::AtomicXchg:
+      case SymbolicAddress::AtomicFetchAdd:
+      case SymbolicAddress::AtomicFetchSub:
+      case SymbolicAddress::AtomicFetchAnd:
+      case SymbolicAddress::AtomicFetchOr:
+      case SymbolicAddress::AtomicFetchXor:
+        return Args_General4;
+#endif
+      default:
+        MOZ_CRASH("Symbolic address does not use a builtin wrapper");
+    }
 }
 
 static uint32_t
@@ -570,12 +717,14 @@ SigWithId::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
 
 Assumptions::Assumptions(JS::BuildIdCharVector&& buildId)
   : cpuId(GetCPUID()),
-    buildId(Move(buildId))
+    buildId(Move(buildId)),
+    compilerABI(WasmCompilerABI::ClassicSpecialized)
 {}
 
 Assumptions::Assumptions()
   : cpuId(GetCPUID()),
-    buildId()
+    buildId(),
+    compilerABI(WasmCompilerABI::ClassicSpecialized)
 {}
 
 bool
@@ -592,6 +741,7 @@ bool
 Assumptions::clone(const Assumptions& other)
 {
     cpuId = other.cpuId;
+    compilerABI = other.compilerABI;
     return buildId.appendAll(other.buildId);
 }
 
@@ -599,15 +749,29 @@ bool
 Assumptions::operator==(const Assumptions& rhs) const
 {
     return cpuId == rhs.cpuId &&
+           compilerABI == rhs.compilerABI &&
            buildId.length() == rhs.buildId.length() &&
            PodEqual(buildId.begin(), rhs.buildId.begin(), buildId.length());
 }
+
+// Encode the code-generation ABI inside the existing build-id vector format.
+// This also invalidates native caches when a developer rebuilds with a fixed
+// application build id. Old engines see a different build id and reject it.
+// The metadata alias fix must invalidate code produced while a bounded memory
+// was assumed immovable, even when the embedding build ID has not changed.
+// The serialized ABI marker covers both codegen layout and the tier-selected
+// compiler mode stored in the final byte of the build-id suffix.
+#ifdef JS_CODEGEN_X86
+static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v9";
+#else
+static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v7";
+#endif
 
 size_t
 Assumptions::serializedSize() const
 {
     return sizeof(uint32_t) +
-           SerializedPodVectorSize(buildId);
+           SerializedPodVectorSize(buildId) + sizeof(WasmCodeABI) + sizeof(uint8_t);
 }
 
 uint8_t*
@@ -618,7 +782,10 @@ Assumptions::serialize(uint8_t* cursor) const
     // assumptions of a different build-id.
 
     cursor = WriteScalar<uint32_t>(cursor, cpuId);
-    cursor = SerializePodVector(cursor, buildId);
+    cursor = WriteScalar<uint32_t>(cursor, buildId.length() + sizeof(WasmCodeABI) + sizeof(uint8_t));
+    cursor = WriteBytes(cursor, buildId.begin(), buildId.length());
+    cursor = WriteBytes(cursor, WasmCodeABI, sizeof(WasmCodeABI));
+    cursor = WriteScalar<uint8_t>(cursor, uint8_t(compilerABI));
     return cursor;
 }
 
@@ -627,6 +794,17 @@ Assumptions::deserialize(const uint8_t* cursor, size_t remain)
 {
     (cursor = ReadScalarChecked<uint32_t>(cursor, &remain, &cpuId)) &&
     (cursor = DeserializePodVectorChecked(cursor, &remain, &buildId));
+    const size_t suffixLength = sizeof(WasmCodeABI) + sizeof(uint8_t);
+    if (!cursor || buildId.length() < suffixLength ||
+        memcmp(buildId.end() - suffixLength, WasmCodeABI, sizeof(WasmCodeABI)))
+    {
+        return nullptr;
+    }
+    uint8_t abi = uint8_t(buildId[buildId.length() - 1]);
+    if (abi > uint8_t(WasmCompilerABI::SharedDynamicTLS))
+        return nullptr;
+    compilerABI = WasmCompilerABI(abi);
+    buildId.shrinkBy(suffixLength);
     return cursor;
 }
 

@@ -2216,6 +2216,74 @@ LIRGenerator::visitTruncateToInt32(MTruncateToInt32* truncate)
 }
 
 void
+LIRGenerator::visitWasmBuiltinDivI64(MWasmBuiltinDivI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto lhs = useInt64Fixed(ins->lhs(), Register64(eax, ebx), /* useAtStart = */ true);
+    auto rhs = useInt64Fixed(ins->rhs(), Register64(ecx, edx), /* useAtStart = */ true);
+    auto instance = useFixedAtStart(ins->instance(), WasmTlsReg);
+    if (ins->isUnsigned())
+        defineReturn(new(alloc()) LUDivOrModI64(lhs, rhs, instance), ins);
+    else
+        defineReturn(new(alloc()) LDivOrModI64(lhs, rhs, instance), ins);
+#else
+    MOZ_CRASH("Builtin i64 division requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinModI64(MWasmBuiltinModI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto lhs = useInt64Fixed(ins->lhs(), Register64(eax, ebx), /* useAtStart = */ true);
+    auto rhs = useInt64Fixed(ins->rhs(), Register64(ecx, edx), /* useAtStart = */ true);
+    auto instance = useFixedAtStart(ins->instance(), WasmTlsReg);
+    if (ins->isUnsigned())
+        defineReturn(new(alloc()) LUDivOrModI64(lhs, rhs, instance), ins);
+    else
+        defineReturn(new(alloc()) LDivOrModI64(lhs, rhs, instance), ins);
+#else
+    MOZ_CRASH("Builtin i64 modulo requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinModD(MWasmBuiltinModD* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto* lir = new(alloc()) LModD(useRegisterAtStart(ins->lhs()),
+                                    useRegisterAtStart(ins->rhs()),
+                                    tempFixed(CallTempReg0),
+                                    useFixedAtStart(ins->instance(), WasmTlsReg));
+    defineReturn(lir, ins);
+#else
+    MOZ_CRASH("Builtin floating modulo requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    // Keep TLS live through the entire instruction: its slow path can make
+    // a native call after the fast conversion has used the output register.
+    auto instance = useFixed(ins->instance(), WasmTlsReg);
+    if (ins->input()->type() == MIRType::Int32) {
+        redefine(ins, ins->input());
+    } else if (ins->input()->type() == MIRType::Double) {
+        auto maybeTemp = Assembler::HasSSE3() ? LDefinition::BogusTemp() : tempDouble();
+        define(new(alloc()) LTruncateDToInt32(useRegister(ins->input()), maybeTemp, instance), ins);
+    } else {
+        MOZ_ASSERT(ins->input()->type() == MIRType::Float32);
+        auto maybeTemp = Assembler::HasSSE3() ? LDefinition::BogusTemp() : tempFloat32();
+        define(new(alloc()) LTruncateFToInt32(useRegister(ins->input()), maybeTemp, instance), ins);
+    }
+#else
+    MOZ_CRASH("Builtin numeric truncation requires the x86 native helper ABI");
+#endif
+}
+
+void
 LIRGenerator::visitWasmTruncateToInt32(MWasmTruncateToInt32* ins)
 {
     MDefinition* input = ins->input();
@@ -4227,37 +4295,81 @@ LIRGenerator::visitWasmAddOffset(MWasmAddOffset* ins)
 }
 
 void
+LIRGenerator::visitWasmLoadTls(MWasmLoadTls* ins)
+{
+#ifdef WASM_HUGE_MEMORY
+    // This will disappear once we remove HeapReg and replace it with a load
+    // from Tls, but in the mean time it keeps us sane.
+    MOZ_CRASH("No WasmLoadTls here at the moment");
+#endif
+    // Upstream folds a single-use instance-field load into its bounds check.
+    // Keep that optimization valid for capped memories by retaining the heap
+    // metadata alias; the value may change after a moving grow.
+    if (ins->canEmitAtUses() && ins->hasOneUse()) {
+        MUseIterator iter(ins->usesBegin());
+        MNode* node = iter->consumer();
+        if (node->isDefinition() && node->toDefinition()->isInstruction() &&
+            node->toDefinition()->toInstruction()->isWasmBoundsCheck())
+        {
+            emitAtUses(ins);
+            return;
+        }
+    }
+
+    auto* lir = new(alloc()) LWasmLoadTls(useRegisterAtStart(ins->tlsPtr()));
+    define(lir, ins);
+}
+
+void
 LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 {
+#ifdef WASM_HUGE_MEMORY
+    MOZ_CRASH("No bounds checking on huge memory");
+#else
     if (ins->isRedundant()) {
         if (MOZ_LIKELY(!JitOptions.wasmAlwaysCheckBounds))
             return;
     }
 
-    MDefinition* input = ins->input();
-    MOZ_ASSERT(input->type() == MIRType::Int32);
+    MDefinition* index = ins->index();
+    MOZ_ASSERT(index->type() == MIRType::Int32);
 
-    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(input));
+    MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
+    MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
+
+    if (boundsCheckLimit->isWasmLoadTls() && boundsCheckLimit->isEmittedAtUses()) {
+        MWasmLoadTls* load = boundsCheckLimit->toWasmLoadTls();
+        auto* lir = new(alloc()) LWasmBoundsCheckTlsField(
+            useRegisterAtStart(index), useRegisterAtStart(load->tlsPtr()), load->offset());
+        add(lir, ins);
+        return;
+    }
+
+    auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(index),
+        boundsCheckLimit->isConstant() ? LAllocation() : useRegisterAtStart(boundsCheckLimit));
     add(lir, ins);
+#endif
 }
 
 void
 LIRGenerator::visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins)
 {
+    LAllocation tlsPtr = ins->isClassic() ? LAllocation() : useRegisterAtStart(ins->tlsPtr());
     if (ins->type() == MIRType::Int64)
-        defineInt64(new(alloc()) LWasmLoadGlobalVarI64, ins);
+        defineInt64(new(alloc()) LWasmLoadGlobalVarI64(tlsPtr), ins);
     else
-        define(new(alloc()) LWasmLoadGlobalVar, ins);
+        define(new(alloc()) LWasmLoadGlobalVar(tlsPtr), ins);
 }
 
 void
 LIRGenerator::visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins)
 {
     MDefinition* value = ins->value();
+    LAllocation tlsPtr = ins->isClassic() ? LAllocation() : useRegisterAtStart(ins->tlsPtr());
     if (value->type() == MIRType::Int64)
-        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value)), ins);
+        add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value), tlsPtr), ins);
     else
-        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value)), ins);
+        add(new(alloc()) LWasmStoreGlobalVar(useRegisterAtStart(value), tlsPtr), ins);
 }
 
 void

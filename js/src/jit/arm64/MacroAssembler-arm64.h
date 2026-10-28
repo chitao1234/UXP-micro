@@ -2258,13 +2258,15 @@ class MacroAssemblerCompat : public vixl::MacroAssembler
 #endif
     }
 
+    void loadInt32x4(const Address& src, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeInt32x4(FloatRegister src, const Address& dest) { MOZ_CRASH("NYI"); }
+    void loadFloat32x4(const Address& src, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeFloat32x4(FloatRegister src, const Address& addr) { MOZ_CRASH("NYI"); }
     void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
-        loadPtr(Address(GlobalReg, globalDataOffset - WasmGlobalRegBias), dest);
+        loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalArea) + globalDataOffset), dest);
     }
     void loadWasmPinnedRegsFromTls() {
         loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, memoryBase)), HeapReg);
-        loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, globalData)), GlobalReg);
-        adds32(Imm32(WasmGlobalRegBias), GlobalReg);
     }
 
     // Overwrites the payload bits of a dest register containing a Value.

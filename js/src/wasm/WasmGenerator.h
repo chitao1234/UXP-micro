@@ -38,6 +38,7 @@ class FunctionGenerator;
 struct ModuleGeneratorData
 {
     ModuleKind                kind;
+    WasmCompilerABI           compilerABI;
     MemoryUsage               memoryUsage;
     mozilla::Atomic<uint32_t> minMemoryLength;
     Maybe<uint32_t>           maxMemoryLength;
@@ -51,6 +52,7 @@ struct ModuleGeneratorData
 
     explicit ModuleGeneratorData(ModuleKind kind = ModuleKind::Wasm)
       : kind(kind),
+        compilerABI(WasmCompilerABI::ClassicSpecialized),
         memoryUsage(MemoryUsage::None),
         minMemoryLength(0)
     {}
@@ -76,7 +78,7 @@ class MOZ_STACK_CLASS ModuleGenerator
     typedef HashSet<uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy> Uint32Set;
     typedef Vector<IonCompileTask, 0, SystemAllocPolicy> IonCompileTaskVector;
     typedef Vector<IonCompileTask*, 0, SystemAllocPolicy> IonCompileTaskPtrVector;
-    typedef EnumeratedArray<Trap, Trap::Limit, ProfilingOffsets> TrapExitOffsetArray;
+    typedef EnumeratedArray<Trap, Trap::Limit, CallableOffsets> TrapExitOffsetArray;
 
     // Constant parameters
     bool                            alwaysBaseline_;

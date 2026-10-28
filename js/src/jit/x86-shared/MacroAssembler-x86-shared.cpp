@@ -562,6 +562,13 @@ MacroAssembler::Push(FloatRegister t)
 }
 
 void
+MacroAssembler::PushFlags()
+{
+    pushFlags();
+    adjustFrame(sizeof(intptr_t));
+}
+
+void
 MacroAssembler::Pop(const Operand op)
 {
     pop(op);
@@ -587,6 +594,13 @@ MacroAssembler::Pop(const ValueOperand& val)
 {
     popValue(val);
     implicitPop(sizeof(Value));
+}
+
+void
+MacroAssembler::PopFlags()
+{
+    popFlags();
+    implicitPop(sizeof(intptr_t));
 }
 
 // ===============================================================

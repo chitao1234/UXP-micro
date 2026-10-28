@@ -42,6 +42,7 @@
 #include "vm/Runtime.h"
 #include "vm/SharedMem.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmFrameIterator.h"
 #include "wasm/WasmSignalHandlers.h"
 
 extern "C" {
@@ -1543,7 +1544,7 @@ Simulator::handleWasmFault(int32_t addr, unsigned numBytes)
         return false;
 
     void* pc = reinterpret_cast<void*>(get_pc());
-    wasm::Instance* instance = act->compartment()->wasm.lookupInstanceDeprecated(pc);
+    wasm::Instance* instance = wasm::LookupFaultingInstance(act, pc);
     if (!instance || !instance->memoryAccessInGuardRegion((uint8_t*)addr, numBytes))
         return false;
 

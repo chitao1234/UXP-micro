@@ -106,22 +106,19 @@ js::wasm::ShutDownInstanceStaticData()
 const void**
 Instance::addressOfSigId(const SigIdDesc& sigId) const
 {
-    MOZ_ASSERT(sigId.globalDataOffset() >= InitialGlobalDataBytes);
-    return (const void**)(codeSegment().globalData() + sigId.globalDataOffset());
+    return (const void**)(globalSegment().globalData() + sigId.globalDataOffset());
 }
 
 FuncImportTls&
 Instance::funcImportTls(const FuncImport& fi)
 {
-    MOZ_ASSERT(fi.tlsDataOffset() >= InitialGlobalDataBytes);
-    return *(FuncImportTls*)(codeSegment().globalData() + fi.tlsDataOffset());
+    return *(FuncImportTls*)(globalSegment().globalData() + fi.tlsDataOffset());
 }
 
 TableTls&
 Instance::tableTls(const TableDesc& td) const
 {
-    MOZ_ASSERT(td.globalDataOffset >= InitialGlobalDataBytes);
-    return *(TableTls*)(codeSegment().globalData() + td.globalDataOffset);
+    return *(TableTls*)(globalSegment().globalData() + td.globalDataOffset);
 }
 
 bool
@@ -293,7 +290,7 @@ Instance::growMemory_i32(Instance* instance, uint32_t delta)
     uint32_t ret = WasmMemoryObject::grow(memory, delta, cx);
 
     // If there has been a moving grow, this Instance should have been notified.
-    MOZ_RELEASE_ASSERT(instance->tlsData_.memoryBase ==
+    MOZ_RELEASE_ASSERT(instance->tlsData()->memoryBase ==
                        instance->memory_->buffer().dataPointerEither());
 
     return ret;
@@ -309,7 +306,8 @@ Instance::currentMemory_i32(Instance* instance)
 
 Instance::Instance(JSContext* cx,
                    Handle<WasmInstanceObject*> object,
-                   UniqueCode code,
+                   SharedCode code,
+                   UniqueGlobalSegment globals,
                    HandleWasmMemoryObject memory,
                    SharedTableVector&& tables,
                    Handle<FunctionVector> funcImports,
@@ -317,17 +315,22 @@ Instance::Instance(JSContext* cx,
   : compartment_(cx->compartment()),
     object_(object),
     code_(Move(code)),
+    globals_(Move(globals)),
     memory_(memory),
     tables_(Move(tables))
 {
     MOZ_ASSERT(funcImports.length() == metadata().funcImports.length());
     MOZ_ASSERT(tables_.length() == metadata().tables.length());
 
-    tlsData_.cx = cx;
-    tlsData_.instance = this;
-    tlsData_.globalData = code_->segment().globalData();
-    tlsData_.memoryBase = memory ? memory->buffer().dataPointerEither().unwrap() : nullptr;
-    tlsData_.stackLimit = *(void**)cx->stackLimitAddressForJitCode(StackForUntrustedScript);
+    tlsData()->cx = cx;
+    tlsData()->instance = this;
+    tlsData()->globalData = globals_->globalData();
+    tlsData()->memoryBase = memory ? memory->buffer().dataPointerEither().unwrap() : nullptr;
+
+#ifndef WASM_HUGE_MEMORY
+    tlsData()->boundsCheckLimit = memory ? memory->buffer().wasmBoundsCheckLimit() : 0;
+#endif
+    tlsData()->stackLimit = *(void**)cx->stackLimitAddressForJitCode(StackForUntrustedScript);
 
     for (size_t i = 0; i < metadata().funcImports.length(); i++) {
         HandleFunction f = funcImports[i];
@@ -337,12 +340,12 @@ Instance::Instance(JSContext* cx,
             WasmInstanceObject* calleeInstanceObj = ExportedFunctionToInstanceObject(f);
             const CodeRange& codeRange = calleeInstanceObj->getExportedFunctionCodeRange(f);
             Instance& calleeInstance = calleeInstanceObj->instance();
-            import.tls = &calleeInstance.tlsData_;
-            import.code = calleeInstance.codeSegment().base() + codeRange.funcNonProfilingEntry();
+            import.tls = calleeInstance.tlsData();
+            import.code = calleeInstance.codeSegment().base() + codeRange.funcNormalEntry();
             import.baselineScript = nullptr;
             import.obj = calleeInstanceObj;
         } else {
-            import.tls = &tlsData_;
+            import.tls = tlsData();
             import.code = codeBase() + fi.interpExitCodeOffset();
             import.baselineScript = nullptr;
             import.obj = f;
@@ -356,7 +359,7 @@ Instance::Instance(JSContext* cx,
         table.base = tables_[i]->base();
     }
 
-    uint8_t* globalData = code_->segment().globalData();
+    uint8_t* globalData = globals_->globalData();
 
     for (size_t i = 0; i < metadata().globals.length(); i++) {
         const GlobalDesc& global = metadata().globals[i];
@@ -496,7 +499,7 @@ SharedMem<uint8_t*>
 Instance::memoryBase() const
 {
     MOZ_ASSERT(metadata().usesMemory());
-    MOZ_ASSERT(tlsData_.memoryBase == memory_->buffer().dataPointerEither());
+    MOZ_ASSERT(tlsData()->memoryBase == memory_->buffer().dataPointerEither());
     return memory_->buffer().dataPointerEither();
 }
 
@@ -522,10 +525,7 @@ bool
 Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args)
 {
     // If there has been a moving grow, this Instance should have been notified.
-    MOZ_RELEASE_ASSERT(!memory_ || tlsData_.memoryBase == memory_->buffer().dataPointerEither());
-
-    if (!cx->compartment()->wasm.ensureProfilingState(cx))
-        return false;
+    MOZ_RELEASE_ASSERT(!memory_ || tlsData()->memoryBase == memory_->buffer().dataPointerEither());
 
     const FuncExport& func = metadata().lookupFuncExport(funcIndex);
 
@@ -589,7 +589,7 @@ Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args)
 
         // Call the per-exported-function trampoline created by GenerateEntry.
         auto funcPtr = JS_DATA_TO_FUNC_PTR(ExportFuncPtr, codeBase() + func.entryOffset());
-        if (!CALL_GENERATED_2(funcPtr, exportArgs.begin(), &tlsData_))
+        if (!CALL_GENERATED_2(funcPtr, exportArgs.begin(), tlsData()))
             return false;
     }
 
@@ -656,8 +656,12 @@ Instance::onMovingGrowMemory(uint8_t* prevMemoryBase)
 {
     MOZ_ASSERT(!isAsmJS());
     ArrayBufferObject& buffer = memory_->buffer().as<ArrayBufferObject>();
-    tlsData_.memoryBase = buffer.dataPointer();
-    code_->segment().onMovingGrow(prevMemoryBase, metadata(), buffer);
+    if (!code_->usesSharedDynamicTLS())
+        code_->segment().onMovingGrow(prevMemoryBase, metadata(), buffer);
+    tlsData()->memoryBase = buffer.dataPointer();
+#ifndef WASM_HUGE_MEMORY
+    tlsData()->boundsCheckLimit = buffer.wasmBoundsCheckLimit();
+#endif
 }
 
 void
@@ -679,73 +683,57 @@ Instance::deoptimizeImportExit(uint32_t funcImportIndex)
     import.baselineScript = nullptr;
 }
 
-static void
-UpdateEntry(const Code& code, bool profilingEnabled, void** entry)
-{
-    const CodeRange& codeRange = *code.lookupRange(*entry);
-    void* from = code.segment().base() + codeRange.funcNonProfilingEntry();
-    void* to = code.segment().base() + codeRange.funcProfilingEntry();
-
-    if (!profilingEnabled)
-        Swap(from, to);
-
-    MOZ_ASSERT(*entry == from);
-    *entry = to;
-}
-
-bool
-Instance::ensureProfilingState(JSContext* cx, bool newProfilingEnabled)
-{
-    if (code_->profilingEnabled() == newProfilingEnabled)
-        return true;
-
-    if (!code_->ensureProfilingState(cx, newProfilingEnabled))
-        return false;
-
-    // Imported wasm functions and typed function tables point directly to
-    // either the profiling or non-profiling prologue and must therefore be
-    // updated when the profiling mode is toggled.
-
-    for (const FuncImport& fi : metadata().funcImports) {
-        FuncImportTls& import = funcImportTls(fi);
-        if (import.obj && import.obj->is<WasmInstanceObject>()) {
-            Code& code = import.obj->as<WasmInstanceObject>().instance().code();
-            UpdateEntry(code, newProfilingEnabled, &import.code);
-        }
-    }
-
-    for (const SharedTable& table : tables_) {
-        if (!table->isTypedFunction())
-            continue;
-
-        // This logic will have to be generalized to match the import logic
-        // above if wasm can create typed function tables since a single table
-        // can contain elements from multiple instances.
-        MOZ_ASSERT(metadata().kind == ModuleKind::AsmJS);
-
-        void** array = table->internalArray();
-        uint32_t length = table->length();
-        for (size_t i = 0; i < length; i++) {
-            if (array[i])
-                UpdateEntry(*code_, newProfilingEnabled, &array[i]);
-        }
-    }
-
-    return true;
-}
-
 void
 Instance::addSizeOfMisc(MallocSizeOf mallocSizeOf,
                         Metadata::SeenSet* seenMetadata,
                         ShareableBytes::SeenSet* seenBytes,
+                        Code::SeenSet* seenCode,
                         Table::SeenSet* seenTables,
                         size_t* code,
                         size_t* data) const
 {
-    *data += mallocSizeOf(this);
+    *data += mallocSizeOf(this) + globals_->sizeOfMisc(mallocSizeOf);
 
-    code_->addSizeOfMisc(mallocSizeOf, seenMetadata, seenBytes, code, data);
+    code_->addSizeOfMisc(mallocSizeOf, seenMetadata, seenBytes, seenCode, code, data);
 
     for (const SharedTable& table : tables_)
          *data += table->sizeOfIncludingThisIfNotSeen(mallocSizeOf, seenTables);
+}
+
+/* static */ UniqueGlobalSegment
+GlobalSegment::create(uint32_t globalDataLength)
+{
+    MOZ_ASSERT(globalDataLength % gc::SystemPageSize() == 0);
+
+    auto gs = MakeUnique<GlobalSegment>();
+    if (!gs)
+        return nullptr;
+
+    TlsData* tlsData =
+        reinterpret_cast<TlsData*>(js_calloc(offsetof(TlsData, globalArea) + globalDataLength));
+    if (!tlsData)
+        return nullptr;
+
+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+    // We will emit SIMD memory accesses that require 16-byte alignment.
+    MOZ_RELEASE_ASSERT((uintptr_t(tlsData) % 16) == 0);
+#endif
+
+    gs->tlsData_ = tlsData;
+    gs->globalDataLength_ = globalDataLength;
+
+    return gs;
+}
+
+GlobalSegment::~GlobalSegment()
+{
+    js_free(tlsData_);
+}
+
+size_t
+GlobalSegment::sizeOfMisc(MallocSizeOf mallocSizeOf) const
+{
+    // Note, once the GlobalSegment is shared among instances, we will have to
+    // take that sharing into account.
+    return mallocSizeOf(this) + mallocSizeOf(tlsData_);
 }

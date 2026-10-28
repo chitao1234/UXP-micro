@@ -39,11 +39,13 @@ struct CompileArgs
     Assumptions assumptions;
     ScriptedCaller scriptedCaller;
     bool alwaysBaseline;
+    WasmCompilerABI compilerABI = WasmCompilerABI::ClassicSpecialized;
 
     CompileArgs(Assumptions&& assumptions, ScriptedCaller&& scriptedCaller)
       : assumptions(Move(assumptions)),
         scriptedCaller(Move(scriptedCaller)),
-        alwaysBaseline(false)
+        alwaysBaseline(false),
+        compilerABI(this->assumptions.compilerABI)
     {}
 
     // If CompileArgs is constructed without arguments, initFromContext() must

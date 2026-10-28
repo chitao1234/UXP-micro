@@ -3743,6 +3743,29 @@ MTruncateToInt32::foldsTo(TempAllocator& alloc)
 }
 
 MDefinition*
+MWasmBuiltinModD::foldsTo(TempAllocator& alloc)
+{
+    if (!lhs()->isConstant() || !rhs()->isConstant())
+        return this;
+    double result = NumberMod(lhs()->toConstant()->numberToDouble(),
+                             rhs()->toConstant()->numberToDouble());
+    // Match MMod's constant folding, including signed zero and NaN payloads.
+    return MConstant::New(alloc, wasm::RawF64(result));
+}
+
+MDefinition*
+MWasmBuiltinTruncateToInt32::foldsTo(TempAllocator& alloc)
+{
+    // Match MTruncateToInt32's numeric folds. The input is already an asm.js
+    // number, so object coercions and bailout recovery are not applicable.
+    if (input()->type() == MIRType::Int32 && !IsUint32Type(input()))
+        return input();
+    if (input()->type() == MIRType::Double && input()->isConstant())
+        return MConstant::New(alloc, Int32Value(ToInt32(input()->toConstant()->toDouble())));
+    return this;
+}
+
+MDefinition*
 MWasmTruncateToInt32::foldsTo(TempAllocator& alloc)
 {
     MDefinition* input = getOperand(0);

@@ -441,6 +441,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     void Push(const ImmPtr imm) PER_SHARED_ARCH;
     void Push(const ImmGCPtr ptr) PER_SHARED_ARCH;
     void Push(FloatRegister reg) PER_SHARED_ARCH;
+    void PushFlags() DEFINED_ON(x86_shared);
     void Push(jsid id, Register scratchReg);
     void Push(TypedOrValueRegister v);
     void Push(const ConstantOrRegister& v);
@@ -456,6 +457,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     void Pop(Register reg) PER_SHARED_ARCH;
     void Pop(FloatRegister t) PER_SHARED_ARCH;
     void Pop(const ValueOperand& val) PER_SHARED_ARCH;
+    void PopFlags() DEFINED_ON(x86_shared);
     void popRooted(VMFunction::RootType rootType, Register cellReg, const ValueOperand& valueReg);
 
     // Move the stack pointer based on the requested amount.
@@ -1349,19 +1351,28 @@ class MacroAssembler : public MacroAssemblerSpecific
     // ========================================================================
     // wasm support
 
-    // Emit a bounds check against the (dynamically-patched) wasm bounds check
-    // limit, jumping to 'label' if 'cond' holds.
+    // Emit a bounds check against the wasm heap limit, jumping to 'label' if 'cond' holds.
+    // Required when WASM_HUGE_MEMORY is not defined.
     template <class L>
-    inline void wasmBoundsCheck(Condition cond, Register index, L label) PER_ARCH;
+    inline void wasmBoundsCheck(Condition cond, Register index, Register boundsCheckLimit, L label)
+        DEFINED_ON(arm, arm64, mips32, mips64, x86);
 
-    // Called after compilation completes to patch the given limit into the
-    // given instruction's immediate.
-    static inline void wasmPatchBoundsCheck(uint8_t* patchAt, uint32_t limit) PER_ARCH;
+    template <class L>
+    inline void wasmBoundsCheck(Condition cond, Register index, Address boundsCheckLimit, L label)
+        DEFINED_ON(arm, arm64, mips32, mips64, x86);
 
     // On x86, each instruction adds its own wasm::MemoryAccess's to the
     // wasm::MemoryAccessVector (there can be multiple when i64 is involved).
     // On x64, only some asm.js accesses need a wasm::MemoryAccess so the caller
     // is responsible for doing this instead.
+    template <class L>
+    inline void wasmBoundsCheckClassic(Condition cond, Register index, L label) DEFINED_ON(x86);
+    static inline void wasmPatchBoundsCheckClassic(uint8_t* patchAt, uint32_t limit) DEFINED_ON(x86);
+    void wasmLoadClassic(const wasm::MemoryAccessDesc& access, Operand srcAddr, AnyRegister out) DEFINED_ON(x86);
+    void wasmLoadI64Classic(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out) DEFINED_ON(x86);
+    void wasmStoreClassic(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr) DEFINED_ON(x86);
+    void wasmStoreI64Classic(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr) DEFINED_ON(x86);
+
     void wasmLoad(const wasm::MemoryAccessDesc& access, Operand srcAddr, AnyRegister out) DEFINED_ON(x86, x64);
     void wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out) DEFINED_ON(x86, x64);
     void wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr) DEFINED_ON(x86, x64);
@@ -1457,10 +1468,7 @@ class MacroAssembler : public MacroAssemblerSpecific
         loadPtr(Address(WasmTlsReg, offsetof(wasm::TlsData, cx)), dest);
         loadPtr(Address(dest, JSContext::offsetOfWasmActivation()), dest);
     }
-    void loadWasmActivationFromSymbolicAddress(Register dest) {
-        movePtr(wasm::SymbolicAddress::Context, dest);
-        loadPtr(Address(dest, JSContext::offsetOfWasmActivation()), dest);
-    }
+
 
     template<typename T>
     void loadTypedOrValue(const T& src, TypedOrValueRegister dest) {

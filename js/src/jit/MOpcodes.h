@@ -280,6 +280,7 @@ namespace jit {
     _(AsmJSAtomicExchangeHeap)                                              \
     _(AsmJSAtomicBinopHeap)                                                 \
     _(WasmBoundsCheck)                                                      \
+    _(WasmLoadTls)                                                          \
     _(WasmAddOffset)                                                        \
     _(WasmLoad)                                                             \
     _(WasmStore)                                                            \
@@ -296,6 +297,10 @@ namespace jit {
     _(WasmCall)                                                             \
     _(WasmSelect)                                                           \
     _(WasmReinterpret)                                                      \
+    _(WasmBuiltinDivI64)                                                    \
+    _(WasmBuiltinModI64)                                                    \
+    _(WasmBuiltinModD)                                                      \
+    _(WasmBuiltinTruncateToInt32)                                           \
     _(WasmTruncateToInt64)
 
 // Forward declarations of MIR types.

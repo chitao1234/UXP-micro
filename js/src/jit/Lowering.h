@@ -170,6 +170,10 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitToFloat32(MToFloat32* convert);
     void visitToInt32(MToInt32* convert);
     void visitTruncateToInt32(MTruncateToInt32* truncate);
+    void visitWasmBuiltinDivI64(MWasmBuiltinDivI64* ins);
+    void visitWasmBuiltinModI64(MWasmBuiltinModI64* ins);
+    void visitWasmBuiltinModD(MWasmBuiltinModD* ins);
+    void visitWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins);
     void visitWasmTruncateToInt32(MWasmTruncateToInt32* truncate);
     void visitWrapInt64ToInt32(MWrapInt64ToInt32* ins);
     void visitToString(MToString* convert);
@@ -294,6 +298,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitHasClass(MHasClass* ins);
     void visitGuardToClass(MGuardToClass* ins);
     void visitWasmAddOffset(MWasmAddOffset* ins);
+    void visitWasmLoadTls(MWasmLoadTls* ins);
     void visitWasmBoundsCheck(MWasmBoundsCheck* ins);
     void visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins);
     void visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins);

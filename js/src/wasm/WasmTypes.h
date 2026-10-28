@@ -19,6 +19,7 @@
 #ifndef wasm_types_h
 #define wasm_types_h
 
+#include "mozilla/Alignment.h"
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Maybe.h"
@@ -86,6 +87,7 @@ typedef Vector<uint8_t, 0, SystemAllocPolicy> Bytes;
 
 class Code;
 class CodeRange;
+class GlobalSegment;
 class Memory;
 class Module;
 class Instance;
@@ -130,8 +132,10 @@ typedef Vector<Type, 0, SystemAllocPolicy> VectorName;
 // about:memory stats.
 
 template <class T>
-struct ShareableBase : RefCounted<T>
+struct ShareableBase : mozilla::external::AtomicRefCounted<T>
 {
+    const char* typeName() const { return "wasm::ShareableBase"; }
+    size_t typeSize() const { return sizeof(T); }
     using SeenSet = HashSet<const T*, DefaultHasher<const T*>, SystemAllocPolicy>;
 
     size_t sizeOfIncludingThisIfNotSeen(MallocSizeOf mallocSizeOf, SeenSet* seen) const {
@@ -586,7 +590,7 @@ struct SigWithId : Sig
 typedef Vector<SigWithId, 0, SystemAllocPolicy> SigWithIdVector;
 typedef Vector<const SigWithId*, 0, SystemAllocPolicy> SigWithIdPtrVector;
 
-// The (,Profiling,Func)Offsets classes are used to record the offsets of
+// The (,Callable,Func)Offsets classes are used to record the offsets of
 // different key points in a CodeRange during compilation.
 
 struct Offsets
@@ -606,62 +610,39 @@ struct Offsets
     }
 };
 
-struct ProfilingOffsets : Offsets
+struct CallableOffsets : Offsets
 {
-    MOZ_IMPLICIT ProfilingOffsets(uint32_t profilingReturn = 0)
-      : Offsets(), profilingReturn(profilingReturn)
+    MOZ_IMPLICIT CallableOffsets(uint32_t ret = 0)
+      : Offsets(), ret(ret)
     {}
 
-    // For CodeRanges with ProfilingOffsets, 'begin' is the offset of the
-    // profiling entry.
-    uint32_t profilingEntry() const { return begin; }
-
-    // The profiling return is the offset of the return instruction, which
-    // precedes the 'end' by a variable number of instructions due to
-    // out-of-line codegen.
-    uint32_t profilingReturn;
+    // The offset of the return instruction precedes 'end' by a variable number
+    // of instructions due to out-of-line codegen.
+    uint32_t ret;
 
     void offsetBy(uint32_t offset) {
         Offsets::offsetBy(offset);
-        profilingReturn += offset;
+        ret += offset;
     }
 };
 
-struct FuncOffsets : ProfilingOffsets
+struct FuncOffsets : CallableOffsets
 {
     MOZ_IMPLICIT FuncOffsets()
-      : ProfilingOffsets(),
-        tableEntry(0),
-        tableProfilingJump(0),
-        nonProfilingEntry(0),
-        profilingJump(0),
-        profilingEpilogue(0)
+      : CallableOffsets(),
+        normalEntry(0)
     {}
 
     // Function CodeRanges have a table entry which takes an extra signature
     // argument which is checked against the callee's signature before falling
-    // through to the normal prologue. When profiling is enabled, a nop on the
-    // fallthrough is patched to instead jump to the profiling epilogue.
-    uint32_t tableEntry;
-    uint32_t tableProfilingJump;
-
-    // Function CodeRanges have an additional non-profiling entry that comes
-    // after the profiling entry and a non-profiling epilogue that comes before
-    // the profiling epilogue.
-    uint32_t nonProfilingEntry;
-
-    // When profiling is enabled, the 'nop' at offset 'profilingJump' is
-    // overwritten to be a jump to 'profilingEpilogue'.
-    uint32_t profilingJump;
-    uint32_t profilingEpilogue;
+    // through to the normal prologue. The table entry is thus at the beginning
+    // of the CodeRange and the normal entry is at some offset after the table
+    // entry.
+    uint32_t normalEntry;
 
     void offsetBy(uint32_t offset) {
-        ProfilingOffsets::offsetBy(offset);
-        tableEntry += offset;
-        tableProfilingJump += offset;
-        nonProfilingEntry += offset;
-        profilingJump += offset;
-        profilingEpilogue += offset;
+        CallableOffsets::offsetBy(offset);
+        normalEntry += offset;
     }
 };
 
@@ -715,8 +696,12 @@ struct TrapOffset
 
 class CallSiteDesc
 {
-    uint32_t lineOrBytecode_ : 30;
+    // Keep offsets independent of the flags: adding instance metadata must
+    // not silently narrow the accepted module/asm.js source position range.
+    uint32_t lineOrBytecode_;
+    uint32_t mightSwitchInstance_ : 1;
     uint32_t kind_ : 2;
+    uint32_t reserved_ : 29;
   public:
     enum Kind {
         Func,      // pc-relative call to a specific function
@@ -724,45 +709,44 @@ class CallSiteDesc
         Symbolic,  // call to a single symbolic callee
         TrapExit   // call to a trap exit
     };
-    CallSiteDesc() {}
+    CallSiteDesc()
+      : lineOrBytecode_(0), mightSwitchInstance_(false), kind_(Func), reserved_(0)
+    { }
     explicit CallSiteDesc(Kind kind)
-      : lineOrBytecode_(0), kind_(kind)
+      : lineOrBytecode_(0), mightSwitchInstance_(false), kind_(kind), reserved_(0)
     {
         MOZ_ASSERT(kind == Kind(kind_));
     }
     CallSiteDesc(uint32_t lineOrBytecode, Kind kind)
-      : lineOrBytecode_(lineOrBytecode), kind_(kind)
+      : lineOrBytecode_(lineOrBytecode), mightSwitchInstance_(false), kind_(kind), reserved_(0)
     {
         MOZ_ASSERT(kind == Kind(kind_));
         MOZ_ASSERT(lineOrBytecode == lineOrBytecode_);
     }
     uint32_t lineOrBytecode() const { return lineOrBytecode_; }
     Kind kind() const { return Kind(kind_); }
+    // Only these callers initialize FrameWithInstances' TLS slots. Ordinary
+    // intra-instance calls leave them untouched and inherit their instance
+    // from the nearest switching call (or the entry stub) in the frame chain.
+    bool mightSwitchInstance() const { return mightSwitchInstance_; }
+    void setMightSwitchInstance() { mightSwitchInstance_ = true; }
 };
 
 class CallSite : public CallSiteDesc
 {
     uint32_t returnAddressOffset_;
-    uint32_t stackDepth_;
 
   public:
     CallSite() {}
 
-    CallSite(CallSiteDesc desc, uint32_t returnAddressOffset, uint32_t stackDepth)
+    CallSite(CallSiteDesc desc, uint32_t returnAddressOffset)
       : CallSiteDesc(desc),
-        returnAddressOffset_(returnAddressOffset),
-        stackDepth_(stackDepth)
+        returnAddressOffset_(returnAddressOffset)
     { }
 
     void setReturnAddressOffset(uint32_t r) { returnAddressOffset_ = r; }
     void offsetReturnAddressBy(int32_t o) { returnAddressOffset_ += o; }
     uint32_t returnAddressOffset() const { return returnAddressOffset_; }
-
-    // The stackDepth measures the amount of stack space pushed since the
-    // function was called. In particular, this includes the pushed return
-    // address on all archs (whether or not the call instruction pushes the
-    // return address (x86/x64) or the prologue does (ARM/MIPS)).
-    uint32_t stackDepth() const { return stackDepth_; }
 };
 
 WASM_DECLARE_POD_VECTOR(CallSite, CallSiteVector)
@@ -795,12 +779,12 @@ class CallSiteAndTarget : public CallSite
 
 typedef Vector<CallSiteAndTarget, 0, SystemAllocPolicy> CallSiteAndTargetVector;
 
-// A wasm::SymbolicAddress represents a pointer to a well-known function or
-// object that is embedded in wasm code. Since wasm code is serialized and
-// later deserialized into a different address space, symbolic addresses must be
-// used for *all* pointers into the address space. The MacroAssembler records a
-// list of all SymbolicAddresses and the offsets of their use in the code for
-// later patching during static linking.
+// A wasm::SymbolicAddress represents a pointer to a well-known function that is
+// embedded in wasm code. Since wasm code is serialized and later deserialized
+// into a different address space, symbolic addresses must be used for *all*
+// pointers into the address space. The MacroAssembler records a list of all
+// SymbolicAddresses and the offsets of their use in the code for later patching
+// during static linking.
 
 enum class SymbolicAddress
 {
@@ -835,10 +819,8 @@ enum class SymbolicAddress
     LogD,
     PowD,
     ATan2D,
-    Context,
-    InterruptUint32,
-    ReportOverRecursed,
     HandleExecutionInterrupt,
+    HandleThrow,
     ReportTrap,
     ReportOutOfBounds,
     ReportUnalignedAccess,
@@ -858,11 +840,61 @@ enum class SymbolicAddress
     Int64ToFloatingPoint,
     GrowMemory,
     CurrentMemory,
+    LookupFrameTLS,
+    // The caller supplies the hidden TLS register; C ABI arguments and the
+    // actual native target remain identical to the corresponding base entry.
+    ToInt32TLS,
+    ModDTLS,
+    SinDTLS,
+    CosDTLS,
+    TanDTLS,
+    ASinDTLS,
+    ACosDTLS,
+    ATanDTLS,
+    CeilDTLS,
+    CeilFTLS,
+    FloorDTLS,
+    FloorFTLS,
+    TruncDTLS,
+    TruncFTLS,
+    NearbyIntDTLS,
+    NearbyIntFTLS,
+    ExpDTLS,
+    LogDTLS,
+    PowDTLS,
+    ATan2DTLS,
+    DivI64TLS,
+    UDivI64TLS,
+    ModI64TLS,
+    UModI64TLS,
+    TruncateDoubleToInt64TLS,
+    TruncateDoubleToUint64TLS,
+    Uint64ToFloatingPointTLS,
+    Int64ToFloatingPointTLS,
+    GrowMemoryTLS,
+    CurrentMemoryTLS,
     Limit
 };
 
 void*
-AddressOf(SymbolicAddress imm, ExclusiveContext* cx);
+AddressOf(SymbolicAddress imm);
+
+// Explicit-instance calls are certified by a fixed TLS MIR/LIR operand (or
+// Baseline's local-slot reload). Unannotated calls keep the recovery wrapper.
+SymbolicAddress SymbolicAddressWithTLS(SymbolicAddress imm);
+SymbolicAddress CanonicalSymbolicAddress(SymbolicAddress imm);
+bool SymbolicAddressRequiresTLS(SymbolicAddress imm);
+
+// Native signature used to preserve stack arguments in the x86 exit wrappers.
+jit::ABIFunctionType SymbolicAddressSignature(SymbolicAddress imm);
+
+// The compiler ABI is selected when a module compile is requested and remains
+// immutable for the lifetime of that module, independent of later tier changes.
+enum class WasmCompilerABI : uint8_t
+{
+    ClassicSpecialized,
+    SharedDynamicTLS
+};
 
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
@@ -872,6 +904,7 @@ struct Assumptions
 {
     uint32_t              cpuId;
     JS::BuildIdCharVector buildId;
+    WasmCompilerABI       compilerABI;
 
     explicit Assumptions(JS::BuildIdCharVector&& buildId);
 
@@ -970,11 +1003,24 @@ struct TlsData
     // Pointer to the base of the default memory (or null if there is none).
     uint8_t* memoryBase;
 
+#ifndef WASM_HUGE_MEMORY
+    // Bounds check limit of memory, in bytes (or zero if there is no memory).
+    uint32_t boundsCheckLimit;
+#endif
+
     // Stack limit for the current thread. This limit is checked against the
     // stack pointer in the prologue of functions that allocate stack space. See
     // `CodeGenerator::generateWasm`.
     void* stackLimit;
+
+    // The globalArea must be the last field.  Globals for the module start here
+    // and are inline in this structure.  16-byte alignment is required for SIMD
+    // data.
+    MOZ_ALIGNED_DECL(char globalArea, 16);
+
 };
+
+static_assert(offsetof(TlsData, globalArea) % 16 == 0, "aligned");
 
 typedef int32_t (*ExportFuncPtr)(ExportArg* args, TlsData* tls);
 
@@ -1229,32 +1275,6 @@ ComputeMappedSize(uint32_t maxSize);
 
 #endif // WASM_HUGE_MEMORY
 
-// Metadata for bounds check instructions that are patched at runtime with the
-// appropriate bounds check limit. On WASM_HUGE_MEMORY platforms for wasm (and
-// Atomic) bounds checks, no BoundsCheck is created: the signal handler
-// catches everything. On !WASM_HUGE_MEMORY, a BoundsCheck is created for each
-// memory access (except when statically eliminated by optimizations) so that
-// the length can be patched in as an immediate. This requires that the bounds
-// check limit IsValidBoundsCheckImmediate.
-
-class BoundsCheck
-{
-  public:
-    BoundsCheck() = default;
-
-    explicit BoundsCheck(uint32_t cmpOffset)
-      : cmpOffset_(cmpOffset)
-    { }
-
-    uint8_t* patchAt(uint8_t* code) const { return code + cmpOffset_; }
-    void offsetBy(uint32_t offset) { cmpOffset_ += offset; }
-
-  private:
-    uint32_t cmpOffset_;
-};
-
-WASM_DECLARE_POD_VECTOR(BoundsCheck, BoundsCheckVector)
-
 // Metadata for memory accesses. On WASM_HUGE_MEMORY platforms, only
 // (non-Atomic) asm.js loads and stores create a MemoryAccess so that the
 // signal handler can implement the semantically-correct wraparound logic; the
@@ -1295,31 +1315,44 @@ class MemoryAccess
 
 WASM_DECLARE_POD_VECTOR(MemoryAccess, MemoryAccessVector)
 
-// Metadata for the offset of an instruction to patch with the base address of
-// memory. In practice, this is only used for x86 where the offset points to the
-// *end* of the instruction (which is a non-fixed offset from the beginning of
-// the instruction). As part of the move away from code patching, this should be
-// removed.
-
-struct MemoryPatch
+// Per-instance classic code may embed the linear-memory base and bounds limit
+// in executable instructions. These offsets are patched when that instance's
+// code segment is linked and when a moving memory grow relocates its buffer.
+class MemoryPatch
 {
-    uint32_t offset;
+    uint32_t offset_;
 
+  public:
     MemoryPatch() = default;
-    explicit MemoryPatch(uint32_t offset) : offset(offset) {}
-
-    void offsetBy(uint32_t delta) {
-        offset += delta;
-    }
+    explicit MemoryPatch(uint32_t offset) : offset_(offset) {}
+    uint32_t offset() const { return offset_; }
+    void offsetBy(uint32_t offset) { offset_ += offset; }
 };
 
 WASM_DECLARE_POD_VECTOR(MemoryPatch, MemoryPatchVector)
 
+class BoundsCheck
+{
+    uint32_t offset_;
+
+  public:
+    BoundsCheck() = default;
+    explicit BoundsCheck(uint32_t offset) : offset_(offset) {}
+    uint8_t* patchAt(uint8_t* code) const { return code + offset_; }
+    void offsetBy(uint32_t offset) { offset_ += offset; }
+};
+
+WASM_DECLARE_POD_VECTOR(BoundsCheck, BoundsCheckVector)
+
+// Classic specialized code keeps canonical NaN constants in the writable
+// global-data tail adjacent to its per-instance code segment.
+static const unsigned NaN64GlobalDataOffset = 0;
+static const unsigned NaN32GlobalDataOffset = NaN64GlobalDataOffset + sizeof(double);
+static const unsigned InitialGlobalDataBytes = NaN32GlobalDataOffset + sizeof(float);
+
 // Constants:
 
-static const unsigned NaN64GlobalDataOffset       = 0;
-static const unsigned NaN32GlobalDataOffset       = NaN64GlobalDataOffset + sizeof(double);
-static const unsigned InitialGlobalDataBytes      = NaN32GlobalDataOffset + sizeof(float);
+
 
 static const unsigned MaxSigs                     =        4 * 1024;
 static const unsigned MaxFuncs                    =      512 * 1024;

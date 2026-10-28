@@ -85,8 +85,21 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph, Mac
         MOZ_ASSERT(graph->argumentSlotCount() == 0);
         frameDepth_ += gen->wasmMaxStackArgBytes();
 
+#if defined(JS_CODEGEN_X86)
+        // This backend still emits aligned SIMD spill moves. The compact
+        // physical header leaves FP eight bytes off the caller's alignment;
+        // place the local-slot origin below that padding, independently of
+        // outgoing arguments and their instance area.
+        if (SupportsSimd && graph->localSlotCount()) {
+            frameInitialAdjustment_ = ComputeByteAlignment(sizeof(wasm::Frame),
+                                                           SimdMemoryAlignment);
+            frameDepth_ += frameInitialAdjustment_;
+        }
+#endif
+
         if (SupportsSimd) {
-            frameDepth_ = AlignBytes(frameDepth_, SimdMemoryAlignment);
+            frameDepth_ = AlignBytes(frameDepth_ - frameInitialAdjustment_, SimdMemoryAlignment) +
+                          frameInitialAdjustment_;
         }
 
         if (gen->performsCall()) {
@@ -1527,6 +1540,207 @@ CodeGeneratorShared::emitWasmCallBase(LWasmCallBase* ins)
 
     if (mir->spIncrement())
         masm.reserveStack(mir->spIncrement());
+}
+
+void
+CodeGeneratorShared::visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    if (ins->mir()->isClassic()) {
+        MWasmLoadGlobalVar* mir = ins->mir();
+        MIRType type = mir->type();
+        MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+        CodeOffset label;
+        switch (type) {
+          case MIRType::Int32:
+            label = masm.movlWithPatch(PatchedAbsoluteAddress(), ToRegister(ins->output()));
+            break;
+          case MIRType::Float32:
+            label = masm.vmovssWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
+            break;
+          case MIRType::Double:
+            label = masm.vmovsdWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
+            break;
+          // Aligned access: code is aligned on PageSize + there is padding
+          // before the global data section.
+          case MIRType::Int8x16:
+          case MIRType::Int16x8:
+          case MIRType::Int32x4:
+          case MIRType::Bool8x16:
+          case MIRType::Bool16x8:
+          case MIRType::Bool32x4:
+            label = masm.vmovdqaWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
+            break;
+          case MIRType::Float32x4:
+            label = masm.vmovapsWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
+            break;
+          default:
+            MOZ_CRASH("unexpected type in visitWasmLoadGlobalVar");
+        }
+        masm.append(wasm::GlobalAccess(label, mir->globalDataOffset()));
+        return;
+    }
+#endif
+
+    MWasmLoadGlobalVar* mir = ins->mir();
+
+    MIRType type = mir->type();
+    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+    switch (type) {
+      case MIRType::Int32:
+        masm.load32(addr, ToRegister(ins->output()));
+        break;
+      case MIRType::Float32:
+        masm.loadFloat32(addr, ToFloatRegister(ins->output()));
+        break;
+      case MIRType::Double:
+        masm.loadDouble(addr, ToFloatRegister(ins->output()));
+        break;
+      // Aligned access: code is aligned on PageSize + there is padding
+      // before the global data section.
+      case MIRType::Int8x16:
+      case MIRType::Int16x8:
+      case MIRType::Int32x4:
+      case MIRType::Bool8x16:
+      case MIRType::Bool16x8:
+      case MIRType::Bool32x4:
+        masm.loadInt32x4(addr, ToFloatRegister(ins->output()));
+        break;
+      case MIRType::Float32x4:
+        masm.loadFloat32x4(addr, ToFloatRegister(ins->output()));
+        break;
+      default:
+        MOZ_CRASH("unexpected type in visitWasmLoadGlobalVar");
+    }
+}
+
+void
+CodeGeneratorShared::visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    if (ins->mir()->isClassic()) {
+        MWasmStoreGlobalVar* mir = ins->mir();
+
+        MIRType type = mir->value()->type();
+        MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+        CodeOffset label;
+        switch (type) {
+          case MIRType::Int32:
+            label = masm.movlWithPatch(ToRegister(ins->value()), PatchedAbsoluteAddress());
+            break;
+          case MIRType::Float32:
+            label = masm.vmovssWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
+            break;
+          case MIRType::Double:
+            label = masm.vmovsdWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
+            break;
+          // Aligned access: code is aligned on PageSize + there is padding
+          // before the global data section.
+          case MIRType::Int32x4:
+          case MIRType::Bool32x4:
+            label = masm.vmovdqaWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
+            break;
+          case MIRType::Float32x4:
+            label = masm.vmovapsWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
+            break;
+          default:
+            MOZ_CRASH("unexpected type in visitWasmStoreGlobalVar");
+        }
+        masm.append(wasm::GlobalAccess(label, mir->globalDataOffset()));
+        return;
+    }
+#endif
+
+    MWasmStoreGlobalVar* mir = ins->mir();
+
+    MIRType type = mir->value()->type();
+    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+    switch (type) {
+      case MIRType::Int32:
+        masm.store32(ToRegister(ins->value()), addr);
+        break;
+      case MIRType::Float32:
+        masm.storeFloat32(ToFloatRegister(ins->value()), addr);
+        break;
+      case MIRType::Double:
+        masm.storeDouble(ToFloatRegister(ins->value()), addr);
+        break;
+      // Aligned access: code is aligned on PageSize + there is padding
+      // before the global data section.
+      case MIRType::Int32x4:
+      case MIRType::Bool32x4:
+        masm.storeInt32x4(ToFloatRegister(ins->value()), addr);
+        break;
+      case MIRType::Float32x4:
+        masm.storeFloat32x4(ToFloatRegister(ins->value()), addr);
+        break;
+      default:
+        MOZ_CRASH("unexpected type in visitWasmStoreGlobalVar");
+    }
+}
+
+void
+CodeGeneratorShared::visitWasmLoadGlobalVarI64(LWasmLoadGlobalVarI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    if (ins->mir()->isClassic()) {
+        MWasmLoadGlobalVar* mir = ins->mir();
+
+        MOZ_ASSERT(mir->type() == MIRType::Int64);
+        Register64 output = ToOutRegister64(ins);
+
+        CodeOffset labelLow = masm.movlWithPatch(PatchedAbsoluteAddress(), output.low);
+        masm.append(wasm::GlobalAccess(labelLow, mir->globalDataOffset() + INT64LOW_OFFSET));
+        CodeOffset labelHigh = masm.movlWithPatch(PatchedAbsoluteAddress(), output.high);
+        masm.append(wasm::GlobalAccess(labelHigh, mir->globalDataOffset() + INT64HIGH_OFFSET));
+        return;
+    }
+#endif
+
+    MWasmLoadGlobalVar* mir = ins->mir();
+    MOZ_ASSERT(mir->type() == MIRType::Int64);
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+
+    Register64 output = ToOutRegister64(ins);
+    masm.load64(addr, output);
+}
+
+void
+CodeGeneratorShared::visitWasmStoreGlobalVarI64(LWasmStoreGlobalVarI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    if (ins->mir()->isClassic()) {
+        MWasmStoreGlobalVar* mir = ins->mir();
+
+        MOZ_ASSERT(mir->value()->type() == MIRType::Int64);
+        Register64 input = ToRegister64(ins->value());
+
+        CodeOffset labelLow = masm.movlWithPatch(input.low, PatchedAbsoluteAddress());
+        masm.append(wasm::GlobalAccess(labelLow, mir->globalDataOffset() + INT64LOW_OFFSET));
+        CodeOffset labelHigh = masm.movlWithPatch(input.high, PatchedAbsoluteAddress());
+        masm.append(wasm::GlobalAccess(labelHigh, mir->globalDataOffset() + INT64HIGH_OFFSET));
+        return;
+    }
+#endif
+
+    MWasmStoreGlobalVar* mir = ins->mir();
+    MOZ_ASSERT(mir->value()->type() == MIRType::Int64);
+
+    Register tls = ToRegister(ins->tlsPtr());
+    Address addr(tls, offsetof(wasm::TlsData, globalArea) + mir->globalDataOffset());
+
+    Register64 value = ToRegister64(ins->value());
+    masm.store64(value, addr);
 }
 
 void

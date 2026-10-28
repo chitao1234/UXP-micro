@@ -25,6 +25,7 @@
 #include "jit/Disassembler.h"
 #include "vm/Runtime.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmFrameIterator.h"
 
 using namespace js;
 using namespace js::jit;
@@ -77,6 +78,8 @@ class AutoSetHandlingSegFault
 #if defined(XP_WIN)
 # define XMM_sig(p,i) ((p)->Xmm##i)
 # define EIP_sig(p) ((p)->Eip)
+# define ESP_sig(p) ((p)->Esp)
+# define EBP_sig(p) ((p)->Ebp)
 # define RIP_sig(p) ((p)->Rip)
 # define RAX_sig(p) ((p)->Rax)
 # define RCX_sig(p) ((p)->Rcx)
@@ -97,6 +100,8 @@ class AutoSetHandlingSegFault
 #elif defined(__OpenBSD__)
 # define XMM_sig(p,i) ((p)->sc_fpstate->fx_xmm[i])
 # define EIP_sig(p) ((p)->sc_eip)
+# define ESP_sig(p) ((p)->sc_esp)
+# define EBP_sig(p) ((p)->sc_ebp)
 # define RIP_sig(p) ((p)->sc_rip)
 # define RAX_sig(p) ((p)->sc_rax)
 # define RCX_sig(p) ((p)->sc_rcx)
@@ -130,6 +135,8 @@ class AutoSetHandlingSegFault
 # if defined(__linux__)
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs->_xmm[i])
 #  define EIP_sig(p) ((p)->uc_mcontext.gregs[REG_EIP])
+#  define ESP_sig(p) ((p)->uc_mcontext.gregs[REG_ESP])
+#  define EBP_sig(p) ((p)->uc_mcontext.gregs[REG_EBP])
 # else // defined(__sun)
 /* See https://www.illumos.org/issues/5876. They keep arguing over whether 
  * <ucontext.h> should provide the register index defines in regset.h or 
@@ -138,6 +145,8 @@ class AutoSetHandlingSegFault
 #include <sys/regset.h>
 #  define XMM_sig(p,i) ((p)->uc_mcontext.fpregs.fp_reg_set.fpchip_state.xmm[i])
 #  define EIP_sig(p) ((p)->uc_mcontext.gregs[REG_PC])
+#  define ESP_sig(p) ((p)->uc_mcontext.gregs[ESP])
+#  define EBP_sig(p) ((p)->uc_mcontext.gregs[EBP])
 # endif
 # define RIP_sig(p) ((p)->uc_mcontext.gregs[REG_RIP])
 # define RAX_sig(p) ((p)->uc_mcontext.gregs[REG_RAX])
@@ -176,6 +185,8 @@ class AutoSetHandlingSegFault
 #elif defined(__NetBSD__)
 # define XMM_sig(p,i) (((struct fxsave64*)(p)->uc_mcontext.__fpregs)->fx_xmm[i])
 # define EIP_sig(p) ((p)->uc_mcontext.__gregs[_REG_EIP])
+# define ESP_sig(p) ((p)->uc_mcontext.__gregs[_REG_ESP])
+# define EBP_sig(p) ((p)->uc_mcontext.__gregs[_REG_EBP])
 # define RIP_sig(p) ((p)->uc_mcontext.__gregs[_REG_RIP])
 # define RAX_sig(p) ((p)->uc_mcontext.__gregs[_REG_RAX])
 # define RCX_sig(p) ((p)->uc_mcontext.__gregs[_REG_RCX])
@@ -208,6 +219,8 @@ class AutoSetHandlingSegFault
 #  define XMM_sig(p,i) (((struct savefpu*)(p)->uc_mcontext.mc_fpstate)->sv_xmm[i])
 # endif
 # define EIP_sig(p) ((p)->uc_mcontext.mc_eip)
+# define ESP_sig(p) ((p)->uc_mcontext.mc_esp)
+# define EBP_sig(p) ((p)->uc_mcontext.mc_ebp)
 # define RIP_sig(p) ((p)->uc_mcontext.mc_rip)
 # define RAX_sig(p) ((p)->uc_mcontext.mc_rax)
 # define RCX_sig(p) ((p)->uc_mcontext.mc_rcx)
@@ -239,6 +252,8 @@ class AutoSetHandlingSegFault
 # endif
 #elif defined(XP_DARWIN)
 # define EIP_sig(p) ((p)->uc_mcontext->__ss.__eip)
+# define ESP_sig(p) ((p)->uc_mcontext->__ss.__esp)
+# define EBP_sig(p) ((p)->uc_mcontext->__ss.__ebp)
 # define RIP_sig(p) ((p)->uc_mcontext->__ss.__rip)
 # define R15_sig(p) ((p)->uc_mcontext->__ss.__pc)
 # define EPC_sig(p) ((p)->uc_mcontext->__ss.__pc)
@@ -327,6 +342,24 @@ ContextToPC(CONTEXT* context)
     return reinterpret_cast<uint8_t**>(&PC_sig(context));
 #endif
 }
+
+static void*
+ContextToFP(CONTEXT* context)
+{
+#if defined(JS_CODEGEN_X86)
+    return reinterpret_cast<void*>(EBP_sig(context));
+#else
+    return nullptr;
+#endif
+}
+
+#if defined(JS_CODEGEN_X86)
+static void*
+ContextToSP(CONTEXT* context)
+{
+    return reinterpret_cast<void*>(ESP_sig(context));
+}
+#endif
 
 #if defined(WASM_HUGE_MEMORY)
 MOZ_COLD static void
@@ -763,18 +796,11 @@ HandleFault(PEXCEPTION_POINTERS exception)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-    if (!instance)
+    const Code* code = activation->compartment()->wasm.lookupCode(pc);
+    if (!code)
         return false;
 
-    uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(record->ExceptionInformation[1]);
-
-    // This check isn't necessary, but, since we can, check anyway to make
-    // sure we aren't covering up a real bug.
-    if (!IsHeapAccessAddress(*instance, faultingAddress))
-        return false;
-
-    if (!instance->codeSegment().containsFunctionPC(pc)) {
+    if (!code->segment().containsFunctionPC(pc)) {
         // On Windows, it is possible for InterruptRunningCode to execute
         // between a faulting heap access and the handling of the fault due
         // to InterruptRunningCode's use of SuspendThread. When this happens,
@@ -784,11 +810,27 @@ HandleFault(PEXCEPTION_POINTERS exception)
         // always the logically-faulting pc). Fortunately, we can detect this
         // case and silence the exception ourselves (the exception will
         // retrigger after the interrupt jumps back to resumePC).
-        return pc == instance->codeSegment().interruptCode() &&
-               instance->codeSegment().containsFunctionPC(activation->resumePC());
+        return pc == code->segment().interruptCode() &&
+               code->segment().containsFunctionPC(activation->resumePC());
     }
 
+    const Instance* instance = LookupFaultingInstance(activation, pc, ContextToFP(context));
+    if (!instance)
+        return false;
+    uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(record->ExceptionInformation[1]);
+    if (!IsHeapAccessAddress(*instance, faultingAddress))
+        return false;
+
     HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
+#if defined(JS_CODEGEN_X86)
+    if (*ppc == code->segment().outOfBoundsCode() ||
+        *ppc == code->segment().unalignedAccessCode())
+    {
+        // This transfer has no exit-call header. Retain the faulting function
+        // itself for error stacks, rather than inventing a stub frame.
+        activation->startInterrupt(pc, pc, static_cast<uint8_t*>(ContextToFP(context)));
+    }
+#endif
     return true;
 }
 
@@ -905,7 +947,12 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+#if defined(JS_CODEGEN_X86)
+    void* physicalFP = reinterpret_cast<void*>(context.thread.__ebp);
+#else
+    void* physicalFP = nullptr;
+#endif
+    const Instance* instance = LookupFaultingInstance(activation, pc, physicalFP);
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -917,6 +964,13 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
         return false;
 
     HandleMemoryAccess(&context, pc, faultingAddress, *instance, ppc);
+#if defined(JS_CODEGEN_X86)
+    if (*ppc == instance->codeSegment().outOfBoundsCode() ||
+        *ppc == instance->codeSegment().unalignedAccessCode())
+    {
+        activation->startInterrupt(pc, pc, static_cast<uint8_t*>(physicalFP));
+    }
+#endif
 
     // Update the thread state with the new pc and register values.
     kret = thread_set_state(rtThread, float_state, (thread_state_t)&context.float_, float_state_count);
@@ -1111,7 +1165,7 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
     if (!activation)
         return false;
 
-    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    const Instance* instance = LookupFaultingInstance(activation, pc, ContextToFP(context));
     if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
@@ -1144,6 +1198,13 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
 #endif
 
     HandleMemoryAccess(context, pc, faultingAddress, *instance, ppc);
+#if defined(JS_CODEGEN_X86)
+    if (*ppc == instance->codeSegment().outOfBoundsCode() ||
+        *ppc == instance->codeSegment().unalignedAccessCode())
+    {
+        activation->startInterrupt(pc, pc, static_cast<uint8_t*>(ContextToFP(context)));
+    }
+#endif
     return true;
 }
 
@@ -1208,17 +1269,22 @@ RedirectJitCodeToInterruptCheck(JSRuntime* rt, CONTEXT* context)
 
         void* pc = rt->simulator()->get_pc_as<void*>();
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc))
-            rt->simulator()->set_resume_pc(instance->codeSegment().interruptCode());
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc))
+            rt->simulator()->set_resume_pc(code->segment().interruptCode());
 #else
         uint8_t** ppc = ContextToPC(context);
         uint8_t* pc = *ppc;
 
-        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
-        if (instance && instance->codeSegment().containsFunctionPC(pc)) {
+        const Code* code = activation->compartment()->wasm.lookupCode(pc);
+        if (code && code->segment().containsFunctionPC(pc)) {
+#if defined(JS_CODEGEN_X86)
+            if (!StartInterrupt(activation, pc, ContextToSP(context), ContextToFP(context)))
+                return false;
+#else
             activation->setResumePC(pc);
-            *ppc = instance->codeSegment().interruptCode();
+#endif
+            *ppc = code->segment().interruptCode();
             return true;
         }
 #endif
@@ -1420,5 +1486,5 @@ js::wasm::IsPCInWasmCode(void *pc)
     if (!activation)
         return false;
 
-    return !!activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    return !!activation->compartment()->wasm.lookupCode(pc);
 }

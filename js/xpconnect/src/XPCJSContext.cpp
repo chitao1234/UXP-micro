@@ -1409,6 +1409,10 @@ GCDecommitPrefsCallback(const char*, void*)
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
     JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
         "javascript.options.mem.nursery_lazy_commit", tier >= 0 && tier <= 1));
+    // Shared dynamic-TLS code is the memory tier ABI. Higher tiers retain the
+    // classic compiler even when a stale or explicit low-tier preference is set.
+    JS_SetWasmSharedCodeEnabled(tier >= 0 && tier <= 1 && Preferences::GetBool(
+        "javascript.options.wasm_shared_code", true));
     int32_t reservationMB = Preferences::GetInt(
         "javascript.options.wasm_reservation_limit_mb", tier >= 0 && tier <= 1 ? 128 : 0);
     JS_SetWasmMemoryReservationLimit(reservationMB > 0 ?
@@ -1562,6 +1566,8 @@ XPCJSContext::~XPCJSContext()
                                     "javascript.options.mem.gc_decommit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.nursery_lazy_commit");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.wasm_shared_code");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.wasm_reservation_limit_mb");
 }
@@ -3408,6 +3414,8 @@ XPCJSContext::Initialize()
                                   "javascript.options.mem.gc_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.nursery_lazy_commit");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.wasm_shared_code");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.wasm_reservation_limit_mb");
 

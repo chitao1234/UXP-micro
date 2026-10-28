@@ -351,10 +351,27 @@ CodeGeneratorX86::emitWasmLoad(T* ins)
     MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
 
     const LAllocation* ptr = ins->ptr();
+    const LAllocation* memoryBase = ins->memoryBase();
+
+    if (memoryBase->isBogus()) {
+        uint32_t displacement = ptr->isBogus() && !offset
+            ? mir->base()->toConstant()->toInt32() : offset;
+        Operand address = ptr->isBogus()
+            ? Operand(PatchedAbsoluteAddress(displacement))
+            : Operand(ToRegister(ptr), displacement);
+        if (mir->type() == MIRType::Int64)
+            masm.wasmLoadI64Classic(mir->access(), address, ToOutRegister64(ins));
+        else
+            masm.wasmLoadClassic(mir->access(), address, ToAnyRegister(ins->output()));
+        return;
+    }
+
+    // Lowering has set things up so that we can use a BaseIndex form if the
+    // pointer is constant and the offset is zero, or if the pointer is zero.
 
     Operand srcAddr = ptr->isBogus()
-                      ? Operand(PatchedAbsoluteAddress(offset))
-                      : Operand(ToRegister(ptr), offset);
+                      ? Operand(ToRegister(memoryBase), offset ? offset : mir->base()->toConstant()->toInt32())
+                      : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne, offset);
 
     if (mir->type() == MIRType::Int64)
         masm.wasmLoadI64(mir->access(), srcAddr, ToOutRegister64(ins));
@@ -384,9 +401,30 @@ CodeGeneratorX86::emitWasmStore(T* ins)
     MOZ_ASSERT(offset < wasm::OffsetGuardLimit);
 
     const LAllocation* ptr = ins->ptr();
+    const LAllocation* memoryBase = ins->memoryBase();
+
+    if (memoryBase->isBogus()) {
+        uint32_t displacement = ptr->isBogus() && !offset
+            ? mir->base()->toConstant()->toInt32() : offset;
+        Operand address = ptr->isBogus()
+            ? Operand(PatchedAbsoluteAddress(displacement))
+            : Operand(ToRegister(ptr), displacement);
+        if (mir->access().type() == Scalar::Int64) {
+            Register64 value = ToRegister64(ins->getInt64Operand(LWasmStoreI64::ValueIndex));
+            masm.wasmStoreI64Classic(mir->access(), value, address);
+        } else {
+            AnyRegister value = ToAnyRegister(ins->getOperand(LWasmStore::ValueIndex));
+            masm.wasmStoreClassic(mir->access(), value, address);
+        }
+        return;
+    }
+
+    // Lowering has set things up so that we can use a BaseIndex form if the
+    // pointer is constant and the offset is zero, or if the pointer is zero.
+
     Operand dstAddr = ptr->isBogus()
-                      ? Operand(PatchedAbsoluteAddress(offset))
-                      : Operand(ToRegister(ptr), offset);
+                      ? Operand(ToRegister(memoryBase), offset ? offset : mir->base()->toConstant()->toInt32())
+                      : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne, offset);
 
     if (mir->access().type() == Scalar::Int64) {
         Register64 value = ToRegister64(ins->getInt64Operand(LWasmStoreI64::ValueIndex));
@@ -416,6 +454,8 @@ CodeGeneratorX86::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
     MOZ_ASSERT(mir->access().offset() == 0);
 
     const LAllocation* ptr = ins->ptr();
+    const LAllocation* boundsCheckLimit = ins->boundsCheckLimit();
+    const LAllocation* memoryBase = ins->memoryBase();
     AnyRegister out = ToAnyRegister(ins->output());
 
     Scalar::Type accessType = mir->accessType();
@@ -425,14 +465,21 @@ CodeGeneratorX86::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
         ool = new(alloc()) OutOfLineLoadTypedArrayOutOfBounds(out, accessType);
         addOutOfLineCode(ool, mir);
 
-        masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ool->entry());
+        if (boundsCheckLimit->isBogus())
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ToRegister(ptr), ool->entry());
+        else
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit), ool->entry());
     }
 
-    Operand srcAddr = ptr->isBogus()
-                      ? Operand(PatchedAbsoluteAddress())
-                      : Operand(ToRegister(ptr), 0);
-
-    masm.wasmLoad(mir->access(), srcAddr, out);
+    if (memoryBase->isBogus()) {
+        Operand srcAddr = ptr->isBogus() ? Operand(PatchedAbsoluteAddress())
+                                        : Operand(ToRegister(ptr), 0);
+        masm.wasmLoadClassic(mir->access(), srcAddr, out);
+    } else {
+        Operand srcAddr = ptr->isBogus() ? Operand(ToRegister(memoryBase), 0)
+            : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne);
+        masm.wasmLoad(mir->access(), srcAddr, out);
+    }
 
     if (ool)
         masm.bind(ool->rejoin());
@@ -495,19 +542,29 @@ CodeGeneratorX86::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
 
     const LAllocation* ptr = ins->ptr();
     const LAllocation* value = ins->value();
+    const LAllocation* boundsCheckLimit = ins->boundsCheckLimit();
+    const LAllocation* memoryBase = ins->memoryBase();
 
     Scalar::Type accessType = mir->accessType();
     canonicalizeIfDeterministic(accessType, value);
 
-    Operand dstAddr = ptr->isBogus()
-                      ? Operand(PatchedAbsoluteAddress())
-                      : Operand(ToRegister(ptr), 0);
+    Operand dstAddr = memoryBase->isBogus()
+        ? (ptr->isBogus() ? Operand(PatchedAbsoluteAddress()) : Operand(ToRegister(ptr), 0))
+        : (ptr->isBogus() ? Operand(ToRegister(memoryBase), 0)
+                         : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne));
 
     Label rejoin;
-    if (mir->needsBoundsCheck())
-        masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), &rejoin);
+    if (mir->needsBoundsCheck()) {
+        if (boundsCheckLimit->isBogus())
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ToRegister(ptr), &rejoin);
+        else
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit), &rejoin);
+    }
 
-    masm.wasmStore(mir->access(), ToAnyRegister(value), dstAddr);
+    if (memoryBase->isBogus())
+        masm.wasmStoreClassic(mir->access(), ToAnyRegister(value), dstAddr);
+    else
+        masm.wasmStore(mir->access(), ToAnyRegister(value), dstAddr);
 
     if (rejoin.used())
         masm.bind(&rejoin);
@@ -518,13 +575,17 @@ CodeGeneratorX86::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
 // set up the heap address in addrTemp.
 
 void
-CodeGeneratorX86::asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg)
+CodeGeneratorX86::asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg, const LAllocation* memoryBase)
 {
     // Add in the actual heap pointer explicitly, to avoid opening up
     // the abstraction that is atomicBinopToTypedIntArray at this time.
     masm.movl(ptrReg, addrTemp);
-    masm.addlWithPatch(Imm32(0), addrTemp);
-    masm.append(wasm::MemoryPatch(masm.size()));
+    if (memoryBase->isBogus()) {
+        masm.addlWithPatch(Imm32(0), addrTemp);
+        masm.append(wasm::MemoryPatch(masm.size()));
+    } else {
+        masm.addl(ToRegister(memoryBase), addrTemp);
+    }
 }
 
 void
@@ -538,8 +599,9 @@ CodeGeneratorX86::visitAsmJSCompareExchangeHeap(LAsmJSCompareExchangeHeap* ins)
     Register oldval = ToRegister(ins->oldValue());
     Register newval = ToRegister(ins->newValue());
     Register addrTemp = ToRegister(ins->addrTemp());
+    const LAllocation* memoryBase = ins->memoryBase();
 
-    asmJSAtomicComputeAddress(addrTemp, ptrReg);
+    asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
     Address memAddr(addrTemp, 0);
     masm.compareExchangeToTypedIntArray(accessType == Scalar::Uint32 ? Scalar::Int32 : accessType,
@@ -560,8 +622,9 @@ CodeGeneratorX86::visitAsmJSAtomicExchangeHeap(LAsmJSAtomicExchangeHeap* ins)
     Register ptrReg = ToRegister(ins->ptr());
     Register value = ToRegister(ins->value());
     Register addrTemp = ToRegister(ins->addrTemp());
+    const LAllocation* memoryBase = ins->memoryBase();
 
-    asmJSAtomicComputeAddress(addrTemp, ptrReg);
+    asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
     Address memAddr(addrTemp, 0);
     masm.atomicExchangeToTypedIntArray(accessType == Scalar::Uint32 ? Scalar::Int32 : accessType,
@@ -583,8 +646,9 @@ CodeGeneratorX86::visitAsmJSAtomicBinopHeap(LAsmJSAtomicBinopHeap* ins)
     Register addrTemp = ToRegister(ins->addrTemp());
     const LAllocation* value = ins->value();
     AtomicOp op = mir->operation();
+    const LAllocation* memoryBase = ins->memoryBase();
 
-    asmJSAtomicComputeAddress(addrTemp, ptrReg);
+    asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
     Address memAddr(addrTemp, 0);
     if (value->isConstant()) {
@@ -616,113 +680,15 @@ CodeGeneratorX86::visitAsmJSAtomicBinopHeapForEffect(LAsmJSAtomicBinopHeapForEff
     Register addrTemp = ToRegister(ins->addrTemp());
     const LAllocation* value = ins->value();
     AtomicOp op = mir->operation();
+    const LAllocation* memoryBase = ins->memoryBase();
 
-    asmJSAtomicComputeAddress(addrTemp, ptrReg);
+    asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
     Address memAddr(addrTemp, 0);
     if (value->isConstant())
         atomicBinopToTypedIntArray(op, accessType, Imm32(ToInt32(value)), memAddr);
     else
         atomicBinopToTypedIntArray(op, accessType, ToRegister(value), memAddr);
-}
-
-void
-CodeGeneratorX86::visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins)
-{
-    MWasmLoadGlobalVar* mir = ins->mir();
-    MIRType type = mir->type();
-    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
-
-    CodeOffset label;
-    switch (type) {
-      case MIRType::Int32:
-        label = masm.movlWithPatch(PatchedAbsoluteAddress(), ToRegister(ins->output()));
-        break;
-      case MIRType::Float32:
-        label = masm.vmovssWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
-        break;
-      case MIRType::Double:
-        label = masm.vmovsdWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
-        break;
-      // Aligned access: code is aligned on PageSize + there is padding
-      // before the global data section.
-      case MIRType::Int8x16:
-      case MIRType::Int16x8:
-      case MIRType::Int32x4:
-      case MIRType::Bool8x16:
-      case MIRType::Bool16x8:
-      case MIRType::Bool32x4:
-        label = masm.vmovdqaWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
-        break;
-      case MIRType::Float32x4:
-        label = masm.vmovapsWithPatch(PatchedAbsoluteAddress(), ToFloatRegister(ins->output()));
-        break;
-      default:
-        MOZ_CRASH("unexpected type in visitWasmLoadGlobalVar");
-    }
-    masm.append(wasm::GlobalAccess(label, mir->globalDataOffset()));
-}
-
-void
-CodeGeneratorX86::visitWasmLoadGlobalVarI64(LWasmLoadGlobalVarI64* ins)
-{
-    MWasmLoadGlobalVar* mir = ins->mir();
-
-    MOZ_ASSERT(mir->type() == MIRType::Int64);
-    Register64 output = ToOutRegister64(ins);
-
-    CodeOffset labelLow = masm.movlWithPatch(PatchedAbsoluteAddress(), output.low);
-    masm.append(wasm::GlobalAccess(labelLow, mir->globalDataOffset() + INT64LOW_OFFSET));
-    CodeOffset labelHigh = masm.movlWithPatch(PatchedAbsoluteAddress(), output.high);
-    masm.append(wasm::GlobalAccess(labelHigh, mir->globalDataOffset() + INT64HIGH_OFFSET));
-}
-
-void
-CodeGeneratorX86::visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins)
-{
-    MWasmStoreGlobalVar* mir = ins->mir();
-
-    MIRType type = mir->value()->type();
-    MOZ_ASSERT(IsNumberType(type) || IsSimdType(type));
-
-    CodeOffset label;
-    switch (type) {
-      case MIRType::Int32:
-        label = masm.movlWithPatch(ToRegister(ins->value()), PatchedAbsoluteAddress());
-        break;
-      case MIRType::Float32:
-        label = masm.vmovssWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
-        break;
-      case MIRType::Double:
-        label = masm.vmovsdWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
-        break;
-      // Aligned access: code is aligned on PageSize + there is padding
-      // before the global data section.
-      case MIRType::Int32x4:
-      case MIRType::Bool32x4:
-        label = masm.vmovdqaWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
-        break;
-      case MIRType::Float32x4:
-        label = masm.vmovapsWithPatch(ToFloatRegister(ins->value()), PatchedAbsoluteAddress());
-        break;
-      default:
-        MOZ_CRASH("unexpected type in visitWasmStoreGlobalVar");
-    }
-    masm.append(wasm::GlobalAccess(label, mir->globalDataOffset()));
-}
-
-void
-CodeGeneratorX86::visitWasmStoreGlobalVarI64(LWasmStoreGlobalVarI64* ins)
-{
-    MWasmStoreGlobalVar* mir = ins->mir();
-
-    MOZ_ASSERT(mir->value()->type() == MIRType::Int64);
-    Register64 input = ToRegister64(ins->value());
-
-    CodeOffset labelLow = masm.movlWithPatch(input.low, PatchedAbsoluteAddress());
-    masm.append(wasm::GlobalAccess(labelLow, mir->globalDataOffset() + INT64LOW_OFFSET));
-    CodeOffset labelHigh = masm.movlWithPatch(input.high, PatchedAbsoluteAddress());
-    masm.append(wasm::GlobalAccess(labelHigh, mir->globalDataOffset() + INT64HIGH_OFFSET));
 }
 
 namespace js {
@@ -772,7 +738,7 @@ CodeGeneratorX86::visitTruncateDToInt32(LTruncateDToInt32* ins)
     Register output = ToRegister(ins->output());
 
     OutOfLineTruncate* ool = new(alloc()) OutOfLineTruncate(ins);
-    addOutOfLineCode(ool, ins->mir());
+    addOutOfLineCode(ool, ins->mirRaw()->toInstruction());
 
     masm.branchTruncateDoubleMaybeModUint32(input, output, ool->entry());
     masm.bind(ool->rejoin());
@@ -785,7 +751,7 @@ CodeGeneratorX86::visitTruncateFToInt32(LTruncateFToInt32* ins)
     Register output = ToRegister(ins->output());
 
     OutOfLineTruncateFloat32* ool = new(alloc()) OutOfLineTruncateFloat32(ins);
-    addOutOfLineCode(ool, ins->mir());
+    addOutOfLineCode(ool, ins->mirRaw()->toInstruction());
 
     masm.branchTruncateFloat32MaybeModUint32(input, output, ool->entry());
     masm.bind(ool->rejoin());
@@ -857,10 +823,14 @@ CodeGeneratorX86::visitOutOfLineTruncate(OutOfLineTruncate* ool)
     {
         saveVolatile(output);
 
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), output != WasmTlsReg);
         masm.setupUnalignedABICall(output);
         masm.passABIArg(input, MoveOp::DOUBLE);
         if (gen->compilingWasm())
-            masm.callWithABI(wasm::SymbolicAddress::ToInt32);
+            masm.callWithABI(ins->hasInstance()
+                             ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ToInt32)
+                             : wasm::SymbolicAddress::ToInt32);
         else
             masm.callWithABI(BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
         masm.storeCallInt32Result(output);
@@ -939,12 +909,16 @@ CodeGeneratorX86::visitOutOfLineTruncateFloat32(OutOfLineTruncateFloat32* ool)
         saveVolatile(output);
 
         masm.push(input);
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), output != WasmTlsReg);
         masm.setupUnalignedABICall(output);
         masm.vcvtss2sd(input, input, input);
         masm.passABIArg(input.asDouble(), MoveOp::DOUBLE);
 
         if (gen->compilingWasm())
-            masm.callWithABI(wasm::SymbolicAddress::ToInt32);
+            masm.callWithABI(ins->hasInstance()
+                             ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ToInt32)
+                             : wasm::SymbolicAddress::ToInt32);
         else
             masm.callWithABI(BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
 
@@ -1021,6 +995,201 @@ CodeGeneratorX86::visitCompareI64AndBranch(LCompareI64AndBranch* lir)
     }
 }
 
+// Use native x86 division directly whenever the divisor's magnitude fits a
+// word. This is the same quotient decomposition used by compiler runtimes:
+// divide the high word first, then divide the remainder:low pair. If the high
+// word is already below the divisor, one division suffices. All full-width
+// divisors are handled by normalized division below, also without a callout.
+static void
+EmitInlineI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
+                     Register64 output, bool isUnsigned, bool isModulo,
+                     Label* fallback, Label* done)
+{
+    MOZ_ASSERT(lhs == Register64(eax, ebx));
+    MOZ_ASSERT(rhs == Register64(ecx, edx));
+    MOZ_ASSERT(output == Register64(edi, eax));
+
+    Label positiveDivisor, normalizeNumerator, negativeNumerator, divide;
+    Label twoDivisions, divided;
+    if (isUnsigned) {
+        masm.branchTest32(Assembler::NonZero, rhs.high, rhs.high, fallback);
+    } else {
+        // A signed divisor whose absolute value fits uint32 has a high word
+        // of zero or -1. -2^32 has low word zero and needs the full-width path.
+        masm.branchTest32(Assembler::Zero, rhs.high, rhs.high, &positiveDivisor);
+        masm.branch32(Assembler::NotEqual, rhs.high, Imm32(-1), fallback);
+        masm.branchTest32(Assembler::Zero, rhs.low, rhs.low, fallback);
+        masm.negl(rhs.low);
+        masm.move32(Imm32(isModulo ? 0 : 1), output.high);
+        masm.jump(&normalizeNumerator);
+        masm.bind(&positiveDivisor);
+        masm.xorl(output.high, output.high);
+        masm.bind(&normalizeNumerator);
+        masm.branch32(Assembler::LessThan, lhs.high, Imm32(0), &negativeNumerator);
+        masm.jump(&divide);
+        masm.bind(&negativeNumerator);
+        masm.neg64(lhs);
+        masm.xorl(Imm32(1), output.high);
+        masm.bind(&divide);
+        // Save the desired result sign, not an instance or frame pointer.
+        // The physical EBP frame remains valid at every instruction, including
+        // samples taken while this extra stack word is present.
+        masm.push(output.high);
+    }
+
+    // Divide-by-zero and signed overflow were checked before this dispatch.
+    // Every hardware division has a nonzero divisor and a high word strictly
+    // below it, so it cannot raise an x86 division fault.
+    masm.movl(rhs.low, ecx);
+    masm.branch32(Assembler::AboveOrEqual, lhs.high, ecx, &twoDivisions);
+    masm.movl(lhs.high, edx);
+    masm.movl(lhs.low, eax);
+    masm.xorl(output.high, output.high);
+    masm.udiv(ecx);
+    masm.jump(&divided);
+
+    masm.bind(&twoDivisions);
+    masm.xorl(edx, edx);
+    masm.udiv(ecx);
+    masm.movl(eax, output.high);
+    masm.movl(lhs.low, eax);
+    masm.udiv(ecx);
+    masm.bind(&divided);
+    if (isModulo) {
+        masm.movl(edx, output.low);
+        masm.xorl(output.high, output.high);
+    }
+    if (!isUnsigned) {
+        masm.pop(ecx);
+        masm.branchTest32(Assembler::Zero, ecx, ecx, done);
+        masm.neg64(output);
+    }
+    masm.jump(done);
+}
+
+// The remaining two-word divisors have a one-word quotient. Normalize the
+// divisor, estimate that quotient with one hardware divide, then correct the
+// product using the low divisor word (Knuth's two-word division). Normalizing
+// its high bit guarantees at most two downward corrections. This keeps even
+// full-width arithmetic in the profiled Wasm body instead of a C++ callout.
+static void
+EmitInlineFullWidthI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
+                              Register64 output, bool isUnsigned, bool isModulo,
+                              Label* done)
+{
+    MOZ_ASSERT(lhs == Register64(eax, ebx));
+    MOZ_ASSERT(rhs == Register64(ecx, edx));
+    MOZ_ASSERT(output == Register64(edi, eax));
+
+    Label positiveDivisor, positiveNumerator, zeroQuotient, oneQuotient;
+    Label finish, compareProduct, correctProduct, corrected;
+    masm.xorl(output.high, output.high);
+    if (!isUnsigned) {
+        masm.branch32(Assembler::GreaterThanOrEqual, rhs.high, Imm32(0), &positiveDivisor);
+        masm.neg64(rhs);
+        if (!isModulo)
+            masm.move32(Imm32(1), output.high);
+        masm.bind(&positiveDivisor);
+        masm.branch32(Assembler::GreaterThanOrEqual, lhs.high, Imm32(0), &positiveNumerator);
+        masm.neg64(lhs);
+        masm.xorl(Imm32(1), output.high);
+        masm.bind(&positiveNumerator);
+    }
+
+    // The word-divisor dispatch rejected this case before changing operands.
+    // After sign normalization its high divisor word is still nonzero.
+    // ESI remains the instance across the whole instruction; its saved value
+    // is restored even though it is used as an arithmetic scratch below.
+    masm.push(output.high);
+    masm.push(WasmTlsReg);
+    static const int32_t Shift = 0;
+    static const int32_t Quotient = 4;
+    static const int32_t NormalizedLowNumerator = 8;
+    static const int32_t ScratchBytes = 16;
+    masm.subFromStackPtr(Imm32(ScratchBytes));
+
+    masm.branch64(Assembler::Below, lhs, rhs, &zeroQuotient);
+    masm.branch32(Assembler::LessThan, rhs.high, Imm32(0), &oneQuotient);
+    masm.movl(rhs.high, edi);
+    masm.movl(rhs.low, esi);
+    masm.bsrl(edi, ecx);
+    masm.xorl(Imm32(31), ecx);
+    masm.store32(ecx, Address(esp, Shift));
+    masm.shldl_cl(esi, edi);
+    masm.shll_cl(esi);
+
+    // Normalize the three-word numerator without shifting by 32. Shift is
+    // in [1,31]; the divisor-MSB case above handles the zero shift separately.
+    masm.xorl(edx, edx);
+    masm.shldl_cl(eax, edx);
+    masm.shldl_cl(ebx, eax);
+    masm.shll_cl(ebx);
+    masm.store32(ebx, Address(esp, NormalizedLowNumerator));
+    // N2 < normalized D1, so DIV cannot overflow its uint32 quotient.
+    masm.udiv(edi);
+    masm.store32(eax, Address(esp, Quotient));
+    masm.movl(edx, ebx);
+    masm.mull(esi);
+    masm.load32(Address(esp, NormalizedLowNumerator), ecx);
+
+    // EDX:EAX is Qhat*D0; EBX:ECX is Rhat:N0. Decreasing Qhat by one
+    // subtracts D0 from the product and adds D1 to the remainder high word.
+    masm.bind(&compareProduct);
+    masm.branch32(Assembler::Above, edx, ebx, &correctProduct);
+    masm.branch32(Assembler::Below, edx, ebx, &corrected);
+    masm.branch32(Assembler::BelowOrEqual, eax, ecx, &corrected);
+    masm.bind(&correctProduct);
+    masm.subl(Imm32(1), Operand(esp, Quotient));
+    masm.subl(esi, eax);
+    masm.sbbl(Imm32(0), edx);
+    masm.addl(edi, ebx);
+    // A carry makes Rhat:N0 larger than any two-word product. Modular
+    // subtraction below still yields the correct (two-word) remainder.
+    masm.j(Assembler::CarrySet, &corrected);
+    masm.jump(&compareProduct);
+    masm.bind(&corrected);
+    if (isModulo) {
+        masm.subl(eax, ecx);
+        masm.sbbl(edx, ebx);
+        masm.movl(ecx, eax);
+        masm.movl(ebx, edi);
+        masm.load32(Address(esp, Shift), ecx);
+        masm.shrdl_cl(edi, eax);
+        masm.shrl_cl(edi);
+    } else {
+        masm.load32(Address(esp, Quotient), eax);
+        masm.xorl(edi, edi);
+    }
+    masm.jump(&finish);
+
+    masm.bind(&zeroQuotient);
+    if (isModulo) {
+        masm.movl(lhs.high, output.high);
+        masm.movl(lhs.low, output.low);
+    } else {
+        masm.xor64(output, output);
+    }
+    masm.jump(&finish);
+    masm.bind(&oneQuotient);
+    if (isModulo) {
+        masm.sub64(rhs, lhs);
+        masm.movl(lhs.high, output.high);
+        masm.movl(lhs.low, output.low);
+    } else {
+        masm.move32(Imm32(1), output.low);
+        masm.xorl(output.high, output.high);
+    }
+    masm.bind(&finish);
+    masm.addToStackPtr(Imm32(ScratchBytes));
+    masm.pop(WasmTlsReg);
+    masm.pop(ecx);
+    if (!isUnsigned) {
+        masm.branchTest32(Assembler::Zero, ecx, ecx, done);
+        masm.neg64(output);
+    }
+    masm.jump(done);
+}
+
 void
 CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
 {
@@ -1030,8 +1199,15 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
 
     MOZ_ASSERT(output == ReturnReg64);
 
-    // We are free to clobber all registers, since this is a call instruction.
+    // The Wasm physical frame chain survives native calls. This manual scratch
+    // set must honor the same reserved EBP as the register allocator.
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
+    if (gen->compilingWasm())
+        regs.take(FramePointer);
+    if (lir->hasInstance()) {
+        MOZ_ASSERT(ToRegister(lir->instance()) == WasmTlsReg);
+        regs.take(WasmTlsReg);
+    }
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
@@ -1051,7 +1227,7 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
         Label notmin;
         masm.branch64(Assembler::NotEqual, lhs, Imm64(INT64_MIN), &notmin);
         masm.branch64(Assembler::NotEqual, rhs, Imm64(-1), &notmin);
-        if (lir->mir()->isMod())
+        if (lir->isModulo())
             masm.xor64(output, output);
         else
             masm.jump(trap(lir, wasm::Trap::IntegerOverflow));
@@ -1059,21 +1235,13 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
         masm.bind(&notmin);
     }
 
-    masm.setupUnalignedABICall(temp);
-    masm.passABIArg(lhs.high);
-    masm.passABIArg(lhs.low);
-    masm.passABIArg(rhs.high);
-    masm.passABIArg(rhs.low);
+    Label native;
+    EmitInlineI64DivOrMod(masm, lhs, rhs, output, false,
+                         lir->isModulo(), &native, &done);
+    masm.bind(&native);
 
-    MOZ_ASSERT(gen->compilingWasm());
-    if (lir->mir()->isMod())
-        masm.callWithABI(wasm::SymbolicAddress::ModI64);
-    else
-        masm.callWithABI(wasm::SymbolicAddress::DivI64);
-
-    // output in edx:eax, move to output register.
-    masm.movl(edx, output.high);
-    MOZ_ASSERT(eax == output.low);
+    EmitInlineFullWidthI64DivOrMod(masm, lhs, rhs, output, false,
+                                  lir->isModulo(), &done);
 
     masm.bind(&done);
 }
@@ -1087,8 +1255,15 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
 
     MOZ_ASSERT(output == ReturnReg64);
 
-    // We are free to clobber all registers, since this is a call instruction.
+    // Keep the physical Wasm frame chain intact even in this manual scratch
+    // set, which is independent of the main register allocator.
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
+    if (gen->compilingWasm())
+        regs.take(FramePointer);
+    if (lir->hasInstance()) {
+        MOZ_ASSERT(ToRegister(lir->instance()) == WasmTlsReg);
+        regs.take(WasmTlsReg);
+    }
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
@@ -1101,21 +1276,16 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
     if (lir->canBeDivideByZero())
         masm.branchTest64(Assembler::Zero, rhs, rhs, temp, trap(lir, wasm::Trap::IntegerDivideByZero));
 
-    masm.setupUnalignedABICall(temp);
-    masm.passABIArg(lhs.high);
-    masm.passABIArg(lhs.low);
-    masm.passABIArg(rhs.high);
-    masm.passABIArg(rhs.low);
+    Label done;
+    Label native;
+    EmitInlineI64DivOrMod(masm, lhs, rhs, output, true,
+                         lir->isModulo(), &native, &done);
+    masm.bind(&native);
 
-    MOZ_ASSERT(gen->compilingWasm());
-    if (lir->mir()->isMod())
-        masm.callWithABI(wasm::SymbolicAddress::UModI64);
-    else
-        masm.callWithABI(wasm::SymbolicAddress::UDivI64);
+    EmitInlineFullWidthI64DivOrMod(masm, lhs, rhs, output, true,
+                                  lir->isModulo(), &done);
 
-    // output in edx:eax, move to output register.
-    masm.movl(edx, output.high);
-    MOZ_ASSERT(eax == output.low);
+    masm.bind(&done);
 }
 
 void

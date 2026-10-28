@@ -357,6 +357,7 @@ main_deunified_sources = [
     'wasm/WasmBinaryToAST.cpp',
     'wasm/WasmBinaryToExperimentalText.cpp',
     'wasm/WasmBinaryToText.cpp',
+    'wasm/WasmBuiltinThunks.cpp',
     'wasm/WasmCode.cpp',
     'wasm/WasmCompartment.cpp',
     'wasm/WasmCompile.cpp',

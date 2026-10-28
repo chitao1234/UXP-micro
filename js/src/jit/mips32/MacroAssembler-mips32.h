@@ -972,6 +972,10 @@ class MacroAssemblerMIPSCompat : public MacroAssemblerMIPS
     void moveFloat32(FloatRegister src, FloatRegister dest) {
         as_movs(dest, src);
     }
+    void loadInt32x4(const Address& src, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeInt32x4(FloatRegister src, const Address& dest) { MOZ_CRASH("NYI"); }
+    void loadFloat32x4(const Address& src, FloatRegister dest) { MOZ_CRASH("NYI"); }
+    void storeFloat32x4(FloatRegister src, const Address& addr) { MOZ_CRASH("NYI"); }
     void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
         loadPtr(Address(GlobalReg, globalDataOffset - WasmGlobalRegBias), dest);
     }

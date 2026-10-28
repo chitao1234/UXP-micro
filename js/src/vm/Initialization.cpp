@@ -30,6 +30,7 @@
 #include "vm/Time.h"
 #include "vm/TraceLogging.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmBuiltinThunks.h"
 
 using JS::detail::InitState;
 using JS::detail::libraryInitState;
@@ -188,6 +189,11 @@ JS_ShutDown(void)
 
     js::wasm::ShutDownInstanceStaticData();
 
+    // Deallocation takes the process executable-region mutex. Keep debug
+    // mutex-order bookkeeping alive until the shared thunks are released.
+    if (!JSRuntime::hasLiveRuntimes())
+        js::wasm::ReleaseBuiltinThunks();
+
     js::Mutex::ShutDown();
 
     // The only difficult-to-address reason for the restriction that you can't
@@ -203,8 +209,9 @@ JS_ShutDown(void)
 
     u_cleanup();
 
-    if (!JSRuntime::hasLiveRuntimes())
+    if (!JSRuntime::hasLiveRuntimes()) {
         js::jit::ReleaseProcessExecutableMemory();
+    }
 
     libraryInitState = InitState::ShutDown;
 }

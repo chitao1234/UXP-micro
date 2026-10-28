@@ -2291,6 +2291,7 @@ CodeGeneratorARM::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
     MOZ_ASSERT(mir->offset() == 0);
 
     const LAllocation* ptr = ins->ptr();
+    const LAllocation* boundsCheckLimit = ins->boundsCheckLimit();
 
     bool isSigned;
     int size;
@@ -2324,7 +2325,6 @@ CodeGeneratorARM::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
                                   ToRegister(ins->output()), scratch, Offset, Assembler::Always);
         }
     } else {
-        ScratchRegisterScope scratch(masm);
         Register ptrReg = ToRegister(ptr);
         if (isFloat) {
             FloatRegister output = ToFloatRegister(ins->output());
@@ -2333,28 +2333,29 @@ CodeGeneratorARM::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
 
             Assembler::Condition cond = Assembler::Always;
             if (mir->needsBoundsCheck()) {
-                BufferOffset cmp = masm.as_cmp(ptrReg, Imm8(0));
-                masm.append(wasm::BoundsCheck(cmp.getOffset()));
-
-                size_t nanOffset = size == 32 ? wasm::NaN32GlobalDataOffset : wasm::NaN64GlobalDataOffset;
-                masm.ma_vldr(Address(GlobalReg, nanOffset - WasmGlobalRegBias), output, scratch,
-                             Assembler::AboveOrEqual);
+                Register boundsCheckLimitReg = ToRegister(boundsCheckLimit);
+                masm.as_cmp(ptrReg, O2Reg(boundsCheckLimitReg));
+                if (size == 32)
+                    masm.ma_vimm_f32(GenericNaN(), output, Assembler::AboveOrEqual);
+                else
+                    masm.ma_vimm(GenericNaN(), output, Assembler::AboveOrEqual);
                 cond = Assembler::Below;
             }
 
+            ScratchRegisterScope scratch(masm);
             masm.ma_vldr(output, HeapReg, ptrReg, scratch, 0, cond);
         } else {
             Register output = ToRegister(ins->output());
 
             Assembler::Condition cond = Assembler::Always;
             if (mir->needsBoundsCheck()) {
-                uint32_t cmpOffset = masm.as_cmp(ptrReg, Imm8(0)).getOffset();
-                masm.append(wasm::BoundsCheck(cmpOffset));
-
+                Register boundsCheckLimitReg = ToRegister(boundsCheckLimit);
+                masm.as_cmp(ptrReg, O2Reg(boundsCheckLimitReg));
                 masm.ma_mov(Imm32(0), output, Assembler::AboveOrEqual);
                 cond = Assembler::Below;
             }
 
+            ScratchRegisterScope scratch(masm);
             masm.ma_dataTransferN(IsLoad, size, isSigned, HeapReg, ptrReg, output, scratch, Offset, cond);
         }
     }
@@ -2683,6 +2684,7 @@ CodeGeneratorARM::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
     MOZ_ASSERT(mir->offset() == 0);
 
     const LAllocation* ptr = ins->ptr();
+    const LAllocation* boundsCheckLimit = ins->boundsCheckLimit();
 
     bool isSigned;
     int size;
@@ -2720,9 +2722,8 @@ CodeGeneratorARM::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
 
         Assembler::Condition cond = Assembler::Always;
         if (mir->needsBoundsCheck()) {
-            BufferOffset cmp = masm.as_cmp(ptrReg, Imm8(0));
-            masm.append(wasm::BoundsCheck(cmp.getOffset()));
-
+            Register boundsCheckLimitReg = ToRegister(boundsCheckLimit);
+            masm.as_cmp(ptrReg, O2Reg(boundsCheckLimitReg));
             cond = Assembler::Below;
         }
 
@@ -3085,71 +3086,6 @@ CodeGeneratorARM::visitEffectiveAddress(LEffectiveAddress* ins)
 
     masm.as_add(output, base, lsl(index, mir->scale()));
     masm.ma_add(Imm32(mir->displacement()), output, scratch);
-}
-
-void
-CodeGeneratorARM::visitWasmLoadGlobalVar(LWasmLoadGlobalVar* ins)
-{
-    const MWasmLoadGlobalVar* mir = ins->mir();
-    unsigned addr = mir->globalDataOffset() - WasmGlobalRegBias;
-
-    ScratchRegisterScope scratch(masm);
-
-    if (mir->type() == MIRType::Int32) {
-        masm.ma_dtr(IsLoad, GlobalReg, Imm32(addr), ToRegister(ins->output()), scratch);
-    } else if (mir->type() == MIRType::Float32) {
-        VFPRegister vd(ToFloatRegister(ins->output()));
-        masm.ma_vldr(Address(GlobalReg, addr), vd.singleOverlay(), scratch);
-    } else {
-        MOZ_ASSERT(mir->type() == MIRType::Double);
-        masm.ma_vldr(Address(GlobalReg, addr), ToFloatRegister(ins->output()), scratch);
-    }
-}
-
-void
-CodeGeneratorARM::visitWasmLoadGlobalVarI64(LWasmLoadGlobalVarI64* ins)
-{
-    const MWasmLoadGlobalVar* mir = ins->mir();
-    unsigned addr = mir->globalDataOffset() - WasmGlobalRegBias;
-    MOZ_ASSERT(mir->type() == MIRType::Int64);
-    Register64 output = ToOutRegister64(ins);
-
-    ScratchRegisterScope scratch(masm);
-    masm.ma_dtr(IsLoad, GlobalReg, Imm32(addr + INT64LOW_OFFSET), output.low, scratch);
-    masm.ma_dtr(IsLoad, GlobalReg, Imm32(addr + INT64HIGH_OFFSET), output.high, scratch);
-}
-
-void
-CodeGeneratorARM::visitWasmStoreGlobalVar(LWasmStoreGlobalVar* ins)
-{
-    const MWasmStoreGlobalVar* mir = ins->mir();
-    MIRType type = mir->value()->type();
-
-    ScratchRegisterScope scratch(masm);
-
-    unsigned addr = mir->globalDataOffset() - WasmGlobalRegBias;
-    if (type == MIRType::Int32) {
-        masm.ma_dtr(IsStore, GlobalReg, Imm32(addr), ToRegister(ins->value()), scratch);
-    } else if (type == MIRType::Float32) {
-        VFPRegister vd(ToFloatRegister(ins->value()));
-        masm.ma_vstr(vd.singleOverlay(), Address(GlobalReg, addr), scratch);
-    } else {
-        MOZ_ASSERT(type == MIRType::Double);
-        masm.ma_vstr(ToFloatRegister(ins->value()), Address(GlobalReg, addr), scratch);
-    }
-}
-
-void
-CodeGeneratorARM::visitWasmStoreGlobalVarI64(LWasmStoreGlobalVarI64* ins)
-{
-    const MWasmStoreGlobalVar* mir = ins->mir();
-    unsigned addr = mir->globalDataOffset() - WasmGlobalRegBias;
-    MOZ_ASSERT (mir->value()->type() == MIRType::Int64);
-    Register64 input = ToRegister64(ins->value());
-
-    ScratchRegisterScope scratch(masm);
-    masm.ma_dtr(IsStore, GlobalReg, Imm32(addr + INT64LOW_OFFSET), input.low, scratch);
-    masm.ma_dtr(IsStore, GlobalReg, Imm32(addr + INT64HIGH_OFFSET), input.high, scratch);
 }
 
 void

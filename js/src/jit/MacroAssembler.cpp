@@ -2687,11 +2687,19 @@ MacroAssembler::wasmCallImport(const wasm::CallSiteDesc& desc, const wasm::Calle
 
     MOZ_ASSERT(ABINonArgReg0 != WasmTlsReg, "by constraint");
 
+#if defined(JS_CODEGEN_X86)
+    storePtr(WasmTlsReg, Address(getStackPointer(), sizeof(void*)));
+#endif
     // Switch to the callee's TLS and pinned registers and make the call.
     loadWasmGlobalPtr(globalDataOffset + offsetof(wasm::FuncImportTls, tls), WasmTlsReg);
     loadWasmPinnedRegsFromTls();
 
-    call(desc, ABINonArgReg0);
+    wasm::CallSiteDesc switchDesc(desc);
+#if defined(JS_CODEGEN_X86)
+    storePtr(WasmTlsReg, Address(getStackPointer(), 0));
+    switchDesc.setMightSwitchInstance();
+#endif
+    call(switchDesc, ABINonArgReg0);
 }
 
 void
@@ -2754,6 +2762,8 @@ MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc, const wasm::Cal
     // Load the base pointer of the table.
     loadWasmGlobalPtr(callee.tableBaseGlobalDataOffset(), scratch);
 
+    wasm::CallSiteDesc switchDesc(desc);
+
     // Load the callee from the table.
     wasm::TrapDesc nullTrap(trapOffset, wasm::Trap::IndirectCallToNull, framePushed());
     if (callee.wasmTableIsExternal()) {
@@ -2766,9 +2776,16 @@ MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc, const wasm::Cal
             addPtr(index, scratch);
         }
 
+#if defined(JS_CODEGEN_X86)
+        storePtr(WasmTlsReg, Address(getStackPointer(), sizeof(void*)));
+#endif
         loadPtr(Address(scratch, offsetof(wasm::ExternalTableElem, tls)), WasmTlsReg);
         branchTest32(Assembler::Zero, WasmTlsReg, WasmTlsReg, nullTrap);
 
+#if defined(JS_CODEGEN_X86)
+        storePtr(WasmTlsReg, Address(getStackPointer(), 0));
+        switchDesc.setMightSwitchInstance();
+#endif
         loadWasmPinnedRegsFromTls();
 
         loadPtr(Address(scratch, offsetof(wasm::ExternalTableElem, code)), scratch);
@@ -2777,7 +2794,7 @@ MacroAssembler::wasmCallIndirect(const wasm::CallSiteDesc& desc, const wasm::Cal
         branchTest32(Assembler::Zero, scratch, scratch, nullTrap);
     }
 
-    call(desc, scratch);
+    call(switchDesc, scratch);
 }
 
 void
@@ -2821,9 +2838,16 @@ MacroAssembler::wasmEmitTrapOutOfLineCode()
 
             // Align the stack for a nullary call.
             size_t alreadyPushed = sizeof(wasm::Frame) + framePushed();
-            size_t toPush = ABIArgGenerator().stackBytesConsumedSoFar();
+            size_t toPush = ABIArgGenerator().stackBytesConsumedSoFar() + wasm::FrameInstanceBytes;
             if (size_t dec = StackDecrementForCall(ABIStackAlignment, alreadyPushed, toPush))
                 reserveStack(dec);
+
+            // The shared x86 trap exit recovers TLS once, rather than copying
+            // the native recovery sequence into every bounds/overflow site.
+#if !defined(JS_CODEGEN_X86)
+            loadPtr(Address(getStackPointer(), framePushed() + offsetof(wasm::Frame, tls)),
+                    WasmTlsReg);
+#endif
 
             // Call the trap's exit, using the bytecode offset of the trap site.
             // Note that this code is inside the same CodeRange::Function as the

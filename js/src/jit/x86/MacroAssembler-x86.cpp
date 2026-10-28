@@ -592,6 +592,195 @@ MacroAssembler::wasmLoad(const wasm::MemoryAccessDesc& access, Operand srcAddr, 
     size_t loadOffset = size();
     switch (access.type()) {
       case Scalar::Int8:
+        movsbl(srcAddr, out.gpr());
+        break;
+      case Scalar::Uint8:
+        movzbl(srcAddr, out.gpr());
+        break;
+      case Scalar::Int16:
+        movswl(srcAddr, out.gpr());
+        break;
+      case Scalar::Uint16:
+        movzwl(srcAddr, out.gpr());
+        break;
+      case Scalar::Int32:
+      case Scalar::Uint32:
+        movl(srcAddr, out.gpr());
+        break;
+      case Scalar::Float32:
+        vmovss(srcAddr, out.fpu());
+        break;
+      case Scalar::Float64:
+        vmovsd(srcAddr, out.fpu());
+        break;
+      case Scalar::Int64:
+      case Scalar::BigInt64:
+      case Scalar::BigUint64:
+      case Scalar::Uint8Clamped:
+      case Scalar::MaxTypedArrayViewType:
+        MOZ_CRASH("unexpected type");
+    }
+
+    append(access, loadOffset, framePushed());
+
+    memoryBarrier(access.barrierAfter());
+}
+
+void
+MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out)
+{
+    MOZ_ASSERT(!access.isAtomic());
+
+    size_t loadOffset = size();
+    switch (access.type()) {
+      case Scalar::Int8:
+        MOZ_ASSERT(out == Register64(edx, eax));
+        movsbl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        cdq();
+        break;
+      case Scalar::Uint8:
+        movzbl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        xorl(out.high, out.high);
+        break;
+      case Scalar::Int16:
+        MOZ_ASSERT(out == Register64(edx, eax));
+        movswl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        cdq();
+        break;
+      case Scalar::Uint16:
+        movzwl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        xorl(out.high, out.high);
+        break;
+      case Scalar::Int32:
+        MOZ_ASSERT(out == Register64(edx, eax));
+        movl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        cdq();
+        break;
+      case Scalar::Uint32:
+        movl(srcAddr, out.low);
+
+        append(access, loadOffset, framePushed());
+
+        xorl(out.high, out.high);
+        break;
+      case Scalar::Int64: {
+        Operand low(eax), high(eax);
+        if (srcAddr.kind() == Operand::MEM_SCALE) {
+            BaseIndex addr = srcAddr.toBaseIndex();
+            MOZ_ASSERT(addr.base != out.low && addr.index != out.low);
+            low = Operand(addr.base, addr.index, addr.scale, addr.offset + INT64LOW_OFFSET);
+            high = Operand(addr.base, addr.index, addr.scale, addr.offset + INT64HIGH_OFFSET);
+        } else {
+            Address addr = srcAddr.toAddress();
+            MOZ_ASSERT(addr.base != out.low);
+            low = Operand(addr.base, addr.offset + INT64LOW_OFFSET);
+            high = Operand(addr.base, addr.offset + INT64HIGH_OFFSET);
+        }
+        movl(low, out.low);
+        append(access, loadOffset, framePushed());
+        loadOffset = size();
+        movl(high, out.high);
+        append(access, loadOffset, framePushed());
+        break;
+      }
+      case Scalar::Float32:
+      case Scalar::Float64:
+        MOZ_CRASH("non-int64 loads should use load()");
+      case Scalar::BigInt64:
+      case Scalar::BigUint64:
+      case Scalar::Uint8Clamped:
+      case Scalar::MaxTypedArrayViewType:
+        MOZ_CRASH("unexpected array type");
+    }
+}
+
+void
+MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr)
+{
+    MOZ_ASSERT(dstAddr.kind() == Operand::MEM_REG_DISP || dstAddr.kind() == Operand::MEM_SCALE);
+
+    memoryBarrier(access.barrierBefore());
+
+    size_t storeOffset = size();
+    switch (access.type()) {
+      case Scalar::Int8:
+      case Scalar::Uint8Clamped:
+      case Scalar::Uint8:
+        movb(value.gpr(), dstAddr);
+        break;
+      case Scalar::Int16:
+      case Scalar::Uint16:
+        movw(value.gpr(), dstAddr);
+        break;
+      case Scalar::Int32:
+      case Scalar::Uint32:
+        movl(value.gpr(), dstAddr);
+        break;
+      case Scalar::Float32:
+        vmovss(value.fpu(), dstAddr);
+        break;
+      case Scalar::Float64:
+        vmovsd(value.fpu(), dstAddr);
+        break;
+      case Scalar::Int64:
+        MOZ_CRASH("Should be handled in storeI64.");
+      case Scalar::MaxTypedArrayViewType:
+      case Scalar::BigInt64:
+      case Scalar::BigUint64:
+        MOZ_CRASH("unexpected type");
+    }
+
+    append(access, storeOffset, framePushed());
+
+    memoryBarrier(access.barrierAfter());
+}
+
+void
+MacroAssembler::wasmStoreI64(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr)
+{
+    MOZ_ASSERT(!access.isAtomic());
+
+    Operand low(eax), high(eax);
+    if (dstAddr.kind() == Operand::MEM_SCALE) {
+        BaseIndex addr = dstAddr.toBaseIndex();
+        low = Operand(addr.base, addr.index, addr.scale, addr.offset + INT64LOW_OFFSET);
+        high = Operand(addr.base, addr.index, addr.scale, addr.offset + INT64HIGH_OFFSET);
+    } else {
+        Address addr = dstAddr.toAddress();
+        low = Operand(addr.base, addr.offset + INT64LOW_OFFSET);
+        high = Operand(addr.base, addr.offset + INT64HIGH_OFFSET);
+    }
+    size_t storeOffset = size();
+    movl(value.low, low);
+    append(access, storeOffset, framePushed());
+    storeOffset = size();
+    movl(value.high, high);
+    append(access, storeOffset, framePushed());
+}
+
+void
+MacroAssembler::wasmLoadClassic(const wasm::MemoryAccessDesc& access, Operand srcAddr, AnyRegister out)
+{
+    memoryBarrier(access.barrierBefore());
+
+    size_t loadOffset = size();
+    switch (access.type()) {
+      case Scalar::Int8:
         movsblWithPatch(srcAddr, out.gpr());
         break;
       case Scalar::Uint8:
@@ -627,7 +816,7 @@ MacroAssembler::wasmLoad(const wasm::MemoryAccessDesc& access, Operand srcAddr, 
 }
 
 void
-MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out)
+MacroAssembler::wasmLoadI64Classic(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out)
 {
     MOZ_ASSERT(!access.isAtomic());
 
@@ -731,7 +920,7 @@ MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAdd
 }
 
 void
-MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr)
+MacroAssembler::wasmStoreClassic(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr)
 {
     memoryBarrier(access.barrierBefore());
 
@@ -770,7 +959,7 @@ MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister valu
 }
 
 void
-MacroAssembler::wasmStoreI64(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr)
+MacroAssembler::wasmStoreI64Classic(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr)
 {
     MOZ_ASSERT(!access.isAtomic());
 

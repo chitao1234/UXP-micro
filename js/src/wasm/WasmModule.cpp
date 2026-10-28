@@ -36,6 +36,20 @@ using namespace js::wasm;
 
 using mozilla::IsNaN;
 
+static mozilla::Atomic<bool> sharedCodeEnabled(false);
+
+JS_FRIEND_API(void)
+JS_SetWasmSharedCodeEnabled(bool enabled)
+{
+    sharedCodeEnabled = enabled;
+}
+
+bool
+wasm::SharedCodeEnabled()
+{
+    return sharedCodeEnabled;
+}
+
 const char wasm::InstanceExportField[] = "exports";
 
 #if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || \
@@ -272,7 +286,7 @@ Module::serializedSize(size_t* maybeBytecodeSize, size_t* maybeCompiledSize) con
 
     if (maybeCompiledSize) {
         *maybeCompiledSize = assumptions_.serializedSize() +
-                             SerializedPodVectorSize(code_) +
+                             sizeof(uint32_t) + codeLength_ +
                              linkData_.serializedSize() +
                              SerializedVectorSize(imports_) +
                              SerializedVectorSize(exports_) +
@@ -308,7 +322,18 @@ Module::serialize(uint8_t* maybeBytecodeBegin, size_t maybeBytecodeSize,
 
         uint8_t* cursor = maybeCompiledBegin;
         cursor = assumptions_.serialize(cursor);
-        cursor = SerializePodVector(cursor, code_);
+        cursor = WriteScalar<uint32_t>(cursor, codeLength_);
+        SharedCode linked;
+        {
+            auto storage = code_.lock();
+            if (storage->linked)
+                linked = storage->linked;
+            else
+                memcpy(cursor, storage->unlinked.begin(), codeLength_);
+        }
+        if (linked)
+            linked->segment().copyUnlinked(cursor, linkData_);
+        cursor += codeLength_;
         cursor = linkData_.serialize(cursor);
         cursor = SerializeVector(cursor, imports_);
         cursor = SerializeVector(cursor, exports_);
@@ -449,6 +474,8 @@ wasm::CompiledModuleAssumptionsMatch(PRFileDesc* compiled, JS::BuildIdCharVector
         return false;
 
     Assumptions assumptions(Move(buildId));
+    assumptions.compilerABI = SharedCodeEnabled() ? WasmCompilerABI::SharedDynamicTLS
+                                                  : WasmCompilerABI::ClassicSpecialized;
     return Module::assumptionsMatch(assumptions, mapping.get(), info.size);
 }
 
@@ -462,14 +489,22 @@ wasm::DeserializeModule(PRFileDesc* bytecodeFile, PRFileDesc* maybeCompiledFile,
     if (!bytecodeMapping)
         return nullptr;
 
+    Assumptions assumptions(Move(buildId));
+    assumptions.compilerABI = SharedCodeEnabled() ? WasmCompilerABI::SharedDynamicTLS
+                                                  : WasmCompilerABI::ClassicSpecialized;
+
     if (PRFileDesc* compiledFile = maybeCompiledFile) {
         PRFileInfo compiledInfo;
         UniqueMapping compiledMapping = MapFile(compiledFile, &compiledInfo);
         if (!compiledMapping)
             return nullptr;
 
-        return Module::deserialize(bytecodeMapping.get(), bytecodeInfo.size,
-                                   compiledMapping.get(), compiledInfo.size);
+        // A compiled cache from the other compiler ABI is stale. Keep the
+        // bytecode source below and transparently recompile for this request.
+        if (Module::assumptionsMatch(assumptions, compiledMapping.get(), compiledInfo.size)) {
+            return Module::deserialize(bytecodeMapping.get(), bytecodeInfo.size,
+                                       compiledMapping.get(), compiledInfo.size);
+        }
     }
 
     // Since the compiled file's assumptions don't match, we must recompile from
@@ -487,7 +522,7 @@ wasm::DeserializeModule(PRFileDesc* bytecodeFile, PRFileDesc* maybeCompiledFile,
     scriptedCaller.line = line;
     scriptedCaller.column = column;
 
-    CompileArgs args(Assumptions(Move(buildId)), Move(scriptedCaller));
+    CompileArgs args(Move(assumptions), Move(scriptedCaller));
 
     UniqueChars error;
     return Compile(*bytecode, Move(args), &error);
@@ -495,14 +530,28 @@ wasm::DeserializeModule(PRFileDesc* bytecodeFile, PRFileDesc* maybeCompiledFile,
 
 /* virtual */ void
 Module::addSizeOfMisc(MallocSizeOf mallocSizeOf,
+                      SeenSet* seenModules,
                       Metadata::SeenSet* seenMetadata,
                       ShareableBytes::SeenSet* seenBytes,
+                      Code::SeenSet* seenCode,
                       size_t* code,
                       size_t* data) const
 {
+    SeenSet::AddPtr p = seenModules->lookupForAdd(this);
+    if (p)
+        return;
+    bool ok = seenModules->add(p, this);
+    (void)ok;
+    SharedCode linked;
+    {
+        auto storage = code_.lock();
+        *data += storage->unlinked.sizeOfExcludingThis(mallocSizeOf);
+        linked = storage->linked;
+    }
+    if (linked)
+        linked->addSizeOfMisc(mallocSizeOf, seenMetadata, seenBytes, seenCode, code, data);
     *data += mallocSizeOf(this) +
              assumptions_.sizeOfExcludingThis(mallocSizeOf) +
-             code_.sizeOfExcludingThis(mallocSizeOf) +
              linkData_.sizeOfExcludingThis(mallocSizeOf) +
              SizeOfVectorExcludingThis(imports_, mallocSizeOf) +
              SizeOfVectorExcludingThis(exports_, mallocSizeOf) +
@@ -524,14 +573,28 @@ Module::extractCode(JSContext* cx, MutableHandleValue vp)
     if (!result)
         return false;
 
-    RootedObject code(cx, JS_NewUint8Array(cx, code_.length()));
+    RootedObject code(cx, JS_NewUint8Array(cx, codeLength_));
     if (!code)
         return false;
 
-    memcpy(code->as<TypedArrayObject>().viewDataUnshared(), code_.begin(), code_.length());
+    SharedCode linked;
+    uint8_t* dest = static_cast<uint8_t*>(code->as<TypedArrayObject>().viewDataUnshared());
+    {
+        auto storage = code_.lock();
+        if (storage->linked)
+            linked = storage->linked;
+        else
+            memcpy(dest, storage->unlinked.begin(), codeLength_);
+    }
+    if (linked)
+        linked->segment().copyUnlinked(dest, linkData_);
 
     RootedValue value(cx, ObjectValue(*code));
     if (!JS_DefineProperty(cx, result, "code", value, JSPROP_ENUMERATE))
+        return false;
+
+    value.setBoolean(sharedCode_);
+    if (!JS_DefineProperty(cx, result, "sharedCode", value, JSPROP_ENUMERATE))
         return false;
 
     RootedObject segments(cx, NewDenseEmptyArray(cx));
@@ -560,11 +623,11 @@ Module::extractCode(JSContext* cx, MutableHandleValue vp)
             if (!JS_DefineProperty(cx, segment, "funcIndex", value, JSPROP_ENUMERATE))
                 return false;
 
-            value.setNumber((uint32_t)p.funcNonProfilingEntry());
+            value.setNumber((uint32_t)p.funcNormalEntry());
             if (!JS_DefineProperty(cx, segment, "funcBodyBegin", value, JSPROP_ENUMERATE))
                 return false;
 
-            value.setNumber((uint32_t)p.funcProfilingEpilogue());
+            value.setNumber((uint32_t)p.end());
             if (!JS_DefineProperty(cx, segment, "funcBodyEnd", value, JSPROP_ENUMERATE))
                 return false;
         }
@@ -646,7 +709,6 @@ Module::initSegments(JSContext* cx,
     for (const ElemSegment& seg : elemSegments_) {
         Table& table = *tables[seg.tableIndex];
         uint32_t offset = EvaluateInitExpr(globalImports, seg.offset);
-        bool profilingEnabled = instance.code().profilingEnabled();
         const CodeRangeVector& codeRanges = metadata().codeRanges;
         uint8_t* codeBase = instance.codeBase();
 
@@ -664,9 +726,7 @@ Module::initSegments(JSContext* cx,
             } else {
                 const CodeRange& cr = codeRanges[seg.elemCodeRangeIndices[i]];
                 uint32_t entryOffset = table.isTypedFunction()
-                                       ? profilingEnabled
-                                         ? cr.funcProfilingEntry()
-                                         : cr.funcNonProfilingEntry()
+                                       ? cr.funcNormalEntry()
                                        : cr.funcTableEntry();
                 table.set(offset + i, codeBase + entryOffset, instance);
             }
@@ -975,6 +1035,97 @@ CreateExportObject(JSContext* cx,
     return true;
 }
 
+Module::~Module()
+{
+    // The final Code release may acquire the executable allocator's mutex.
+    // Move it out before ExclusiveData destroys its (now empty) protected value.
+    SharedCode linked;
+    {
+        auto storage = code_.lock();
+        linked = Move(storage->linked);
+    }
+}
+
+SharedCode
+Module::getCode(JSContext* cx, HandleWasmMemoryObject memory, uint8_t* globalData) const
+{
+    // Capture source policy before allocating code; no JS/GC work is performed
+    // while holding the publication lock. All published objects are immutable.
+    const ShareableBytes* source = nullptr;
+    if (cx->compartment()->isDebuggee() || !metadata_->funcNames.empty())
+        source = bytecode_.get();
+
+    SharedCode code;
+    for (unsigned attempt = 0; attempt < 2; attempt++) {
+        Bytes snapshot;
+        const Bytes* unlinked;
+        bool copied = true;
+        {
+            auto storage = code_.lock();
+            if (storage->linked)
+                return storage->linked;
+            if (sharedCode_) {
+                // A worker can publish and release the raw template while we
+                // link. The snapshot is transient; it is never retained.
+                copied = snapshot.appendAll(storage->unlinked);
+                unlinked = &snapshot;
+            } else {
+                // Private mode never mutates/releases the template, so it can
+                // link directly without imposing a copy on the control arm.
+                unlinked = &storage->unlinked;
+            }
+        }
+        if (copied) {
+            auto segment = CodeSegment::create(*unlinked, linkData_, *metadata_, memory,
+                                               !sharedCode_, globalData);
+            if (segment)
+                code = js_new<Code>(Move(segment), *metadata_, source, sharedCode_);
+        }
+        if (code)
+            break;
+        // Allocation and callbacks are outside the lock, including the final
+        // Code release which takes the executable allocator lock.
+        if (attempt == 0 && cx->runtime()->largeAllocationFailureCallback) {
+            JSRuntime* rt = cx->runtime();
+            rt->largeAllocationFailureCallback(rt->largeAllocationFailureCallbackData);
+        } else {
+            break;
+        }
+    }
+    if (!code) {
+        // Another worker may have published while our allocation failed. It
+        // can satisfy this instantiation without another executable allocation.
+        {
+            auto storage = code_.lock();
+            if (storage->linked)
+                return storage->linked;
+        }
+        ReportOutOfMemory(cx);
+        return nullptr;
+    }
+    if (!code->segment().sendToProfiler(cx, bytecode_->bytes, *metadata_))
+        return nullptr;
+
+    if (sharedCode_) {
+        SharedCode winner;
+        {
+            auto storage = code_.lock();
+            if (storage->linked) {
+                winner = storage->linked;
+            } else {
+                storage->linked = code;
+                Bytes empty;
+                storage->unlinked.swap(empty);
+            }
+        }
+        // A concurrent instantiation won. Free our losing executable allocation
+        // outside the lock; no live instance has ever executed it.
+        if (winner)
+            return winner;
+    }
+    return code;
+}
+
 bool
 Module::instantiate(JSContext* cx,
                     Handle<FunctionVector> funcImports,
@@ -996,31 +1147,19 @@ Module::instantiate(JSContext* cx,
     if (!instantiateTable(cx, &table, &tables))
         return false;
 
-    // To support viewing the source of an instance (Instance::createText), the
-    // instance must hold onto a ref of the bytecode (keeping it alive). This
-    // wastes memory for most users, so we try to only save the source when a
-    // developer actually cares: when the compartment is debuggable (which is
-    // true when the web console is open) or a names section is present (since
-    // this going to be stripped for non-developer builds).
-
-    const ShareableBytes* maybeBytecode = nullptr;
-    if (cx->compartment()->isDebuggee() || !metadata_->funcNames.empty())
-        maybeBytecode = bytecode_.get();
-
-    auto codeSegment = CodeSegment::create(cx, code_, linkData_, *metadata_, memory);
-    if (!codeSegment) {
+    auto globalSegment = GlobalSegment::create(linkData_.globalDataLength);
+    if (!globalSegment) {
         ReportOutOfMemory(cx);
         return false;
     }
 
-    auto code = cx->make_unique<Code>(Move(codeSegment), *metadata_, maybeBytecode);
-    if (!code) {
-        ReportOutOfMemory(cx);
+    SharedCode code = getCode(cx, memory, globalSegment->globalData());
+    if (!code)
         return false;
-    }
 
     instance.set(WasmInstanceObject::create(cx,
                                             Move(code),
+                                            Move(globalSegment),
                                             memory,
                                             Move(tables),
                                             funcImports,

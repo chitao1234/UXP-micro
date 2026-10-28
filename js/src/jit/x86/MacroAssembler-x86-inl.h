@@ -964,7 +964,23 @@ MacroAssembler::truncateDoubleToUInt64(Address src, Address dest, Register temp,
 
 template <class L>
 void
-MacroAssembler::wasmBoundsCheck(Condition cond, Register index, L label)
+MacroAssembler::wasmBoundsCheck(Condition cond, Register index, Register boundsCheckLimit, L label)
+{
+    cmp32(index, boundsCheckLimit);
+    j(cond, label);
+}
+
+template <class L>
+void
+MacroAssembler::wasmBoundsCheck(Condition cond, Register index, Address boundsCheckLimit, L label)
+{
+    cmp32(index, Operand(boundsCheckLimit));
+    j(cond, label);
+}
+
+template <class L>
+void
+MacroAssembler::wasmBoundsCheckClassic(Condition cond, Register index, L label)
 {
     CodeOffset off = cmp32WithPatch(index, Imm32(0));
     append(wasm::BoundsCheck(off.offset()));
@@ -973,7 +989,7 @@ MacroAssembler::wasmBoundsCheck(Condition cond, Register index, L label)
 }
 
 void
-MacroAssembler::wasmPatchBoundsCheck(uint8_t* patchAt, uint32_t limit)
+MacroAssembler::wasmPatchBoundsCheckClassic(uint8_t* patchAt, uint32_t limit)
 {
     reinterpret_cast<uint32_t*>(patchAt)[-1] = limit;
 }

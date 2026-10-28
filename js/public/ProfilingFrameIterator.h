@@ -93,10 +93,14 @@ class MOZ_NON_PARAM JS_PUBLIC_API(ProfilingFrameIterator)
   public:
     struct RegisterState
     {
-        RegisterState() : pc(nullptr), sp(nullptr), lr(nullptr) {}
+        RegisterState() : pc(nullptr), sp(nullptr), lr(nullptr), fp(nullptr) {}
         void* pc;
         void* sp;
         void* lr;
+        // Hardware frame pointer for x86 Wasm samples. If it is unavailable,
+        // ordinary Wasm body samples are empty; an already-published native
+        // or JS exit can still supply a valid frame chain.
+        void* fp;
     };
 
     ProfilingFrameIterator(JSContext* cx, const RegisterState& state,

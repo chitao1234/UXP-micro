@@ -2199,7 +2199,9 @@ class BaseCompiler
 
     void startCallArgs(FunctionCall& call, size_t stackArgAreaSize)
     {
-        call.stackArgAreaSize = stackArgAreaSize;
+        call.stackArgAreaSize = AlignBytes(stackArgAreaSize +
+                                           (call.usesSystemAbi ? 0 : FrameInstanceBytes),
+                                           size_t(WasmStackAlignment));
 
         size_t adjustment = call.stackArgAreaSize + call.frameAlignAdjustment;
         if (adjustment)
@@ -2232,13 +2234,14 @@ class BaseCompiler
     // args based on the info we read.
 
     void passArg(FunctionCall& call, ValType type, Stk& arg) {
+        uint32_t argBase = call.usesSystemAbi ? 0 : FrameInstanceBytes;
         switch (type) {
           case ValType::I32: {
             ABIArg argLoc = call.abi.next(MIRType::Int32);
             if (argLoc.kind() == ABIArg::Stack) {
                 ScratchI32 scratch(*this);
                 loadI32(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
             } else {
                 loadI32(argLoc.gpr(), arg);
             }
@@ -2250,15 +2253,15 @@ class BaseCompiler
                 ScratchI32 scratch(*this);
 #if defined(JS_CODEGEN_X64)
                 loadI64(Register64(scratch), arg);
-                masm.movq(scratch, Operand(StackPointer, argLoc.offsetFromArgBase()));
+                masm.movq(scratch, Operand(StackPointer, argBase + argLoc.offsetFromArgBase()));
 #elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM)
                 loadI64Low(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64LOW_OFFSET));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase() + INT64LOW_OFFSET));
                 loadI64High(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64HIGH_OFFSET));
+                masm.store32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase() + INT64HIGH_OFFSET));
 #elif defined(JS_CODEGEN_LOONGARCH64)
                 loadI64(Register64(scratch), arg);
-                masm.store64(Register64(scratch), Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.store64(Register64(scratch), Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
 #else
                 MOZ_CRASH("BaseCompiler platform hook: passArg I64");
 #endif
@@ -2273,7 +2276,7 @@ class BaseCompiler
               case ABIArg::Stack: {
                 ScratchF64 scratch(*this);
                 loadF64(scratch, arg);
-                masm.storeDouble(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.storeDouble(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
                 break;
               }
 #if defined(JS_CODEGEN_REGISTER_PAIR)
@@ -2304,7 +2307,7 @@ class BaseCompiler
               case ABIArg::Stack: {
                 ScratchF32 scratch(*this);
                 loadF32(scratch, arg);
-                masm.storeFloat32(scratch, Address(StackPointer, argLoc.offsetFromArgBase()));
+                masm.storeFloat32(scratch, Address(StackPointer, argBase + argLoc.offsetFromArgBase()));
                 break;
               }
               case ABIArg::GPR: {
@@ -2338,7 +2341,10 @@ class BaseCompiler
 
     void callSymbolic(SymbolicAddress callee, const FunctionCall& call) {
         CallSiteDesc desc(call.lineOrBytecode, CallSiteDesc::Symbolic);
-        masm.call(callee);
+#if defined(JS_CODEGEN_X86)
+        loadFromFramePtr(WasmTlsReg, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+#endif
+        masm.call(SymbolicAddressWithTLS(callee));
     }
 
     // Precondition: sync()
@@ -2391,7 +2397,7 @@ class BaseCompiler
         loadFromFramePtr(WasmTlsReg, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
 
         CallSiteDesc desc(call.lineOrBytecode, CallSiteDesc::Symbolic);
-        masm.wasmCallBuiltinInstanceMethod(instanceArg, builtin);
+        masm.wasmCallBuiltinInstanceMethod(instanceArg, SymbolicAddressWithTLS(builtin));
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -3190,174 +3196,140 @@ class BaseCompiler
     //
     // Global variable access.
 
-    // CodeGenerator{X86,X64}::visitWasmLoadGlobal()
+    bool classicAccesses() const {
+#if defined(JS_CODEGEN_X86)
+        return mg_.compilerABI == WasmCompilerABI::ClassicSpecialized;
+#else
+        return false;
+#endif
+    }
+
+    uint32_t globalToTlsOffset(uint32_t globalOffset) {
+        return offsetof(TlsData, globalArea) + globalOffset;
+    }
 
     void loadGlobalVarI32(unsigned globalDataOffset, RegI32 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.loadRipRelativeInt32(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg);
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        ScratchRegisterScope scratch(*this); // Really must be the ARM scratchreg
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_dtr(js::jit::IsLoad, GlobalReg, Imm32(addr), r.reg, scratch);
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.load32(Address(GlobalReg, addr), r.reg);
-#else
-        MOZ_CRASH("BaseCompiler platform hook: loadGlobalVarI32");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.load32(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
     }
 
     void loadGlobalVarI64(unsigned globalDataOffset, RegI64 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.loadRipRelativeInt64(r.reg.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset labelLow = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg.low);
         masm.append(GlobalAccess(labelLow, globalDataOffset + INT64LOW_OFFSET));
         CodeOffset labelHigh = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg.high);
         masm.append(GlobalAccess(labelHigh, globalDataOffset + INT64HIGH_OFFSET));
-#elif defined(JS_CODEGEN_ARM)
-        ScratchRegisterScope scratch(*this); // Really must be the ARM scratchreg
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_dtr(js::jit::IsLoad, GlobalReg, Imm32(addr + INT64LOW_OFFSET), r.reg.low, scratch);
-        masm.ma_dtr(js::jit::IsLoad, GlobalReg, Imm32(addr + INT64HIGH_OFFSET), r.reg.high,
-                    scratch);
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.load64(Address(GlobalReg, addr), r.reg);
-#else
-        MOZ_CRASH("BaseCompiler platform hook: loadGlobalVarI64");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.load64(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
     }
 
     void loadGlobalVarF32(unsigned globalDataOffset, RegF32 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.loadRipRelativeFloat32(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.vmovssWithPatch(PatchedAbsoluteAddress(), r.reg);
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        VFPRegister vd(r.reg);
-        masm.ma_vldr(VFPAddr(GlobalReg, VFPOffImm(addr)), vd.singleOverlay());
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.loadFloat32(Address(GlobalReg, addr), r.reg);
-#else
-        MOZ_CRASH("BaseCompiler platform hook: loadGlobalVarF32");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.loadFloat32(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
     }
 
     void loadGlobalVarF64(unsigned globalDataOffset, RegF64 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.loadRipRelativeDouble(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.vmovsdWithPatch(PatchedAbsoluteAddress(), r.reg);
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_vldr(VFPAddr(GlobalReg, VFPOffImm(addr)), r.reg);
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.loadDouble(Address(GlobalReg, addr), r.reg);
-#else
-        MOZ_CRASH("BaseCompiler platform hook: loadGlobalVarF64");
+            return;
+        }
 #endif
-    }
 
-    // CodeGeneratorX64::visitWasmStoreGlobal()
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.loadDouble(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
+    }
 
     void storeGlobalVarI32(unsigned globalDataOffset, RegI32 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.storeRipRelativeInt32(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.movlWithPatch(r.reg, PatchedAbsoluteAddress());
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        ScratchRegisterScope scratch(*this); // Really must be the ARM scratchreg
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_dtr(js::jit::IsStore, GlobalReg, Imm32(addr), r.reg, scratch);
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.store32(r.reg, Address(GlobalReg, addr));
-#else
-        MOZ_CRASH("BaseCompiler platform hook: storeGlobalVarI32");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.store32(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
     }
 
     void storeGlobalVarI64(unsigned globalDataOffset, RegI64 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.storeRipRelativeInt64(r.reg.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset labelLow = masm.movlWithPatch(r.reg.low, PatchedAbsoluteAddress());
         masm.append(GlobalAccess(labelLow, globalDataOffset + INT64LOW_OFFSET));
         CodeOffset labelHigh = masm.movlWithPatch(r.reg.high, PatchedAbsoluteAddress());
         masm.append(GlobalAccess(labelHigh, globalDataOffset + INT64HIGH_OFFSET));
-#elif defined(JS_CODEGEN_ARM)
-        ScratchRegisterScope scratch(*this); // Really must be the ARM scratchreg
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_dtr(js::jit::IsStore, GlobalReg, Imm32(addr + INT64LOW_OFFSET), r.reg.low, scratch);
-        masm.ma_dtr(js::jit::IsStore, GlobalReg, Imm32(addr + INT64HIGH_OFFSET), r.reg.high,
-                    scratch);
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.store64(r.reg, Address(GlobalReg, addr));
-#else
-        MOZ_CRASH("BaseCompiler platform hook: storeGlobalVarI64");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.store64(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
     }
 
     void storeGlobalVarF32(unsigned globalDataOffset, RegF32 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.storeRipRelativeFloat32(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.vmovssWithPatch(r.reg, PatchedAbsoluteAddress());
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        VFPRegister vd(r.reg);
-        masm.ma_vstr(vd.singleOverlay(), VFPAddr(GlobalReg, VFPOffImm(addr)));
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.storeFloat32(r.reg, Address(GlobalReg, addr));
-#else
-        MOZ_CRASH("BaseCompiler platform hook: storeGlobalVarF32");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.storeFloat32(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
     }
 
     void storeGlobalVarF64(unsigned globalDataOffset, RegF64 r)
     {
-#if defined(JS_CODEGEN_X64)
-        CodeOffset label = masm.storeRipRelativeDouble(r.reg);
-        masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_X86)
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
         CodeOffset label = masm.vmovsdWithPatch(r.reg, PatchedAbsoluteAddress());
         masm.append(GlobalAccess(label, globalDataOffset));
-#elif defined(JS_CODEGEN_ARM)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.ma_vstr(r.reg, VFPAddr(GlobalReg, VFPOffImm(addr)));
-#elif defined(JS_CODEGEN_LOONGARCH64)
-        unsigned addr = globalDataOffset - WasmGlobalRegBias;
-        masm.storeDouble(r.reg, Address(GlobalReg, addr));
-#else
-        MOZ_CRASH("BaseCompiler platform hook: storeGlobalVarF64");
+            return;
+        }
 #endif
+
+        ScratchI32 tmp(*this);
+        loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        masm.storeDouble(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -3440,7 +3412,8 @@ class BaseCompiler
 
     // ptr and dest may be the same iff dest is I32.
     // This may destroy ptr even if ptr and dest are not the same.
-    [[nodiscard]] bool load(MemoryAccessDesc& access, RegI32 ptr, AnyReg dest, RegI32 tmp1,
+#if defined(JS_CODEGEN_X86)
+    [[nodiscard]] bool loadClassic(MemoryAccessDesc& access, RegI32 ptr, AnyReg dest, RegI32 tmp1,
                            RegI32 tmp2)
     {
         checkOffset(&access, ptr);
@@ -3452,9 +3425,54 @@ class BaseCompiler
             if (!addOutOfLineCode(ool))
                 return false;
 
-            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, ool->entry());
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, ool->entry());
         } else {
-            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+        }
+#endif
+
+        Operand srcAddr(ptr.reg, access.offset());
+
+        if (dest.tag == AnyReg::I64) {
+            masm.wasmLoadI64Classic(access, srcAddr, dest.i64().reg);
+        } else {
+            bool byteRegConflict = access.byteSize() == 1 && !singleByteRegs_.has(dest.i32().reg);
+            AnyRegister out = byteRegConflict ? AnyRegister(ScratchRegX86) : dest.any();
+
+            masm.wasmLoadClassic(access, srcAddr, out);
+
+            if (byteRegConflict)
+                masm.mov(ScratchRegX86, dest.i32().reg);
+        }
+
+        if (ool)
+            masm.bind(ool->rejoin());
+        return true;
+    }
+#endif
+
+    [[nodiscard]] bool load(MemoryAccessDesc& access, RegI32 ptr, AnyReg dest, RegI32 tmp1,
+                           RegI32 tmp2)
+    {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses())
+            return loadClassic(access, ptr, dest, tmp1, tmp2);
+#endif
+
+        checkOffset(&access, ptr);
+
+        ScratchI32 tls(*this);
+        loadFromFramePtr(tls, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        OutOfLineCode* ool = nullptr;
+#ifndef WASM_HUGE_MEMORY
+        if (access.isPlainAsmJS()) {
+            ool = new (alloc_) AsmJSLoadOOB(access.type(), dest.any());
+            if (!addOutOfLineCode(ool))
+                return false;
+
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, Address(tls, offsetof(TlsData, boundsCheckLimit)), ool->entry());
+        } else {
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, Address(tls, offsetof(TlsData, boundsCheckLimit)), trap(Trap::OutOfBounds));
         }
 #endif
 
@@ -3466,6 +3484,7 @@ class BaseCompiler
         else
             masm.wasmLoad(access, srcAddr, dest.any());
 #elif defined(JS_CODEGEN_X86)
+        masm.addPtr(Address(tls, offsetof(TlsData, memoryBase)), ptr.reg);
         Operand srcAddr(ptr.reg, access.offset());
 
         if (dest.tag == AnyReg::I64) {
@@ -3577,14 +3596,13 @@ class BaseCompiler
         MOZ_CRASH("BaseCompiler platform hook: load");
 #endif
 
-        if (ool)
-            masm.bind(ool->rejoin());
         return true;
     }
 
     // ptr and src must not be the same register.
     // This may destroy ptr.
-    [[nodiscard]] bool store(MemoryAccessDesc access, RegI32 ptr, AnyReg src, RegI32 tmp1,
+#if defined(JS_CODEGEN_X86)
+    [[nodiscard]] bool storeClassic(MemoryAccessDesc access, RegI32 ptr, AnyReg src, RegI32 tmp1,
                             RegI32 tmp2)
     {
         checkOffset(&access, ptr);
@@ -3592,9 +3610,55 @@ class BaseCompiler
         Label rejoin;
 #ifndef WASM_HUGE_MEMORY
         if (access.isPlainAsmJS())
-            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, &rejoin);
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, &rejoin);
         else
-            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+#endif
+
+        // Emit the store
+        Operand dstAddr(ptr.reg, access.offset());
+
+        if (access.type() == Scalar::Int64) {
+            masm.wasmStoreI64Classic(access, src.i64().reg, dstAddr);
+        } else {
+            AnyRegister value;
+            if (src.tag == AnyReg::I64) {
+                value = AnyRegister(src.i64().reg.low);
+            } else if (access.byteSize() == 1 && !singleByteRegs_.has(src.i32().reg)) {
+                masm.mov(src.i32().reg, ScratchRegX86);
+                value = AnyRegister(ScratchRegX86);
+            } else {
+                value = src.any();
+            }
+
+            masm.wasmStoreClassic(access, value, dstAddr);
+        }
+
+        if (rejoin.used())
+            masm.bind(&rejoin);
+
+        return true;
+    }
+#endif
+
+    [[nodiscard]] bool store(MemoryAccessDesc access, RegI32 ptr, AnyReg src, RegI32 tmp1,
+                            RegI32 tmp2)
+    {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses())
+            return storeClassic(access, ptr, src, tmp1, tmp2);
+#endif
+
+        checkOffset(&access, ptr);
+
+        ScratchI32 tls(*this);
+        loadFromFramePtr(tls, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+        Label rejoin;
+#ifndef WASM_HUGE_MEMORY
+        if (access.isPlainAsmJS())
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, Address(tls, offsetof(TlsData, boundsCheckLimit)), &rejoin);
+        else
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr.reg, Address(tls, offsetof(TlsData, boundsCheckLimit)), trap(Trap::OutOfBounds));
 #endif
 
         // Emit the store
@@ -3603,6 +3667,7 @@ class BaseCompiler
 
         masm.wasmStore(access, src.any(), dstAddr);
 #elif defined(JS_CODEGEN_X86)
+        masm.addPtr(Address(tls, offsetof(TlsData, memoryBase)), ptr.reg);
         Operand dstAddr(ptr.reg, access.offset());
 
         if (access.type() == Scalar::Int64) {
@@ -3708,9 +3773,6 @@ class BaseCompiler
 #else
         MOZ_CRASH("BaseCompiler platform hook: store");
 #endif
-
-        if (rejoin.used())
-            masm.bind(&rejoin);
 
         return true;
     }
@@ -6610,6 +6672,7 @@ BaseCompiler::emitStore(ValType resultType, Scalar::Type viewType)
         break;
     }
 
+    MOZ_ASSERT(temps <= 3);
     if (temps >= 1)
         freeI32(tmp1);
     if (temps >= 2)
@@ -7940,18 +8003,16 @@ BaseCompiler::BaseCompiler(const ModuleGeneratorData& mg,
     availGPR_.take(HeapReg);
 #elif defined(JS_CODEGEN_ARM)
     availGPR_.take(HeapReg);
-    availGPR_.take(GlobalReg);
     availGPR_.take(ScratchRegARM);
 #elif defined(JS_CODEGEN_ARM64)
     availGPR_.take(HeapReg);
     availGPR_.take(HeapLenReg);
-    availGPR_.take(GlobalReg);
 #elif defined(JS_CODEGEN_X86)
     availGPR_.take(ScratchRegX86);
+    availGPR_.take(FramePointer);
 #elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64) || \
       defined(JS_CODEGEN_LOONGARCH64)
     availGPR_.take(HeapReg);
-    availGPR_.take(GlobalReg);
 #endif
 
     labelPool_.setAllocator(alloc_);
@@ -7989,25 +8050,25 @@ BaseCompiler::init()
             if (i->argInRegister())
                 l.init(MIRType::Int32, pushLocal(4));
             else
-                l.init(MIRType::Int32, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Int32, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Int64:
             if (i->argInRegister())
                 l.init(MIRType::Int64, pushLocal(8));
             else
-                l.init(MIRType::Int64, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Int64, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Double:
             if (i->argInRegister())
                 l.init(MIRType::Double, pushLocal(8));
             else
-                l.init(MIRType::Double, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Double, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           case MIRType::Float32:
             if (i->argInRegister())
                 l.init(MIRType::Float32, pushLocal(4));
             else
-                l.init(MIRType::Float32, -(i->offsetFromArgBase() + sizeof(Frame)));
+                l.init(MIRType::Float32, -(i->offsetFromArgBase() + FrameArgumentOffset));
             break;
           default:
             MOZ_CRASH("Argument type");
