@@ -3196,12 +3196,28 @@ class BaseCompiler
     //
     // Global variable access.
 
+    bool classicAccesses() const {
+#if defined(JS_CODEGEN_X86)
+        return mg_.compilerABI == WasmCompilerABI::ClassicSpecialized;
+#else
+        return false;
+#endif
+    }
+
     uint32_t globalToTlsOffset(uint32_t globalOffset) {
         return offsetof(TlsData, globalArea) + globalOffset;
     }
 
     void loadGlobalVarI32(unsigned globalDataOffset, RegI32 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg);
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.load32(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
@@ -3209,6 +3225,16 @@ class BaseCompiler
 
     void loadGlobalVarI64(unsigned globalDataOffset, RegI64 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset labelLow = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg.low);
+        masm.append(GlobalAccess(labelLow, globalDataOffset + INT64LOW_OFFSET));
+        CodeOffset labelHigh = masm.movlWithPatch(PatchedAbsoluteAddress(), r.reg.high);
+        masm.append(GlobalAccess(labelHigh, globalDataOffset + INT64HIGH_OFFSET));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.load64(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
@@ -3216,6 +3242,14 @@ class BaseCompiler
 
     void loadGlobalVarF32(unsigned globalDataOffset, RegF32 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.vmovssWithPatch(PatchedAbsoluteAddress(), r.reg);
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.loadFloat32(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
@@ -3223,6 +3257,14 @@ class BaseCompiler
 
     void loadGlobalVarF64(unsigned globalDataOffset, RegF64 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.vmovsdWithPatch(PatchedAbsoluteAddress(), r.reg);
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.loadDouble(Address(tmp, globalToTlsOffset(globalDataOffset)), r.reg);
@@ -3230,6 +3272,14 @@ class BaseCompiler
 
     void storeGlobalVarI32(unsigned globalDataOffset, RegI32 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.movlWithPatch(r.reg, PatchedAbsoluteAddress());
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.store32(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
@@ -3237,6 +3287,16 @@ class BaseCompiler
 
     void storeGlobalVarI64(unsigned globalDataOffset, RegI64 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset labelLow = masm.movlWithPatch(r.reg.low, PatchedAbsoluteAddress());
+        masm.append(GlobalAccess(labelLow, globalDataOffset + INT64LOW_OFFSET));
+        CodeOffset labelHigh = masm.movlWithPatch(r.reg.high, PatchedAbsoluteAddress());
+        masm.append(GlobalAccess(labelHigh, globalDataOffset + INT64HIGH_OFFSET));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.store64(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
@@ -3244,6 +3304,14 @@ class BaseCompiler
 
     void storeGlobalVarF32(unsigned globalDataOffset, RegF32 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.vmovssWithPatch(r.reg, PatchedAbsoluteAddress());
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.storeFloat32(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
@@ -3251,6 +3319,14 @@ class BaseCompiler
 
     void storeGlobalVarF64(unsigned globalDataOffset, RegF64 r)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses()) {
+        CodeOffset label = masm.vmovsdWithPatch(r.reg, PatchedAbsoluteAddress());
+        masm.append(GlobalAccess(label, globalDataOffset));
+            return;
+        }
+#endif
+
         ScratchI32 tmp(*this);
         loadFromFramePtr(tmp, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
         masm.storeDouble(r.reg, Address(tmp, globalToTlsOffset(globalDataOffset)));
@@ -3336,9 +3412,53 @@ class BaseCompiler
 
     // ptr and dest may be the same iff dest is I32.
     // This may destroy ptr even if ptr and dest are not the same.
+#if defined(JS_CODEGEN_X86)
+    [[nodiscard]] bool loadClassic(MemoryAccessDesc& access, RegI32 ptr, AnyReg dest, RegI32 tmp1,
+                           RegI32 tmp2)
+    {
+        checkOffset(&access, ptr);
+
+        OutOfLineCode* ool = nullptr;
+#ifndef WASM_HUGE_MEMORY
+        if (access.isPlainAsmJS()) {
+            ool = new (alloc_) AsmJSLoadOOB(access.type(), dest.any());
+            if (!addOutOfLineCode(ool))
+                return false;
+
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, ool->entry());
+        } else {
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+        }
+#endif
+
+        Operand srcAddr(ptr.reg, access.offset());
+
+        if (dest.tag == AnyReg::I64) {
+            masm.wasmLoadI64Classic(access, srcAddr, dest.i64().reg);
+        } else {
+            bool byteRegConflict = access.byteSize() == 1 && !singleByteRegs_.has(dest.i32().reg);
+            AnyRegister out = byteRegConflict ? AnyRegister(ScratchRegX86) : dest.any();
+
+            masm.wasmLoadClassic(access, srcAddr, out);
+
+            if (byteRegConflict)
+                masm.mov(ScratchRegX86, dest.i32().reg);
+        }
+
+        if (ool)
+            masm.bind(ool->rejoin());
+        return true;
+    }
+#endif
+
     [[nodiscard]] bool load(MemoryAccessDesc& access, RegI32 ptr, AnyReg dest, RegI32 tmp1,
                            RegI32 tmp2)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses())
+            return loadClassic(access, ptr, dest, tmp1, tmp2);
+#endif
+
         checkOffset(&access, ptr);
 
         ScratchI32 tls(*this);
@@ -3481,9 +3601,54 @@ class BaseCompiler
 
     // ptr and src must not be the same register.
     // This may destroy ptr.
+#if defined(JS_CODEGEN_X86)
+    [[nodiscard]] bool storeClassic(MemoryAccessDesc access, RegI32 ptr, AnyReg src, RegI32 tmp1,
+                            RegI32 tmp2)
+    {
+        checkOffset(&access, ptr);
+
+        Label rejoin;
+#ifndef WASM_HUGE_MEMORY
+        if (access.isPlainAsmJS())
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, &rejoin);
+        else
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr.reg, trap(Trap::OutOfBounds));
+#endif
+
+        // Emit the store
+        Operand dstAddr(ptr.reg, access.offset());
+
+        if (access.type() == Scalar::Int64) {
+            masm.wasmStoreI64Classic(access, src.i64().reg, dstAddr);
+        } else {
+            AnyRegister value;
+            if (src.tag == AnyReg::I64) {
+                value = AnyRegister(src.i64().reg.low);
+            } else if (access.byteSize() == 1 && !singleByteRegs_.has(src.i32().reg)) {
+                masm.mov(src.i32().reg, ScratchRegX86);
+                value = AnyRegister(ScratchRegX86);
+            } else {
+                value = src.any();
+            }
+
+            masm.wasmStoreClassic(access, value, dstAddr);
+        }
+
+        if (rejoin.used())
+            masm.bind(&rejoin);
+
+        return true;
+    }
+#endif
+
     [[nodiscard]] bool store(MemoryAccessDesc access, RegI32 ptr, AnyReg src, RegI32 tmp1,
                             RegI32 tmp2)
     {
+#if defined(JS_CODEGEN_X86)
+        if (classicAccesses())
+            return storeClassic(access, ptr, src, tmp1, tmp2);
+#endif
+
         checkOffset(&access, ptr);
 
         ScratchI32 tls(*this);

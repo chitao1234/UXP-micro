@@ -1047,7 +1047,7 @@ Module::~Module()
 }
 
 SharedCode
-Module::getCode(JSContext* cx) const
+Module::getCode(JSContext* cx, HandleWasmMemoryObject memory, uint8_t* globalData) const
 {
     // Capture source policy before allocating code; no JS/GC work is performed
     // while holding the publication lock. All published objects are immutable.
@@ -1076,9 +1076,10 @@ Module::getCode(JSContext* cx) const
             }
         }
         if (copied) {
-            auto segment = CodeSegment::create(*unlinked, linkData_);
+            auto segment = CodeSegment::create(*unlinked, linkData_, *metadata_, memory,
+                                               !sharedCode_, globalData);
             if (segment)
-                code = js_new<Code>(Move(segment), *metadata_, source);
+                code = js_new<Code>(Move(segment), *metadata_, source, sharedCode_);
         }
         if (code)
             break;
@@ -1146,15 +1147,15 @@ Module::instantiate(JSContext* cx,
     if (!instantiateTable(cx, &table, &tables))
         return false;
 
-    SharedCode code = getCode(cx);
-    if (!code)
-        return false;
-
     auto globalSegment = GlobalSegment::create(linkData_.globalDataLength);
     if (!globalSegment) {
         ReportOutOfMemory(cx);
         return false;
     }
+
+    SharedCode code = getCode(cx, memory, globalSegment->globalData());
+    if (!code)
+        return false;
 
     instance.set(WasmInstanceObject::create(cx,
                                             Move(code),

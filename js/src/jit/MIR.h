@@ -13187,8 +13187,8 @@ class MWasmLoadGlobalVar
   : public MAryInstruction<1>,
     public NoTypePolicy::Data
 {
-    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant, MDefinition* tlsPtr)
-      : globalDataOffset_(globalDataOffset), isConstant_(isConstant)
+    MWasmLoadGlobalVar(MIRType type, unsigned globalDataOffset, bool isConstant, MDefinition* tlsPtr, bool classic = false)
+      : globalDataOffset_(globalDataOffset), isConstant_(isConstant), classic_(classic)
     {
         MOZ_ASSERT(IsNumberType(type));
         setResultType(type);
@@ -13198,11 +13198,14 @@ class MWasmLoadGlobalVar
 
     unsigned globalDataOffset_;
     bool isConstant_;
+    bool classic_;
 
   public:
     INSTRUCTION_HEADER(WasmLoadGlobalVar)
     TRIVIAL_NEW_WRAPPERS
     NAMED_OPERANDS((0, tlsPtr))
+
+    bool isClassic() const { return classic_; }
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
 
@@ -13221,19 +13224,22 @@ class MWasmStoreGlobalVar
   : public MAryInstruction<2>,
     public NoTypePolicy::Data
 {
-    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* value, MDefinition* tlsPtr)
-      : globalDataOffset_(globalDataOffset)
+    MWasmStoreGlobalVar(unsigned globalDataOffset, MDefinition* value, MDefinition* tlsPtr, bool classic = false)
+      : globalDataOffset_(globalDataOffset), classic_(classic)
     {
         initOperand(0, value);
         initOperand(1, tlsPtr);
     }
 
     unsigned globalDataOffset_;
+    bool classic_;
 
   public:
     INSTRUCTION_HEADER(WasmStoreGlobalVar)
     TRIVIAL_NEW_WRAPPERS
     NAMED_OPERANDS((0, value), (1, tlsPtr))
+
+    bool isClassic() const { return classic_; }
 
     unsigned globalDataOffset() const { return globalDataOffset_; }
 

@@ -978,6 +978,22 @@ MacroAssembler::wasmBoundsCheck(Condition cond, Register index, Address boundsCh
     j(cond, label);
 }
 
+template <class L>
+void
+MacroAssembler::wasmBoundsCheckClassic(Condition cond, Register index, L label)
+{
+    CodeOffset off = cmp32WithPatch(index, Imm32(0));
+    append(wasm::BoundsCheck(off.offset()));
+
+    j(cond, label);
+}
+
+void
+MacroAssembler::wasmPatchBoundsCheckClassic(uint8_t* patchAt, uint32_t limit)
+{
+    reinterpret_cast<uint32_t*>(patchAt)[-1] = limit;
+}
+
 //}}} check_macroassembler_style
 // ===============================================================
 

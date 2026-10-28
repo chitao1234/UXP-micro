@@ -111,8 +111,6 @@ ModuleGenerator::init(UniqueModuleGeneratorData shared, const CompileArgs& args,
     if (!funcToCodeRange_.appendN(BAD_CODE_RANGE, shared_->funcSigs.length()))
         return false;
 
-    linkData_.globalDataLength = 0;
-
     // asm.js passes in an AsmJSMetadata subclass to use instead.
     if (maybeAsmJSMetadata) {
         metadata_ = maybeAsmJSMetadata;
@@ -128,6 +126,8 @@ ModuleGenerator::init(UniqueModuleGeneratorData shared, const CompileArgs& args,
     // keeps its historical specialization path until it is qualified too.
     shared_->compilerABI = isAsmJS() ? WasmCompilerABI::ClassicSpecialized
                                     : args.compilerABI;
+
+    linkData_.globalDataLength = 0;
 
     if (args.scriptedCaller.filename) {
         metadata_->filename = DuplicateString(args.scriptedCaller.filename.get());
@@ -590,6 +590,24 @@ ModuleGenerator::finishLinkData(Bytes& code)
         if (!linkData_.internalLinks.append(inLink))
             return false;
     }
+
+#if defined(JS_CODEGEN_X86)
+    for (const GlobalAccess& access : masm_.globalAccesses()) {
+        LinkData::InternalLink link(LinkData::InternalLink::RawPointer);
+        link.patchAtOffset = masm_.labelToPatchOffset(access.patchAt);
+        link.targetOffset = code.length() + access.globalDataOffset;
+        if (!linkData_.internalLinks.append(link))
+            return false;
+    }
+#elif defined(JS_CODEGEN_X64)
+    for (const GlobalAccess& access : masm_.globalAccesses()) {
+        void* from = code.begin() + access.patchAt.offset();
+        void* to = code.end() + access.globalDataOffset;
+        X86Encoding::SetRel32(from, to);
+    }
+#else
+    MOZ_ASSERT(masm_.globalAccesses().empty());
+#endif
 
     return true;
 }
@@ -1090,6 +1108,8 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
 
     // The MacroAssembler has accumulated all the memory accesses during codegen.
     metadata_->memoryAccesses = masm_.extractMemoryAccesses();
+    metadata_->memoryPatches = masm_.extractMemoryPatches();
+    metadata_->boundsChecks = masm_.extractBoundsChecks();
 
     // Copy over data from the ModuleGeneratorData.
     metadata_->memoryUsage = shared_->memoryUsage;
@@ -1101,6 +1121,8 @@ ModuleGenerator::finish(const ShareableBytes& bytecode)
     // These Vectors can get large and the excess capacity can be significant,
     // so realloc them down to size.
     metadata_->memoryAccesses.podResizeToFit();
+    metadata_->memoryPatches.podResizeToFit();
+    metadata_->boundsChecks.podResizeToFit();
     metadata_->codeRanges.podResizeToFit();
     metadata_->callSites.podResizeToFit();
 

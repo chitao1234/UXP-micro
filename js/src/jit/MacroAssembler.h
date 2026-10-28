@@ -1365,6 +1365,14 @@ class MacroAssembler : public MacroAssemblerSpecific
     // wasm::MemoryAccessVector (there can be multiple when i64 is involved).
     // On x64, only some asm.js accesses need a wasm::MemoryAccess so the caller
     // is responsible for doing this instead.
+    template <class L>
+    inline void wasmBoundsCheckClassic(Condition cond, Register index, L label) DEFINED_ON(x86);
+    static inline void wasmPatchBoundsCheckClassic(uint8_t* patchAt, uint32_t limit) DEFINED_ON(x86);
+    void wasmLoadClassic(const wasm::MemoryAccessDesc& access, Operand srcAddr, AnyRegister out) DEFINED_ON(x86);
+    void wasmLoadI64Classic(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out) DEFINED_ON(x86);
+    void wasmStoreClassic(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr) DEFINED_ON(x86);
+    void wasmStoreI64Classic(const wasm::MemoryAccessDesc& access, Register64 value, Operand dstAddr) DEFINED_ON(x86);
+
     void wasmLoad(const wasm::MemoryAccessDesc& access, Operand srcAddr, AnyRegister out) DEFINED_ON(x86, x64);
     void wasmLoadI64(const wasm::MemoryAccessDesc& access, Operand srcAddr, Register64 out) DEFINED_ON(x86, x64);
     void wasmStore(const wasm::MemoryAccessDesc& access, AnyRegister value, Operand dstAddr) DEFINED_ON(x86, x64);

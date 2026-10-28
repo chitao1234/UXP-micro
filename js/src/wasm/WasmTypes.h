@@ -1315,6 +1315,41 @@ class MemoryAccess
 
 WASM_DECLARE_POD_VECTOR(MemoryAccess, MemoryAccessVector)
 
+// Per-instance classic code may embed the linear-memory base and bounds limit
+// in executable instructions. These offsets are patched when that instance's
+// code segment is linked and when a moving memory grow relocates its buffer.
+class MemoryPatch
+{
+    uint32_t offset_;
+
+  public:
+    MemoryPatch() = default;
+    explicit MemoryPatch(uint32_t offset) : offset_(offset) {}
+    uint32_t offset() const { return offset_; }
+    void offsetBy(uint32_t offset) { offset_ += offset; }
+};
+
+WASM_DECLARE_POD_VECTOR(MemoryPatch, MemoryPatchVector)
+
+class BoundsCheck
+{
+    uint32_t offset_;
+
+  public:
+    BoundsCheck() = default;
+    explicit BoundsCheck(uint32_t offset) : offset_(offset) {}
+    uint8_t* patchAt(uint8_t* code) const { return code + offset_; }
+    void offsetBy(uint32_t offset) { offset_ += offset; }
+};
+
+WASM_DECLARE_POD_VECTOR(BoundsCheck, BoundsCheckVector)
+
+// Classic specialized code keeps canonical NaN constants in the writable
+// global-data tail adjacent to its per-instance code segment.
+static const unsigned NaN64GlobalDataOffset = 0;
+static const unsigned NaN32GlobalDataOffset = NaN64GlobalDataOffset + sizeof(double);
+static const unsigned InitialGlobalDataBytes = NaN32GlobalDataOffset + sizeof(float);
+
 // Constants:
 
 

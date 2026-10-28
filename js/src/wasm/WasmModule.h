@@ -162,7 +162,7 @@ class Module : public JS::WasmModule
     const SharedMetadata    metadata_;
     const SharedBytes       bytecode_;
 
-    SharedCode getCode(JSContext* cx) const;
+    SharedCode getCode(JSContext* cx, HandleWasmMemoryObject memory, uint8_t* globalData) const;
 
     bool instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) const;
     bool instantiateMemory(JSContext* cx, MutableHandleWasmMemoryObject memory) const;

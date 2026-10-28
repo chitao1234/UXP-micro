@@ -60,9 +60,16 @@ class CodeSegment
     CodeSegment() { PodZero(this); }
     // No JS allocation, collection or embedding callbacks: callable while the
     // module's publication lock is held, including on worker threads.
-    static UniqueCodeSegment create(const Bytes& code, const LinkData& linkData);
+    static UniqueCodeSegment create(const Bytes& code,
+                                    const LinkData& linkData,
+                                    const Metadata& metadata,
+                                    HandleWasmMemoryObject memory,
+                                    bool specializeMemory, uint8_t* globalData);
     void copyUnlinked(uint8_t* destination, const LinkData& linkData) const;
     bool sendToProfiler(JSContext* cx, const Bytes& bytecode, const Metadata& metadata);
+    void onMovingGrow(uint8_t* previousMemoryBase,
+                      const Metadata& metadata,
+                      ArrayBufferObject& buffer);
     ~CodeSegment();
 
     uint8_t* base() const { return bytes_; }
@@ -387,6 +394,8 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
     GlobalDescVector      globals;
     TableDescVector       tables;
     MemoryAccessVector    memoryAccesses;
+    MemoryPatchVector     memoryPatches;
+    BoundsCheckVector     boundsChecks;
     CodeRangeVector       codeRanges;
     CallSiteVector        callSites;
     NameInBytecodeVector  funcNames;
@@ -427,15 +436,15 @@ struct Metadata : ShareableBase<Metadata>, MetadataCacheablePod
 typedef RefPtr<Metadata> MutableMetadata;
 typedef RefPtr<const Metadata> SharedMetadata;
 
-// Code owns immutable executable code and metadata. Modules/instances on
-// different worker runtimes may retain it; no instance or JSContext pointer is
-// embedded in the code. Mutable instance state lives in GlobalSegment/TLS.
+// Code owns executable code and immutable metadata. SharedDynamicTLS code is
+// published immutably; ClassicSpecialized code is private to one instance.
 
 class Code : public mozilla::external::AtomicRefCounted<Code>
 {
     const UniqueCodeSegment  segment_;
     const SharedMetadata     metadata_;
     const SharedBytes        maybeBytecode_;
+    const bool               sharedDynamicTLS_;
     UniqueGeneratedSourceMap maybeSourceMap_;
     // Immutable once published. Signal handlers never acquire a lock or see a
     // partially built vector, even when a worker enables profiling concurrently.
@@ -446,12 +455,14 @@ class Code : public mozilla::external::AtomicRefCounted<Code>
     using SeenSet = HashSet<const Code*, DefaultHasher<const Code*>, SystemAllocPolicy>;
     Code(UniqueCodeSegment segment,
          const Metadata& metadata,
-         const ShareableBytes* maybeBytecode);
+         const ShareableBytes* maybeBytecode,
+         bool sharedDynamicTLS);
     ~Code();
 
     CodeSegment& segment() { return *segment_; }
     const CodeSegment& segment() const { return *segment_; }
     const Metadata& metadata() const { return *metadata_; }
+    bool usesSharedDynamicTLS() const { return sharedDynamicTLS_; }
 
     // Frame iterator support:
 

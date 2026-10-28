@@ -4346,7 +4346,7 @@ LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
     }
 
     auto* lir = new(alloc()) LWasmBoundsCheck(useRegisterAtStart(index),
-                                              useRegisterAtStart(boundsCheckLimit));
+        boundsCheckLimit->isConstant() ? LAllocation() : useRegisterAtStart(boundsCheckLimit));
     add(lir, ins);
 #endif
 }
@@ -4354,7 +4354,7 @@ LIRGenerator::visitWasmBoundsCheck(MWasmBoundsCheck* ins)
 void
 LIRGenerator::visitWasmLoadGlobalVar(MWasmLoadGlobalVar* ins)
 {
-    LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
+    LAllocation tlsPtr = ins->isClassic() ? LAllocation() : useRegisterAtStart(ins->tlsPtr());
     if (ins->type() == MIRType::Int64)
         defineInt64(new(alloc()) LWasmLoadGlobalVarI64(tlsPtr), ins);
     else
@@ -4365,7 +4365,7 @@ void
 LIRGenerator::visitWasmStoreGlobalVar(MWasmStoreGlobalVar* ins)
 {
     MDefinition* value = ins->value();
-    LAllocation tlsPtr = useRegisterAtStart(ins->tlsPtr());
+    LAllocation tlsPtr = ins->isClassic() ? LAllocation() : useRegisterAtStart(ins->tlsPtr());
     if (value->type() == MIRType::Int64)
         add(new(alloc()) LWasmStoreGlobalVarI64(useInt64RegisterAtStart(value), tlsPtr), ins);
     else

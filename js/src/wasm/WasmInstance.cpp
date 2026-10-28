@@ -656,6 +656,8 @@ Instance::onMovingGrowMemory(uint8_t* prevMemoryBase)
 {
     MOZ_ASSERT(!isAsmJS());
     ArrayBufferObject& buffer = memory_->buffer().as<ArrayBufferObject>();
+    if (!code_->usesSharedDynamicTLS())
+        code_->segment().onMovingGrow(prevMemoryBase, metadata(), buffer);
     tlsData()->memoryBase = buffer.dataPointer();
 #ifndef WASM_HUGE_MEMORY
     tlsData()->boundsCheckLimit = buffer.wasmBoundsCheckLimit();

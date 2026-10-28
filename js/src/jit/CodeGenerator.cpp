@@ -11870,6 +11870,13 @@ CodeGenerator::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
 #else
     const MWasmBoundsCheck* mir = ins->mir();
     Register ptr = ToRegister(ins->ptr());
+#if defined(JS_CODEGEN_X86)
+    if (ins->boundsCheckLimit()->isBogus()) {
+        masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ptr,
+                                    trap(mir, wasm::Trap::OutOfBounds));
+        return;
+    }
+#endif
     Register boundsCheckLimit = ToRegister(ins->boundsCheckLimit());
     masm.wasmBoundsCheck(Assembler::AboveOrEqual, ptr, boundsCheckLimit,
                          trap(mir, wasm::Trap::OutOfBounds));

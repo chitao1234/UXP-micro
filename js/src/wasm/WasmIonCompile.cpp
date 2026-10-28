@@ -575,7 +575,23 @@ class FunctionCompiler
     }
 
   private:
-    MWasmLoadTls* maybeLoadMemoryBase() {
+    bool classicAccesses() const {
+#if defined(JS_CODEGEN_X86)
+        return mg_.compilerABI == WasmCompilerABI::ClassicSpecialized;
+#else
+        return false;
+#endif
+    }
+
+    MDefinition* classicOperand() {
+        auto* value = MConstant::New(alloc(), Int32Value(0));
+        curBlock_->add(value);
+        return value;
+    }
+
+    MDefinition* maybeLoadMemoryBase() {
+        if (classicAccesses())
+            return classicOperand();
         MWasmLoadTls* load = nullptr;
 #ifdef JS_CODEGEN_X86
         // A declared maximum no longer guarantees an immutable base: the
@@ -589,7 +605,9 @@ class FunctionCompiler
         return load;
     }
 
-    MWasmLoadTls* maybeLoadBoundsCheckLimit() {
+    MDefinition* maybeLoadBoundsCheckLimit() {
+        if (classicAccesses())
+            return classicOperand();
         MWasmLoadTls* load = nullptr;
 #ifndef WASM_HUGE_MEMORY
         AliasSet aliases = AliasSet::Load(AliasSet::WasmHeapMeta);
@@ -612,7 +630,7 @@ class FunctionCompiler
             access->clearOffset();
         }
 
-        MWasmLoadTls* boundsCheckLimit = maybeLoadBoundsCheckLimit();
+        MDefinition* boundsCheckLimit = maybeLoadBoundsCheckLimit();
         if (boundsCheckLimit)
             curBlock_->add(MWasmBoundsCheck::New(alloc(), *base, boundsCheckLimit, trapOffset()));
     }
@@ -623,7 +641,7 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
 
-        MWasmLoadTls* memoryBase = maybeLoadMemoryBase();
+        MDefinition* memoryBase = maybeLoadMemoryBase();
         MInstruction* load = nullptr;
         if (access.isPlainAsmJS()) {
             MOZ_ASSERT(access.offset() == 0);
@@ -642,7 +660,7 @@ class FunctionCompiler
         if (inDeadCode())
             return;
 
-        MWasmLoadTls* memoryBase = maybeLoadMemoryBase();
+        MDefinition* memoryBase = maybeLoadMemoryBase();
         MInstruction* store = nullptr;
         if (access.isPlainAsmJS()) {
             MOZ_ASSERT(access.offset() == 0);
@@ -697,7 +715,7 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
 
-        auto* load = MWasmLoadGlobalVar::New(alloc(), type, globalDataOffset, isConst, tlsPointer_);
+        auto* load = MWasmLoadGlobalVar::New(alloc(), type, globalDataOffset, isConst, tlsPointer_, classicAccesses());
         curBlock_->add(load);
         return load;
     }
@@ -706,7 +724,7 @@ class FunctionCompiler
     {
         if (inDeadCode())
             return;
-        curBlock_->add(MWasmStoreGlobalVar::New(alloc(), globalDataOffset, v, tlsPointer_));
+        curBlock_->add(MWasmStoreGlobalVar::New(alloc(), globalDataOffset, v, tlsPointer_, classicAccesses()));
     }
 
     void addInterruptCheck()

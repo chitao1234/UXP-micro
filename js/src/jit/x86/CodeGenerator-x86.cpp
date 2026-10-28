@@ -353,6 +353,19 @@ CodeGeneratorX86::emitWasmLoad(T* ins)
     const LAllocation* ptr = ins->ptr();
     const LAllocation* memoryBase = ins->memoryBase();
 
+    if (memoryBase->isBogus()) {
+        uint32_t displacement = ptr->isBogus() && !offset
+            ? mir->base()->toConstant()->toInt32() : offset;
+        Operand address = ptr->isBogus()
+            ? Operand(PatchedAbsoluteAddress(displacement))
+            : Operand(ToRegister(ptr), displacement);
+        if (mir->type() == MIRType::Int64)
+            masm.wasmLoadI64Classic(mir->access(), address, ToOutRegister64(ins));
+        else
+            masm.wasmLoadClassic(mir->access(), address, ToAnyRegister(ins->output()));
+        return;
+    }
+
     // Lowering has set things up so that we can use a BaseIndex form if the
     // pointer is constant and the offset is zero, or if the pointer is zero.
 
@@ -389,6 +402,22 @@ CodeGeneratorX86::emitWasmStore(T* ins)
 
     const LAllocation* ptr = ins->ptr();
     const LAllocation* memoryBase = ins->memoryBase();
+
+    if (memoryBase->isBogus()) {
+        uint32_t displacement = ptr->isBogus() && !offset
+            ? mir->base()->toConstant()->toInt32() : offset;
+        Operand address = ptr->isBogus()
+            ? Operand(PatchedAbsoluteAddress(displacement))
+            : Operand(ToRegister(ptr), displacement);
+        if (mir->access().type() == Scalar::Int64) {
+            Register64 value = ToRegister64(ins->getInt64Operand(LWasmStoreI64::ValueIndex));
+            masm.wasmStoreI64Classic(mir->access(), value, address);
+        } else {
+            AnyRegister value = ToAnyRegister(ins->getOperand(LWasmStore::ValueIndex));
+            masm.wasmStoreClassic(mir->access(), value, address);
+        }
+        return;
+    }
 
     // Lowering has set things up so that we can use a BaseIndex form if the
     // pointer is constant and the offset is zero, or if the pointer is zero.
@@ -436,15 +465,21 @@ CodeGeneratorX86::visitAsmJSLoadHeap(LAsmJSLoadHeap* ins)
         ool = new(alloc()) OutOfLineLoadTypedArrayOutOfBounds(out, accessType);
         addOutOfLineCode(ool, mir);
 
-        masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit),
-                             ool->entry());
+        if (boundsCheckLimit->isBogus())
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ToRegister(ptr), ool->entry());
+        else
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit), ool->entry());
     }
 
-    Operand srcAddr = ptr->isBogus()
-                      ? Operand(ToRegister(memoryBase), 0)
-                      : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne);
-
-    masm.wasmLoad(mir->access(), srcAddr, out);
+    if (memoryBase->isBogus()) {
+        Operand srcAddr = ptr->isBogus() ? Operand(PatchedAbsoluteAddress())
+                                        : Operand(ToRegister(ptr), 0);
+        masm.wasmLoadClassic(mir->access(), srcAddr, out);
+    } else {
+        Operand srcAddr = ptr->isBogus() ? Operand(ToRegister(memoryBase), 0)
+            : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne);
+        masm.wasmLoad(mir->access(), srcAddr, out);
+    }
 
     if (ool)
         masm.bind(ool->rejoin());
@@ -513,15 +548,23 @@ CodeGeneratorX86::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
     Scalar::Type accessType = mir->accessType();
     canonicalizeIfDeterministic(accessType, value);
 
-    Operand dstAddr = ptr->isBogus()
-                      ? Operand(ToRegister(memoryBase), 0)
-                      : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne);
+    Operand dstAddr = memoryBase->isBogus()
+        ? (ptr->isBogus() ? Operand(PatchedAbsoluteAddress()) : Operand(ToRegister(ptr), 0))
+        : (ptr->isBogus() ? Operand(ToRegister(memoryBase), 0)
+                         : Operand(ToRegister(memoryBase), ToRegister(ptr), TimesOne));
 
     Label rejoin;
-    if (mir->needsBoundsCheck())
-        masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit), &rejoin);
+    if (mir->needsBoundsCheck()) {
+        if (boundsCheckLimit->isBogus())
+            masm.wasmBoundsCheckClassic(Assembler::AboveOrEqual, ToRegister(ptr), &rejoin);
+        else
+            masm.wasmBoundsCheck(Assembler::AboveOrEqual, ToRegister(ptr), ToRegister(boundsCheckLimit), &rejoin);
+    }
 
-    masm.wasmStore(mir->access(), ToAnyRegister(value), dstAddr);
+    if (memoryBase->isBogus())
+        masm.wasmStoreClassic(mir->access(), ToAnyRegister(value), dstAddr);
+    else
+        masm.wasmStore(mir->access(), ToAnyRegister(value), dstAddr);
 
     if (rejoin.used())
         masm.bind(&rejoin);
@@ -532,12 +575,17 @@ CodeGeneratorX86::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins)
 // set up the heap address in addrTemp.
 
 void
-CodeGeneratorX86::asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg, Register memoryBase)
+CodeGeneratorX86::asmJSAtomicComputeAddress(Register addrTemp, Register ptrReg, const LAllocation* memoryBase)
 {
     // Add in the actual heap pointer explicitly, to avoid opening up
     // the abstraction that is atomicBinopToTypedIntArray at this time.
     masm.movl(ptrReg, addrTemp);
-    masm.addl(memoryBase, addrTemp);
+    if (memoryBase->isBogus()) {
+        masm.addlWithPatch(Imm32(0), addrTemp);
+        masm.append(wasm::MemoryPatch(masm.size()));
+    } else {
+        masm.addl(ToRegister(memoryBase), addrTemp);
+    }
 }
 
 void
@@ -551,7 +599,7 @@ CodeGeneratorX86::visitAsmJSCompareExchangeHeap(LAsmJSCompareExchangeHeap* ins)
     Register oldval = ToRegister(ins->oldValue());
     Register newval = ToRegister(ins->newValue());
     Register addrTemp = ToRegister(ins->addrTemp());
-    Register memoryBase = ToRegister(ins->memoryBase());
+    const LAllocation* memoryBase = ins->memoryBase();
 
     asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
@@ -574,7 +622,7 @@ CodeGeneratorX86::visitAsmJSAtomicExchangeHeap(LAsmJSAtomicExchangeHeap* ins)
     Register ptrReg = ToRegister(ins->ptr());
     Register value = ToRegister(ins->value());
     Register addrTemp = ToRegister(ins->addrTemp());
-    Register memoryBase = ToRegister(ins->memoryBase());
+    const LAllocation* memoryBase = ins->memoryBase();
 
     asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
@@ -598,7 +646,7 @@ CodeGeneratorX86::visitAsmJSAtomicBinopHeap(LAsmJSAtomicBinopHeap* ins)
     Register addrTemp = ToRegister(ins->addrTemp());
     const LAllocation* value = ins->value();
     AtomicOp op = mir->operation();
-    Register memoryBase = ToRegister(ins->memoryBase());
+    const LAllocation* memoryBase = ins->memoryBase();
 
     asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 
@@ -632,7 +680,7 @@ CodeGeneratorX86::visitAsmJSAtomicBinopHeapForEffect(LAsmJSAtomicBinopHeapForEff
     Register addrTemp = ToRegister(ins->addrTemp());
     const LAllocation* value = ins->value();
     AtomicOp op = mir->operation();
-    Register memoryBase = ToRegister(ins->memoryBase());
+    const LAllocation* memoryBase = ins->memoryBase();
 
     asmJSAtomicComputeAddress(addrTemp, ptrReg, memoryBase);
 

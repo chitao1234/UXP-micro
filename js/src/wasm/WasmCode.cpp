@@ -58,16 +58,16 @@ static Atomic<uint32_t> wasmCodeAllocations(0);
 static const uint32_t MaxWasmCodeAllocations = 16384;
 
 static uint8_t*
-AllocateCodeSegment(uint32_t codeLength)
+AllocateCodeSegment(uint32_t totalLength)
 {
     if (wasmCodeAllocations >= MaxWasmCodeAllocations)
         return nullptr;
 
     // codeLength is a multiple of the system's page size, but not necessarily
     // a multiple of ExecutableCodePageSize.
-    codeLength = JS_ROUNDUP(codeLength, ExecutableCodePageSize);
+    totalLength = JS_ROUNDUP(totalLength, ExecutableCodePageSize);
 
-    void* p = AllocateExecutableMemory(codeLength, ProtectionSetting::Writable);
+    void* p = AllocateExecutableMemory(totalLength, ProtectionSetting::Writable);
 
     if (!p)
         return nullptr;
@@ -77,11 +77,13 @@ AllocateCodeSegment(uint32_t codeLength)
 }
 
 static void
-StaticallyLink(CodeSegment& cs, const LinkData& linkData)
+StaticallyLink(CodeSegment& cs, const LinkData& linkData, uint8_t* globalData)
 {
     for (LinkData::InternalLink link : linkData.internalLinks) {
         uint8_t* patchAt = cs.base() + link.patchAtOffset;
-        void* target = cs.base() + link.targetOffset;
+        void* target = link.targetOffset < cs.length()
+                       ? cs.base() + link.targetOffset
+                       : globalData + (link.targetOffset - cs.length());
         if (link.isRawPointerPatch())
             *(void**)(patchAt) = target;
         else
@@ -98,6 +100,44 @@ StaticallyLink(CodeSegment& cs, const LinkData& linkData)
                                                PatchedImmPtr((void*)-1));
         }
     }
+}
+
+static void
+SpecializeToMemory(uint8_t* previousMemoryBase,
+                   CodeSegment& segment,
+                   const Metadata& metadata,
+                   ArrayBufferObjectMaybeShared& buffer)
+{
+#ifdef WASM_HUGE_MEMORY
+    MOZ_RELEASE_ASSERT(metadata.boundsChecks.empty());
+#else
+    uint32_t limit = buffer.wasmBoundsCheckLimit();
+    MOZ_RELEASE_ASSERT(IsValidBoundsCheckImmediate(limit));
+# if defined(JS_CODEGEN_X86)
+    for (const BoundsCheck& check : metadata.boundsChecks)
+        MacroAssembler::wasmPatchBoundsCheckClassic(check.patchAt(segment.base()), limit);
+# else
+    MOZ_RELEASE_ASSERT(metadata.boundsChecks.empty());
+    Unused << limit;
+# endif
+#endif
+
+#if defined(JS_CODEGEN_X86)
+    uint8_t* memoryBase = buffer.dataPointerEither().unwrap(/* code patching */);
+    if (previousMemoryBase != memoryBase) {
+        for (const MemoryPatch& patch : metadata.memoryPatches) {
+            void* patchAt = segment.base() + patch.offset();
+            uintptr_t previousImmediate = uintptr_t(X86Encoding::GetPointer(patchAt));
+            // x86 addresses are modulo 2^32. OOB constants, including negative
+            // i32 addresses, are valid code and must trap when executed rather
+            // than assert while linking or growing an instance.
+            uint32_t offset = uint32_t(previousImmediate - uintptr_t(previousMemoryBase));
+            X86Encoding::SetPointer(patchAt, (void*)(uintptr_t(memoryBase) + offset));
+        }
+    }
+#else
+    MOZ_RELEASE_ASSERT(metadata.memoryPatches.empty());
+#endif
 }
 
 static bool
@@ -167,7 +207,11 @@ SendCodeRangesToProfiler(JSContext* cx, CodeSegment& cs, const Bytes& bytecode,
 }
 
 /* static */ UniqueCodeSegment
-CodeSegment::create(const Bytes& bytecode, const LinkData& linkData)
+CodeSegment::create(const Bytes& bytecode,
+                    const LinkData& linkData,
+                    const Metadata& metadata,
+                    HandleWasmMemoryObject memory,
+                    bool specializeMemory, uint8_t* globalData)
 {
     MOZ_ASSERT(bytecode.length() % gc::SystemPageSize() == 0);
     MOZ_ASSERT(linkData.functionCodeLength < bytecode.length());
@@ -196,7 +240,9 @@ CodeSegment::create(const Bytes& bytecode, const LinkData& linkData)
         AutoFlushICache::setRange(uintptr_t(codeBase), cs->length());
 
         memcpy(codeBase, bytecode.begin(), bytecode.length());
-        StaticallyLink(*cs, linkData);
+        StaticallyLink(*cs, linkData, globalData);
+        if (specializeMemory && memory)
+            SpecializeToMemory(nullptr, *cs, metadata, memory->buffer());
     }
 
     if (!ExecutableAllocator::makeExecutable(codeBase, cs->length()))
@@ -225,6 +271,17 @@ CodeSegment::copyUnlinked(uint8_t* destination, const LinkData& linkData) const
                                                PatchedImmPtr(SymbolicAddressTarget(imm)));
         }
     }
+}
+
+void
+CodeSegment::onMovingGrow(uint8_t* previousMemoryBase,
+                         const Metadata& metadata,
+                         ArrayBufferObject& buffer)
+{
+    AutoWritableJitCode writable(base(), length());
+    AutoFlushICache flush("CodeSegment::onMovingGrow");
+    AutoFlushICache::setRange(uintptr_t(base()), length());
+    SpecializeToMemory(previousMemoryBase, *this, metadata, buffer);
 }
 
 bool
@@ -392,6 +449,8 @@ Metadata::serializedSize() const
            SerializedPodVectorSize(globals) +
            SerializedPodVectorSize(tables) +
            SerializedPodVectorSize(memoryAccesses) +
+           SerializedPodVectorSize(memoryPatches) +
+           SerializedPodVectorSize(boundsChecks) +
            SerializedPodVectorSize(codeRanges) +
            SerializedPodVectorSize(callSites) +
            SerializedPodVectorSize(funcNames) +
@@ -408,6 +467,8 @@ Metadata::serialize(uint8_t* cursor) const
     cursor = SerializePodVector(cursor, globals);
     cursor = SerializePodVector(cursor, tables);
     cursor = SerializePodVector(cursor, memoryAccesses);
+    cursor = SerializePodVector(cursor, memoryPatches);
+    cursor = SerializePodVector(cursor, boundsChecks);
     cursor = SerializePodVector(cursor, codeRanges);
     cursor = SerializePodVector(cursor, callSites);
     cursor = SerializePodVector(cursor, funcNames);
@@ -425,6 +486,8 @@ Metadata::deserialize(const uint8_t* cursor)
     (cursor = DeserializePodVector(cursor, &globals)) &&
     (cursor = DeserializePodVector(cursor, &tables)) &&
     (cursor = DeserializePodVector(cursor, &memoryAccesses)) &&
+    (cursor = DeserializePodVector(cursor, &memoryPatches)) &&
+    (cursor = DeserializePodVector(cursor, &boundsChecks)) &&
     (cursor = DeserializePodVector(cursor, &codeRanges)) &&
     (cursor = DeserializePodVector(cursor, &callSites)) &&
     (cursor = DeserializePodVector(cursor, &funcNames)) &&
@@ -441,6 +504,8 @@ Metadata::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
            globals.sizeOfExcludingThis(mallocSizeOf) +
            tables.sizeOfExcludingThis(mallocSizeOf) +
            memoryAccesses.sizeOfExcludingThis(mallocSizeOf) +
+           memoryPatches.sizeOfExcludingThis(mallocSizeOf) +
+           boundsChecks.sizeOfExcludingThis(mallocSizeOf) +
            codeRanges.sizeOfExcludingThis(mallocSizeOf) +
            callSites.sizeOfExcludingThis(mallocSizeOf) +
            funcNames.sizeOfExcludingThis(mallocSizeOf) +
@@ -517,10 +582,12 @@ Metadata::getFuncName(JSContext* cx, const Bytes* maybeBytecode, uint32_t funcIn
 
 Code::Code(UniqueCodeSegment segment,
            const Metadata& metadata,
-           const ShareableBytes* maybeBytecode)
+           const ShareableBytes* maybeBytecode,
+           bool sharedDynamicTLS)
   : segment_(Move(segment)),
     metadata_(&metadata),
     maybeBytecode_(maybeBytecode),
+    sharedDynamicTLS_(sharedDynamicTLS),
     funcLabels_(nullptr)
 {}
 
