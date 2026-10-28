@@ -762,7 +762,7 @@ Assumptions::operator==(const Assumptions& rhs) const
 // The serialized ABI marker covers both codegen layout and the tier-selected
 // compiler mode stored in the final byte of the build-id suffix.
 #ifdef JS_CODEGEN_X86
-static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v8";
+static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v9";
 #else
 static const char WasmCodeABI[] = "microgecko-wasm-tiered-compiler-abi-v7";
 #endif

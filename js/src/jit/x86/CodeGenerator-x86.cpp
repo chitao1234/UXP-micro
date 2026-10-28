@@ -999,7 +999,7 @@ CodeGeneratorX86::visitCompareI64AndBranch(LCompareI64AndBranch* lir)
 // word. This is the same quotient decomposition used by compiler runtimes:
 // divide the high word first, then divide the remainder:low pair. If the high
 // word is already below the divisor, one division suffices. All full-width
-// divisors retain the existing native helper and its published exit frame.
+// divisors are handled by normalized division below, also without a callout.
 static void
 EmitInlineI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
                      Register64 output, bool isUnsigned, bool isModulo,
@@ -1067,6 +1067,129 @@ EmitInlineI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
     masm.jump(done);
 }
 
+// The remaining two-word divisors have a one-word quotient. Normalize the
+// divisor, estimate that quotient with one hardware divide, then correct the
+// product using the low divisor word (Knuth's two-word division). Normalizing
+// its high bit guarantees at most two downward corrections. This keeps even
+// full-width arithmetic in the profiled Wasm body instead of a C++ callout.
+static void
+EmitInlineFullWidthI64DivOrMod(MacroAssembler& masm, Register64 lhs, Register64 rhs,
+                              Register64 output, bool isUnsigned, bool isModulo,
+                              Label* done)
+{
+    MOZ_ASSERT(lhs == Register64(eax, ebx));
+    MOZ_ASSERT(rhs == Register64(ecx, edx));
+    MOZ_ASSERT(output == Register64(edi, eax));
+
+    Label positiveDivisor, positiveNumerator, zeroQuotient, oneQuotient;
+    Label finish, compareProduct, correctProduct, corrected;
+    masm.xorl(output.high, output.high);
+    if (!isUnsigned) {
+        masm.branch32(Assembler::GreaterThanOrEqual, rhs.high, Imm32(0), &positiveDivisor);
+        masm.neg64(rhs);
+        if (!isModulo)
+            masm.move32(Imm32(1), output.high);
+        masm.bind(&positiveDivisor);
+        masm.branch32(Assembler::GreaterThanOrEqual, lhs.high, Imm32(0), &positiveNumerator);
+        masm.neg64(lhs);
+        masm.xorl(Imm32(1), output.high);
+        masm.bind(&positiveNumerator);
+    }
+
+    // The word-divisor dispatch rejected this case before changing operands.
+    // After sign normalization its high divisor word is still nonzero.
+    // ESI remains the instance across the whole instruction; its saved value
+    // is restored even though it is used as an arithmetic scratch below.
+    masm.push(output.high);
+    masm.push(WasmTlsReg);
+    static const int32_t Shift = 0;
+    static const int32_t Quotient = 4;
+    static const int32_t NormalizedLowNumerator = 8;
+    static const int32_t ScratchBytes = 16;
+    masm.subFromStackPtr(Imm32(ScratchBytes));
+
+    masm.branch64(Assembler::Below, lhs, rhs, &zeroQuotient);
+    masm.branch32(Assembler::LessThan, rhs.high, Imm32(0), &oneQuotient);
+    masm.movl(rhs.high, edi);
+    masm.movl(rhs.low, esi);
+    masm.bsrl(edi, ecx);
+    masm.xorl(Imm32(31), ecx);
+    masm.store32(ecx, Address(esp, Shift));
+    masm.shldl_cl(esi, edi);
+    masm.shll_cl(esi);
+
+    // Normalize the three-word numerator without shifting by 32. Shift is
+    // in [1,31]; the divisor-MSB case above handles the zero shift separately.
+    masm.xorl(edx, edx);
+    masm.shldl_cl(eax, edx);
+    masm.shldl_cl(ebx, eax);
+    masm.shll_cl(ebx);
+    masm.store32(ebx, Address(esp, NormalizedLowNumerator));
+    // N2 < normalized D1, so DIV cannot overflow its uint32 quotient.
+    masm.udiv(edi);
+    masm.store32(eax, Address(esp, Quotient));
+    masm.movl(edx, ebx);
+    masm.mull(esi);
+    masm.load32(Address(esp, NormalizedLowNumerator), ecx);
+
+    // EDX:EAX is Qhat*D0; EBX:ECX is Rhat:N0. Decreasing Qhat by one
+    // subtracts D0 from the product and adds D1 to the remainder high word.
+    masm.bind(&compareProduct);
+    masm.branch32(Assembler::Above, edx, ebx, &correctProduct);
+    masm.branch32(Assembler::Below, edx, ebx, &corrected);
+    masm.branch32(Assembler::BelowOrEqual, eax, ecx, &corrected);
+    masm.bind(&correctProduct);
+    masm.subl(Imm32(1), Operand(esp, Quotient));
+    masm.subl(esi, eax);
+    masm.sbbl(Imm32(0), edx);
+    masm.addl(edi, ebx);
+    // A carry makes Rhat:N0 larger than any two-word product. Modular
+    // subtraction below still yields the correct (two-word) remainder.
+    masm.j(Assembler::CarrySet, &corrected);
+    masm.jump(&compareProduct);
+    masm.bind(&corrected);
+    if (isModulo) {
+        masm.subl(eax, ecx);
+        masm.sbbl(edx, ebx);
+        masm.movl(ecx, eax);
+        masm.movl(ebx, edi);
+        masm.load32(Address(esp, Shift), ecx);
+        masm.shrdl_cl(edi, eax);
+        masm.shrl_cl(edi);
+    } else {
+        masm.load32(Address(esp, Quotient), eax);
+        masm.xorl(edi, edi);
+    }
+    masm.jump(&finish);
+
+    masm.bind(&zeroQuotient);
+    if (isModulo) {
+        masm.movl(lhs.high, output.high);
+        masm.movl(lhs.low, output.low);
+    } else {
+        masm.xor64(output, output);
+    }
+    masm.jump(&finish);
+    masm.bind(&oneQuotient);
+    if (isModulo) {
+        masm.sub64(rhs, lhs);
+        masm.movl(lhs.high, output.high);
+        masm.movl(lhs.low, output.low);
+    } else {
+        masm.move32(Imm32(1), output.low);
+        masm.xorl(output.high, output.high);
+    }
+    masm.bind(&finish);
+    masm.addToStackPtr(Imm32(ScratchBytes));
+    masm.pop(WasmTlsReg);
+    masm.pop(ecx);
+    if (!isUnsigned) {
+        masm.branchTest32(Assembler::Zero, ecx, ecx, done);
+        masm.neg64(output);
+    }
+    masm.jump(done);
+}
+
 void
 CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
 {
@@ -1117,25 +1240,8 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
                          lir->isModulo(), &native, &done);
     masm.bind(&native);
 
-    masm.setupUnalignedABICall(temp);
-    masm.passABIArg(lhs.high);
-    masm.passABIArg(lhs.low);
-    masm.passABIArg(rhs.high);
-    masm.passABIArg(rhs.low);
-
-    MOZ_ASSERT(gen->compilingWasm());
-    if (lir->isModulo())
-        masm.callWithABI(lir->hasInstance()
-                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ModI64)
-                         : wasm::SymbolicAddress::ModI64);
-    else
-        masm.callWithABI(lir->hasInstance()
-                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::DivI64)
-                         : wasm::SymbolicAddress::DivI64);
-
-    // output in edx:eax, move to output register.
-    masm.movl(edx, output.high);
-    MOZ_ASSERT(eax == output.low);
+    EmitInlineFullWidthI64DivOrMod(masm, lhs, rhs, output, false,
+                                  lir->isModulo(), &done);
 
     masm.bind(&done);
 }
@@ -1176,25 +1282,9 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
                          lir->isModulo(), &native, &done);
     masm.bind(&native);
 
-    masm.setupUnalignedABICall(temp);
-    masm.passABIArg(lhs.high);
-    masm.passABIArg(lhs.low);
-    masm.passABIArg(rhs.high);
-    masm.passABIArg(rhs.low);
+    EmitInlineFullWidthI64DivOrMod(masm, lhs, rhs, output, true,
+                                  lir->isModulo(), &done);
 
-    MOZ_ASSERT(gen->compilingWasm());
-    if (lir->isModulo())
-        masm.callWithABI(lir->hasInstance()
-                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::UModI64)
-                         : wasm::SymbolicAddress::UModI64);
-    else
-        masm.callWithABI(lir->hasInstance()
-                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::UDivI64)
-                         : wasm::SymbolicAddress::UDivI64);
-
-    // output in edx:eax, move to output register.
-    masm.movl(edx, output.high);
-    MOZ_ASSERT(eax == output.low);
     masm.bind(&done);
 }
 
