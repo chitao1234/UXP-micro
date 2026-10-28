@@ -3764,6 +3764,61 @@ Promise_static_withResolvers(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+// ES2025
+// Promise.try ( callbackfn, ...args )
+static bool
+Promise_static_try(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    // Step 1.
+    HandleValue cVal = args.thisv();
+    if (!cVal.isObject()) {
+        ReportValueError(cx, JSMSG_NOT_CONSTRUCTOR, -1, cVal, nullptr);
+        return false;
+    }
+    RootedObject C(cx, &cVal.toObject());
+
+    // Step 2: invoke callbackfn before creating the capability. A thrown
+    // exception becomes a rejection, while constructor errors from C remain
+    // synchronous as required by NewPromiseCapability.
+    size_t argCount = args.length() ? args.length() - 1 : 0;
+    InvokeArgs callbackArgs(cx);
+    if (!callbackArgs.init(cx, argCount)) {
+        return false;
+    }
+    for (size_t i = 0; i < argCount; i++) {
+        callbackArgs[i].set(args[i + 1]);
+    }
+
+    RootedValue result(cx);
+    if (!Call(cx, args.get(0), UndefinedHandleValue, callbackArgs, &result)) {
+        // Capture the callback completion before running user code in C.
+        RootedValue reason(cx);
+        if (!MaybeGetAndClearException(cx, &reason)) {
+            return false;
+        }
+        Rooted<PromiseCapability> capability(cx);
+        if (!NewPromiseCapability(cx, C, &capability, false)) {
+            return false;
+        }
+        if (!RunResolutionFunction(cx, capability.reject(), reason, RejectMode,
+                                   capability.promise())) {
+            return false;
+        }
+        args.rval().setObject(*capability.promise());
+        return true;
+    }
+
+    // Step 3: return ? PromiseResolve(C, result).
+    RootedObject promise(cx, PromiseResolve(cx, C, result));
+    if (!promise) {
+        return false;
+    }
+    args.rval().setObject(*promise);
+    return true;
+}
+
 /**
  * Unforgeable version of ES2016, 25.4.4.5, Promise.resolve.
  */
@@ -5294,6 +5349,7 @@ static const JSFunctionSpec promise_static_methods[] = {
     JS_FN("reject", Promise_reject, 1, 0),
     JS_FN("resolve", Promise_static_resolve, 1, 0),
     JS_FN("withResolvers", Promise_static_withResolvers, 0, 0),
+    JS_FN("try", Promise_static_try, 1, 0),
     JS_FS_END
 };
 
