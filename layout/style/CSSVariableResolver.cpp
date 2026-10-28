@@ -11,10 +11,57 @@
 #include "CSSVariableDeclarations.h"
 #include "CSSVariableValues.h"
 #include "mozilla/PodOperations.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/UniquePtr.h"
+#include "nsIMemoryReporter.h"
+#include "nsThreadUtils.h"
 #include <algorithm>
 
 namespace mozilla {
+
+// Main-thread work counters, independent of allocation ownership. Keep them in
+// the built-in reports so a sparse-graph speedup can be attributed without
+// temporary console instrumentation or treating operations as heap bytes.
+static uint64_t sResolverCalls;
+static uint64_t sResolverVariables;
+static uint64_t sResolverBitmapSlotsCleared;
+static uint64_t sResolverReferenceSlotsVisited;
+static uint64_t sResolverEdges;
+static bool sSparseResolution = true;
+
+class CSSVariableResolverReporter final : public nsIMemoryReporter
+{
+  ~CSSVariableResolverReporter() {}
+public:
+  NS_DECL_ISUPPORTS
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool aAnonymize) override
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    // Snapshot before callbacks, which may themselves allocate or resolve CSS.
+    uint64_t calls = sResolverCalls, variables = sResolverVariables;
+    uint64_t cleared = sResolverBitmapSlotsCleared;
+    uint64_t visited = sResolverReferenceSlotsVisited, edges = sResolverEdges;
+#define RESOLVER_COUNT(path, value, description) \
+    MOZ_COLLECT_REPORT("css-variable-resolver/" path, KIND_OTHER, \
+                       UNITS_COUNT_CUMULATIVE, value, description)
+    RESOLVER_COUNT("calls", calls, "Completed custom-property resolution calls.");
+    RESOLVER_COUNT("variables", variables,
+      "Custom properties visited by resolution, including inherited computed values.");
+    RESOLVER_COUNT("bitmap-slots-cleared", cleared,
+      "Dependency bitmap slots cleared while building custom-property graphs. "
+      "This counts work, not retained memory.");
+    RESOLVER_COUNT("reference-slots-visited", visited,
+      "Bitmap or sparse-list slots visited when copying dependency edges. "
+      "Sorting comparisons are not included.");
+    RESOLVER_COUNT("edges", edges,
+      "Unique dependency edges built for custom-property resolution.");
+#undef RESOLVER_COUNT
+    return NS_OK;
+  }
+};
+
+NS_IMPL_ISUPPORTS(CSSVariableResolverReporter, nsIMemoryReporter)
 
 /**
  * Data used by the EnumerateVariableReferences callback.  Reset must be called
@@ -23,10 +70,17 @@ namespace mozilla {
 class EnumerateVariableReferencesData
 {
 public:
-  explicit EnumerateVariableReferencesData(CSSVariableResolver& aResolver)
+  EnumerateVariableReferencesData(CSSVariableResolver& aResolver, bool aSparse)
     : mResolver(aResolver)
     , mReferences(MakeUnique<bool[]>(aResolver.mVariables.Length()))
+    , mSparse(aSparse)
+    , mDense(false)
+    , mReferencesNonExistentVariable(false)
+    , mSlotsCleared(aResolver.mVariables.Length())
+    , mSlotsVisited(0)
   {
+    // MakeUnique<T[]> value-initializes the bitmap once. Sparse resets below
+    // touch only entries set by the preceding specified value.
   }
 
   /**
@@ -35,7 +89,17 @@ public:
    */
   void Reset()
   {
-    PodZero(mReferences.get(), mResolver.mVariables.Length());
+    if (mSparse && !mDense) {
+      for (size_t id : mReferencedIDs) {
+        mReferences[id] = false;
+      }
+      mSlotsCleared += mReferencedIDs.Length();
+      mReferencedIDs.Clear();
+    } else {
+      PodZero(mReferences.get(), mResolver.mVariables.Length());
+      mSlotsCleared += mResolver.mVariables.Length();
+    }
+    mDense = false;
     mReferencesNonExistentVariable = false;
   }
 
@@ -43,7 +107,21 @@ public:
   {
     size_t id;
     if (mResolver.mVariableIDs.Get(aVariableName, &id)) {
-      mReferences[id] = true;
+      if (!mSparse) {
+        mReferences[id] = true;
+      } else if (!mReferences[id]) {
+        mReferences[id] = true;
+        if (!mDense) {
+          mReferencedIDs.AppendElement(id);
+          size_t limit = std::max(size_t(8), mResolver.mVariables.Length() / 8);
+          if (mReferencedIDs.Length() > limit) {
+            // A dense graph uses the bitmap for copying/resetting. Stop
+            // growing the scratch list; callbacks still deduplicate there.
+            mDense = true;
+            mReferencedIDs.Clear();
+          }
+        }
+      }
     } else {
       mReferencesNonExistentVariable = true;
     }
@@ -59,6 +137,31 @@ public:
    return mReferencesNonExistentVariable;
   }
 
+  void CopyReferencesTo(nsTArray<size_t>& aReferences)
+  {
+    size_t count = mResolver.mVariables.Length();
+    // Preserve the historical ascending-ID traversal and hence serialization
+    // order. Dense graphs use the bounded bitmap scan instead of O(n log n)
+    // sorting. Repeated references never grow the list beyond count entries.
+    if (mSparse && !mDense) {
+      if (mReferencedIDs.Length() > 1) {
+        std::sort(mReferencedIDs.begin(), mReferencedIDs.end());
+      }
+      aReferences.AppendElements(mReferencedIDs);
+      mSlotsVisited += mReferencedIDs.Length();
+      return;
+    }
+    for (size_t id = 0; id < count; id++) {
+      if (mReferences[id]) {
+        aReferences.AppendElement(id);
+      }
+    }
+    mSlotsVisited += count;
+  }
+
+  uint64_t SlotsCleared() const { return mSlotsCleared; }
+  uint64_t SlotsVisited() const { return mSlotsVisited; }
+
 private:
   CSSVariableResolver& mResolver;
 
@@ -67,10 +170,15 @@ private:
   // EnumerateVariableReferences for has a reference to the variable with
   // that ID.
   const UniquePtr<bool[]> mReferences;
+  AutoTArray<size_t, 8> mReferencedIDs;
+  const bool mSparse;
+  bool mDense;
 
   // Whether the variable we have called EnumerateVariableReferences for
   // references a variable that does not exist in the resolver.
   bool mReferencesNonExistentVariable;
+  uint64_t mSlotsCleared;
+  uint64_t mSlotsVisited;
 };
 
 static void
@@ -173,6 +281,15 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   // which will initially be empty.
   MOZ_ASSERT(aInherited);
   MOZ_ASSERT(aSpecified);
+  MOZ_ASSERT(NS_IsMainThread());
+  static bool reporterInitialized = false;
+  if (!reporterInitialized) {
+    reporterInitialized = true;
+    Preferences::AddBoolVarCache(&sSparseResolution,
+                                 "layout.css.variables.sparse-resolution", true);
+    RegisterStrongMemoryReporter(new CSSVariableResolverReporter());
+  }
+  bool sparse = sSparseResolution;
 
   aInherited->AddVariablesToResolver(this);
   aSpecified->AddVariablesToResolver(this);
@@ -180,22 +297,26 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   // First we look at each variable's value and record which other variables
   // it references.
   size_t n = mVariables.Length();
+  // For small maps, bitmap operations are cheaper than managing a sparse
+  // list. The control and small-map paths retain the historical behavior.
+  sparse &= n >= 32;
   mReferences.SetLength(n);
-  EnumerateVariableReferencesData data(*this);
+  EnumerateVariableReferencesData data(*this, sparse);
   for (size_t id = 0; id < n; id++) {
-    data.Reset();
+    if (!sparse) {
+      data.Reset();
+    }
     if (!mVariables[id].mWasInherited &&
         !mVariables[id].mValue.IsEmpty()) {
+      if (sparse) {
+        data.Reset();
+      }
       if (mParser.EnumerateVariableReferences(mVariables[id].mValue,
                                               RecordVariableReference,
                                               &data)) {
         // Convert the boolean array of dependencies in |data| to a list
         // of dependencies.
-        for (size_t i = 0; i < n; i++) {
-          if (data.HasReferenceToVariable(i)) {
-            mReferences[id].AppendElement(i);
-          }
-        }
+        data.CopyReferencesTo(mReferences[id]);
         // If a variable references itself, it is invalid.  (RemoveCycles
         // does not check for cycles consisting of a single variable, so we
         // check here.)
@@ -219,7 +340,9 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   // connected components finding algorithm, setting variables in cycles to
   // have an invalid value.
   mNextIndex = 1;
+  uint64_t edges = 0;
   for (size_t id = 0; id < n; id++) {
+    edges += mReferences[id].Length();
     if (!mVariables[id].mIndex) {
       RemoveCycles(id);
       MOZ_ASSERT(mStack.IsEmpty());
@@ -233,6 +356,12 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
       ResolveVariable(id);
     }
   }
+
+  sResolverCalls++;
+  sResolverVariables += n;
+  sResolverBitmapSlotsCleared += data.SlotsCleared();
+  sResolverReferenceSlotsVisited += data.SlotsVisited();
+  sResolverEdges += edges;
 
 #ifdef DEBUG
   mResolved = true;

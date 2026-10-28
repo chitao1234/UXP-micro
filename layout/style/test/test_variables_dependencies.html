@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Custom-property dependency ordering and sparse resets</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="root"><div id="child"></div></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+var root=document.getElementById('root'),child=document.getElementById('child');
+function value(node,name){return getComputedStyle(node).getPropertyValue(name).trim();}
+function names(node){
+  var style=getComputedStyle(node),result=[];
+  for(var i=0;i<style.length;i++)if(style.item(i).indexOf('--p')===0)result.push(style.item(i));
+  return result;
+}
+for(var i=0;i<128;i++)root.style.setProperty('--p'+i,'x'+i);
+var order=names(root),target=order[0];
+child.style.setProperty(target,'var('+order[100]+')|var('+order[10]+')|var('+order[50]+')|var('+order[100]+')');
+is(value(child,target),value(root,order[100])+'|'+value(root,order[10])+'|'+value(root,order[50])+'|'+value(root,order[100]),'duplicate and reverse-order references substitute correctly');
+var childOrder=names(child);
+is(childOrder.slice(0,4).join(','),[order[10],order[50],order[100],target].join(','),'dependency traversal retains ascending variable-ID order');
+child.style.setProperty(target,'var(--missing,ok)');
+is(value(child,target),'ok','missing references do not retain a preceding graph');
+child.style.setProperty(target,'var('+target+',fallback)');
+is(value(child,target),'','self-reference is invalid even with a fallback');
+child.style.setProperty(target,'var('+order[70]+')');
+is(value(child,target),value(root,order[70]),'a self-reference does not survive a subsequent reset');
+for(var i=1;i<=80;i++)child.style.setProperty(order[i],'var('+order[i-1]+')');
+child.style.setProperty(target,'changed');
+is(value(child,order[80]),'changed','long dependency chain resolves');
+child.style.setProperty(target,'var('+order[80]+')');
+for(var i=0;i<=80;i++)is(value(child,order[i]),'','all cycle members are invalid '+i);
+child.style.setProperty('--result','var('+order[80]+',recovered)');
+is(value(child,'--result'),'recovered','cycle fallback resolves outside the cycle');
+child.removeAttribute('style');
+// A dense dependency set uses the bitmap-copy path. The exact order remains
+// the original ascending IDs even when references occur in reverse order.
+var dense=[];
+for(var i=127;i>=1;i--)dense.push('var('+order[i]+')');
+child.style.setProperty(target,dense.join('|'));
+is(value(child,target),order.slice(1).reverse().map(n=>value(root,n)).join('|'),'dense references preserve substitution text');
+is(names(child).join(','),order.slice(1).concat([target]).join(','),'dense dependency traversal order');
+// Repeated references must not grow a scratch list in proportion to source
+// length: there are only two distinct dependencies in this value.
+var repeated=[];
+// Use a one-character value and no separators to stay below the engine's
+// existing expanded-value length bound while enumerating thousands of refs.
+root.style.setProperty(order[90],'+');
+for(var i=0;i<3000;i++)repeated.push('var('+order[90]+')');
+repeated.push('var('+order[20]+')');
+child.style.setProperty(target,repeated.join(''));
+is(value(child,target),repeated.map((_,i)=>value(root,i===3000?order[20]:order[90])).join(''),'large duplicate-reference input');
+is(names(child).slice(0,3).join(','),[order[20],order[90],target].join(','),'duplicate references produce one edge per dependency');
+for(var round=0;round<12;round++){
+  child.style.setProperty(target,round%2?'var(--absent,yes)':'var('+order[40]+')');
+  is(value(child,target),round%2?'yes':value(root,order[40]),'alternating dependency/nonexistent reset '+round);
+}
+child.removeAttribute('style');
+is(names(child).join(','),order.join(','),'inherited-only state preserves all names and order');
+is(value(root,target),'x'+target.substring(3),'mutating child graphs does not alter the inherited map');
+SimpleTest.finish();
+</script>
