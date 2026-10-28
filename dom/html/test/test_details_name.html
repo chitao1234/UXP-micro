@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Named details groups</title>
+<link rel="help" href="https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element">
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<div id="fixture"></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+
+function states(elements, expected, description) {
+  is(elements.map(element => Number(element.open)).join(), expected.join(), description);
+}
+function details(name, open = false, doc = document) {
+  const element = doc.createElement("details");
+  if (name !== null) element.setAttribute("name", name);
+  element.open = open;
+  return element;
+}
+function pair(root, name) {
+  const first = details(name), second = details(name);
+  root.appendChild(first); root.appendChild(second);
+  first.open = true;
+  states([first, second], [1, 0], "first member opens");
+  second.open = true;
+  states([first, second], [0, 1], "second member closes first");
+  first.remove(); second.remove();
+}
+function turn() { return new Promise(resolve => setTimeout(resolve, 0)); }
+
+async function runDetailsNameTests() {
+  const fixture = document.getElementById("fixture");
+  let first = details(null);
+  is(first.name, "", "missing name reflects empty string");
+  first.name = "named-details";
+  is(first.getAttribute("name"), "named-details", "name setter reflects attribute");
+  first.setAttribute("name", "Exact Case ");
+  is(first.name, "Exact Case ", "name reflection preserves case and whitespace");
+  first.removeAttribute("name");
+  is(first.name, "", "removing name updates reflection");
+
+  pair(fixture, "basic");
+  pair(document.createElement("div"), "detached");
+  pair(document.createDocumentFragment(), "fragment");
+  pair(document.implementation.createHTMLDocument("").body, "other-document");
+  const template = document.createElement("template");
+  pair(template.content, "template");
+  const shadowHost = document.createElement("div");
+  fixture.appendChild(shadowHost);
+  const shadow = shadowHost.attachShadow({mode: "open"});
+  pair(shadow, "shadow");
+  const detachedShadowHost = document.createElement("div");
+  pair(detachedShadowHost.attachShadow({mode: "open"}), "detached-shadow");
+
+  for (const name of [null, ""]) {
+    first = details(name, true);
+    const second = details(name, true);
+    fixture.appendChild(first); fixture.appendChild(second);
+    states([first, second], [1, 1], "missing/empty names do not form a group");
+    first.remove(); second.remove();
+  }
+  first = details("case", true);
+  let second = details("CASE", true);
+  const spaced = details("case ", true);
+  fixture.appendChild(first); fixture.appendChild(second); fixture.appendChild(spaced);
+  states([first, second, spaced], [1, 1, 1], "names are exact case-sensitive strings");
+  const newFirst = details("case", true);
+  fixture.appendChild(newFirst);
+  states([first, newFirst], [1, 0], "open newcomer closes itself on insertion");
+  newFirst.open = true;
+  states([first, newFirst], [0, 1], "explicit opening wins over existing member");
+  first.setAttribute("open", "false");
+  states([first, newFirst], [1, 0], "open remains a boolean attribute");
+  first.remove(); second.remove(); spaced.remove(); newFirst.remove();
+
+  fixture.innerHTML = '<details name="parser" open></details>' +
+    '<details name="parser" open></details><details open name="parser"></details>';
+  let elements = Array.from(fixture.children);
+  states(elements, [1, 0, 0], "parser insertion preserves first open; attribute order irrelevant");
+  elements[1].setAttribute("open", "");
+  states(elements, [0, 1, 0], "setAttribute opening closes peer");
+  elements[2].open = true;
+  states(elements, [0, 0, 1], "IDL opening closes peer");
+  elements[2].open = false;
+  states(elements, [0, 0, 0], "group may have no open member");
+  elements[0].innerHTML = '<summary>First</summary><p>Content</p>';
+  elements[1].innerHTML = '<summary>Second</summary><p>Content</p>';
+  elements[0].firstElementChild.click();
+  states(elements, [1, 0, 0], "summary activation opens first member");
+  elements[1].firstElementChild.click();
+  states(elements, [0, 1, 0], "summary activation enforces group exclusivity");
+
+  fixture.innerHTML = '';
+  first = details("rename-a", true); second = details("rename-b", true);
+  fixture.appendChild(first); fixture.appendChild(second);
+  second.name = "rename-a";
+  states([first, second], [1, 0], "renaming open member closes renamed element");
+  second.name = "rename-b"; second.open = true;
+  first.name = "rename-b";
+  states([first, second], [0, 1], "renaming earlier member preserves existing open member");
+  first.name = ""; first.open = true;
+  states([first, second], [1, 1], "emptying name leaves group");
+  first.removeAttribute("name");
+  states([first, second], [1, 1], "removing name leaves independent element open");
+  const parsedDocument = new DOMParser().parseFromString('<details open name="foo">', 'text/html');
+  const parsedDetails = parsedDocument.querySelector("details");
+  parsedDetails.removeAttribute("name");
+  ok(parsedDetails.open, "parser-created open details tolerates dynamic name removal");
+
+  fixture.innerHTML = '';
+  first = details("insert", true); fixture.appendChild(first);
+  second = details("insert", true);
+  fixture.insertBefore(second, first);
+  states([first, second], [1, 0], "prepending open member preserves existing open member");
+  second.remove(); second.open = true;
+  const wrapper = document.createElement("div"); wrapper.appendChild(second);
+  fixture.appendChild(wrapper);
+  states([first, second], [1, 0], "binding moved subtree closes conflicting descendant");
+  wrapper.remove(); second.open = true;
+  fixture.appendChild(wrapper);
+  states([first, second], [1, 0], "repeat subtree insertion preserves exclusivity");
+
+  const fragment = document.createDocumentFragment();
+  const fragmentFirst = details("fragment-insertion", true);
+  const fragmentSecond = details("fragment-insertion", true);
+  const fragmentThird = details("fragment-insertion", true);
+  fragment.appendChild(fragmentFirst); fragment.appendChild(fragmentSecond); fragment.appendChild(fragmentThird);
+  states([fragmentFirst, fragmentSecond, fragmentThird], [1, 0, 0], "fragment insertion steps already enforce group");
+  fixture.appendChild(fragment);
+  states([fragmentFirst, fragmentSecond, fragmentThird], [1, 0, 0], "fragment transfer keeps exactly first member open");
+  const cloned = fixture.cloneNode(true);
+  const cloneMembers = Array.from(cloned.querySelectorAll('[name="fragment-insertion"]'));
+  states(cloneMembers, [1, 0, 0], "deep clone retains group state in separate tree");
+  cloneMembers[2].open = true;
+  states([fragmentFirst, fragmentSecond, fragmentThird], [1, 0, 0], "cloned group is independent");
+
+  fixture.innerHTML = '';
+  first = details("nested", true); second = details("nested", true);
+  first.appendChild(second);
+  states([first, second], [1, 0], "detached root itself participates in group");
+  fixture.appendChild(first);
+  states([first, second], [1, 0], "ancestor is part of same group as descendant");
+  second.open = true;
+  states([first, second], [0, 1], "opening descendant closes ancestor");
+
+  fixture.innerHTML = '';
+  first = details("scopes", true); fixture.appendChild(first);
+  const host = document.createElement("div"); fixture.appendChild(host);
+  const root = host.attachShadow({mode: "open"});
+  second = details("scopes", true); root.appendChild(second);
+  states([first, second], [1, 1], "shadow scope does not close document group");
+  const third = details("scopes", true); root.appendChild(third);
+  states([first, second, third], [1, 1, 0], "shadow group uses its own existing member");
+  third.open = true;
+  states([first, second, third], [1, 0, 1], "shadow opening stays within shadow tree");
+  root.appendChild(first);
+  states([first, third], [0, 1], "moving document element into shadow closes newcomer");
+
+  fixture.innerHTML = '';
+  first = details("adopt", true); fixture.appendChild(first);
+  const foreignDocument = document.implementation.createHTMLDocument("");
+  second = details("adopt", true, foreignDocument);
+  foreignDocument.body.appendChild(second);
+  fixture.appendChild(second);
+  states([first, second], [1, 0], "adoption into another document preserves existing open member");
+  is(second.ownerDocument, document, "adoption updates owner document");
+
+  fixture.innerHTML = '';
+  first = details("details-only-named-access", true); fixture.appendChild(first);
+  is(window["details-only-named-access"], undefined, "details name does not create a window named property");
+  second = details(null, true); fixture.appendChild(second);
+  second.setAttributeNS("urn:details", "x:name", "details-only-named-access");
+  states([first, second], [1, 1], "namespaced name attribute does not join group");
+
+  fixture.innerHTML = '';
+  first = details("events"); second = details("events");
+  fixture.appendChild(first); fixture.appendChild(second);
+  const events = [];
+  first.addEventListener("toggle", event => {
+    events.push("first");
+    is(event.bubbles, false, "toggle does not bubble");
+    is(event.cancelable, false, "toggle is not cancelable");
+  });
+  second.addEventListener("toggle", () => events.push("second"));
+  first.open = true; second.open = true;
+  states([first, second], [0, 1], "exclusivity is synchronous");
+  is(events.length, 0, "toggle delivery is asynchronous");
+  await turn();
+  is(events.join(), "second,first", "coalesced toggle queue keeps latest first-member event order");
+  events.length = 0;
+  second.open = true; second.setAttribute("open", "false");
+  first.setAttributeNS("urn:details", "x:open", "");
+  states([first, second], [0, 1], "changing open value preserves presence and group state");
+  await turn();
+  is(events.length, 0, "same presence does not queue toggle");
+  first.open = true; first.open = false; first.open = true;
+  await turn();
+  is(events.filter(event => event === "first").length, 1, "rapid changes coalesce first-member toggle");
+
+  // This engine retains legacy mutation events. Their deferred callbacks must
+  // observe a consistent group even when a callback changes the tree again.
+  fixture.innerHTML = '';
+  first = details("reentrant", true); second = details("reentrant");
+  const final = details("reentrant");
+  fixture.appendChild(first); fixture.appendChild(second); fixture.appendChild(final);
+  let reentered = false;
+  first.addEventListener("DOMAttrModified", event => {
+    if (event.attrName === "open" && !first.open && !reentered) {
+      reentered = true;
+      first.remove();
+      final.open = true;
+    }
+  });
+  const mutationProbe = document.createElement("div");
+  let legacyMutationEvents = false;
+  mutationProbe.addEventListener("DOMAttrModified", () => legacyMutationEvents = true);
+  mutationProbe.setAttribute("data-check", "1");
+  second.open = true;
+  await turn();
+  if (legacyMutationEvents) {
+    ok(reentered, "legacy attribute listener exercised reentrant group mutation");
+    states([second, final], [0, 1], "group remains exclusive after reentrant removal/open");
+  } else {
+    ok(!reentered, "engine without legacy mutation events does not dispatch them");
+  }
+}
+
+runDetailsNameTests().catch(error => {
+  ok(false, String(error) + " " + error.stack);
+}).then(() => SimpleTest.finish());
+</script>

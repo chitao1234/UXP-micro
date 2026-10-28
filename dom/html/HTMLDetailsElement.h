@@ -43,7 +43,26 @@ public:
                          const nsAttrValueOrString* aValue,
                          bool aNotify) override;
 
+  nsresult AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
+                       const nsAttrValue* aValue, const nsAttrValue* aOldValue,
+                       nsIPrincipal* aMaybeScriptedPrincipal,
+                       bool aNotify) override;
+
+  nsresult BindToTree(nsIDocument* aDocument, nsIContent* aParent,
+                      nsIContent* aBindingParent,
+                      bool aCompileEventHandlers) override;
+
   // HTMLDetailsElement WebIDL
+  void GetName(nsAString& aName) const
+  {
+    GetHTMLAttr(nsGkAtoms::name, aName);
+  }
+
+  void SetName(const nsAString& aName, ErrorResult& aError)
+  {
+    SetHTMLAttr(nsGkAtoms::name, aName, aError);
+  }
+
   bool Open() const { return GetBoolAttr(nsGkAtoms::open); }
 
   void SetOpen(bool aOpen, ErrorResult& aError)
@@ -62,6 +81,13 @@ public:
 
 protected:
   virtual ~HTMLDetailsElement();
+
+  // Group membership is scoped to the ordinary DOM tree, including detached
+  // subtrees and shadow roots. No document table retains details elements.
+  nsIAtom* GetDetailsName() const;
+  HTMLDetailsElement* FindOpenGroupMember(nsIAtom* aName) const;
+  void CloseElementIfNeeded();
+  void CloseOtherElementsIfNeeded();
 
   JSObject* WrapNode(JSContext* aCx,
                      JS::Handle<JSObject*> aGivenProto) override;

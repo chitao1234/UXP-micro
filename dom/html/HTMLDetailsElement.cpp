@@ -93,6 +93,101 @@ HTMLDetailsElement::BeforeSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
                                              aNotify);
 }
 
+nsIAtom*
+HTMLDetailsElement::GetDetailsName() const
+{
+  // Generic HTML attribute parsing interns nonempty names. HasName() cannot
+  // be used here: it controls window/document named access for other tags.
+  const nsAttrValue* name = GetParsedAttr(nsGkAtoms::name);
+  return name && !name->IsEmptyString() ? name->GetAtomValue() : nullptr;
+}
+
+HTMLDetailsElement*
+HTMLDetailsElement::FindOpenGroupMember(nsIAtom* aName) const
+{
+  MOZ_ASSERT(aName);
+  nsINode* root = SubtreeRoot();
+  for (nsINode* node = root; node; node = node->GetNextNode(root)) {
+    if (node == this || !node->IsContent()) {
+      continue;
+    }
+    HTMLDetailsElement* details = HTMLDetailsElement::FromContent(node->AsContent());
+    if (details && details->Open() && details->GetDetailsName() == aName) {
+      return details;
+    }
+  }
+  return nullptr;
+}
+
+void
+HTMLDetailsElement::CloseElementIfNeeded()
+{
+  if (!Open()) {
+    return;
+  }
+  nsIAtom* name = GetDetailsName();
+  if (name && FindOpenGroupMember(name)) {
+    ErrorResult rv;
+    SetOpen(false, rv);
+    rv.SuppressException();
+  }
+}
+
+void
+HTMLDetailsElement::CloseOtherElementsIfNeeded()
+{
+  MOZ_ASSERT(Open());
+  nsIAtom* name = GetDetailsName();
+  if (!name) {
+    return;
+  }
+  RefPtr<HTMLDetailsElement> other = FindOpenGroupMember(name);
+  if (other) {
+    ErrorResult rv;
+    other->SetOpen(false, rv);
+    rv.SuppressException();
+  }
+}
+
+nsresult
+HTMLDetailsElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
+                                 const nsAttrValue* aValue,
+                                 const nsAttrValue* aOldValue,
+                                 nsIPrincipal* aMaybeScriptedPrincipal,
+                                 bool aNotify)
+{
+  nsresult rv = nsGenericHTMLElement::AfterSetAttr(aNameSpaceID, aName, aValue,
+                                                  aOldValue,
+                                                  aMaybeScriptedPrincipal,
+                                                  aNotify);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (aNameSpaceID == kNameSpaceID_None) {
+    if (aName == nsGkAtoms::name) {
+      // Joining a group must preserve its already-open member.
+      CloseElementIfNeeded();
+    } else if (aName == nsGkAtoms::open && aValue && !aOldValue) {
+      // Explicit opening wins over the existing member of this group.
+      CloseOtherElementsIfNeeded();
+    }
+  }
+  return NS_OK;
+}
+
+nsresult
+HTMLDetailsElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
+                               nsIContent* aBindingParent,
+                               bool aCompileEventHandlers)
+{
+  nsresult rv = nsGenericHTMLElement::BindToTree(aDocument, aParent,
+                                                 aBindingParent,
+                                                 aCompileEventHandlers);
+  NS_ENSURE_SUCCESS(rv, rv);
+  // Runs for parser insertion, detached subtrees, and moves into a new tree.
+  // Attribute updates are script-blocked by the binding/insertion caller.
+  CloseElementIfNeeded();
+  return NS_OK;
+}
+
 void
 HTMLDetailsElement::AsyncEventRunning(AsyncEventDispatcher* aEvent)
 {
