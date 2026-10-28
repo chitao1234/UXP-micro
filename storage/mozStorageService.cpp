@@ -398,6 +398,10 @@ namespace {
 static void *sqliteMemMalloc(int n)
 {
   void* p = ::malloc(n);
+  // CollectReports uses SQLite's aggregate counters rather than traversing
+  // individual blocks. Keep those already-accounted blocks out of DMD's
+  // unreported list. DMD removes the mark when free/realloc removes a block.
+  MOZ_REPORT_ON_ALLOC(p);
   return p;
 }
 
@@ -408,7 +412,17 @@ static void sqliteMemFree(void *p)
 
 static void *sqliteMemRealloc(void *p, int n)
 {
-  return ::realloc(p, n);
+  void* result = ::realloc(p, n);
+#ifdef MOZ_DMD
+  if (result) {
+    MOZ_REPORT_ON_ALLOC(result);
+  } else if (n > 0) {
+    // The failed realloc retains p. DMD reconstructs its live-block record,
+    // so restore the aggregate reporter's mark on that surviving allocation.
+    MOZ_REPORT_ON_ALLOC(p);
+  }
+#endif
+  return result;
 }
 
 static int sqliteMemSize(void *p)

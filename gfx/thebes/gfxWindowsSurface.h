@@ -8,6 +8,7 @@
 
 #include "gfxASurface.h"
 #include "gfxImageSurface.h"
+#include "cairo-win32.h"
 
 /* include windows.h for the HWND and HDC definitions that we need. */
 #include <windows.h>
@@ -41,6 +42,11 @@ public:
     virtual ~gfxWindowsSurface();
 
     HDC GetDC();
+
+    static void RegisterMemoryReporter();
+    void SetMemoryRole(cairo_win32_memory_role_t aRole) {
+        cairo_win32_surface_set_memory_role(CairoSurface(), aRole);
+    }
 
     already_AddRefed<gfxImageSurface> GetAsImageSurface();
 

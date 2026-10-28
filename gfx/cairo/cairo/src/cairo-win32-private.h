@@ -74,6 +74,14 @@ typedef struct _cairo_win32_surface {
     cairo_matrix_t gdi_ctm;
     HBRUSH brush, old_brush;
     cairo_scaled_font_subsets_t *font_subsets;
+
+    /* Non-owning census protected by the surface-memory mutex. Printing
+     * surfaces do not register. No pixel buffers or owning references here. */
+    struct _cairo_win32_surface *memory_next;
+    struct _cairo_win32_surface **memory_previous;
+    uint64_t memory_bytes;
+    unsigned memory_kind; /* 0 borrowed, 1 DIB, 2 DDB, 3 unmeasured bitmap */
+    cairo_win32_memory_role_t memory_role;
 } cairo_win32_surface_t;
 
 /* Surface DC flag values */

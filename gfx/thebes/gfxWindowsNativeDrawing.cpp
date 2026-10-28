@@ -179,6 +179,7 @@ gfxWindowsNativeDrawing::BeginNativeDrawing()
         // get us a RGB24 DIB; DIB is important, because
         // we can later call GetImageSurface on it.
         mWinSurface = new gfxWindowsSurface(mTempSurfaceSize);
+        mWinSurface->SetMemoryRole(CAIRO_WIN32_MEMORY_NATIVE_DRAWING);
         mDC = mWinSurface->GetDC();
 
         RECT r = { 0, 0, mTempSurfaceSize.width, mTempSurfaceSize.height };

@@ -10,6 +10,7 @@
 #if CAIRO_HAS_WIN32_SURFACE
 
 #include <windows.h>
+#include <stdint.h>
 
 CAIRO_BEGIN_DECLS
 
@@ -54,6 +55,36 @@ cairo_win32_surface_get_width (cairo_surface_t *surface);
 
 cairo_public int
 cairo_win32_surface_get_height (cairo_surface_t *surface);
+
+/* Gecko allocation accounting. Roles describe the backing owner, not aliases.
+ * DIB bytes are DWORD-padded native pixel storage, not heap or residency.
+ * DDB bytes are an estimate; borrowed HDC/D3D storage is excluded. */
+typedef enum {
+    CAIRO_WIN32_MEMORY_UNCLASSIFIED,
+    CAIRO_WIN32_MEMORY_CONTENT,
+    CAIRO_WIN32_MEMORY_TEXTURE,
+    CAIRO_WIN32_MEMORY_OFFSCREEN,
+    CAIRO_WIN32_MEMORY_NATIVE_DRAWING,
+    CAIRO_WIN32_MEMORY_COMPOSITOR,
+    CAIRO_WIN32_MEMORY_SNAPSHOT,
+    CAIRO_WIN32_MEMORY_ROLE_COUNT
+} cairo_win32_memory_role_t;
+
+typedef struct {
+    uint64_t dib_bytes[CAIRO_WIN32_MEMORY_ROLE_COUNT];
+    uint32_t dib_count[CAIRO_WIN32_MEMORY_ROLE_COUNT];
+    uint64_t ddb_estimated_bytes;
+    uint32_t ddb_count;
+    uint32_t external_count;
+    uint32_t unknown_bitmap_count;
+} cairo_win32_memory_usage_t;
+
+cairo_public void
+cairo_win32_get_memory_usage (cairo_win32_memory_usage_t *usage);
+
+cairo_public void
+cairo_win32_surface_set_memory_role (cairo_surface_t *surface,
+                                     cairo_win32_memory_role_t role);
 
 #if CAIRO_HAS_WIN32_FONT
 

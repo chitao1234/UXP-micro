@@ -32,6 +32,7 @@
 #include "mozilla/Omnijar.h"
 #include "prenv.h"
 #include "nsThreadUtils.h"
+#include "nsReadableUtils.h"
 #include "nsXULAppAPI.h"
 #include "nsIProtocolHandler.h"
 
@@ -58,16 +59,39 @@ NS_IMETHODIMP
 StartupCache::CollectReports(nsIHandleReportCallback* aHandleReport,
                              nsISupports* aData, bool aAnonymize)
 {
+  MOZ_ASSERT(NS_IsMainThread());
+  // The writer clears mTable/mPendingWrites and replaces mArchive. A report
+  // must join it just like GetBuffer/PutBuffer do, before reading any of them.
+  WaitOnWriteThread();
+  MemoryUsage usage;
+  MeasureMemory(StartupCacheMallocSizeOf, usage);
+  const int64_t mapping = SizeOfMapping();
+  const bool writeInitiated = mStartupWriteInitiated;
+  // Snapshot everything before callbacks can reenter the cache.
   MOZ_COLLECT_REPORT(
     "explicit/startup-cache/mapping", KIND_NONHEAP, UNITS_BYTES,
-    SizeOfMapping(),
+    mapping,
     "Memory used to hold the mapping of the startup cache from file. "
     "This memory is likely to be swapped out shortly after start-up.");
 
-  MOZ_COLLECT_REPORT(
-    "explicit/startup-cache/data", KIND_HEAP, UNITS_BYTES,
-    HeapSizeOfIncludingThis(StartupCacheMallocSizeOf),
-    "Memory used by the startup cache for things other than the file mapping.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/js-loader", KIND_HEAP, UNITS_BYTES,
+    usage.mJSLoader, "Serialized JavaScript component/module bytecode awaiting startup-cache writing. This is separate from live SpiderMonkey scripts.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/js-sub-loader", KIND_HEAP, UNITS_BYTES,
+    usage.mJSSubLoader, "Serialized subscript bytecode awaiting startup-cache writing.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/xul-prototypes", KIND_HEAP, UNITS_BYTES,
+    usage.mXUL, "Serialized XUL prototypes and XUL cache metadata awaiting startup-cache writing.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/xbl-bindings", KIND_HEAP, UNITS_BYTES,
+    usage.mXBL, "Serialized XBL bindings awaiting startup-cache writing.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/other-payloads", KIND_HEAP, UNITS_BYTES,
+    usage.mOther, "Other serialized startup-cache payloads awaiting writing. Entry names are not exposed.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/data/metadata", KIND_HEAP, UNITS_BYTES,
+    usage.mMetadata, "Startup-cache object, hash storage, entry objects, key strings and pending-write array. Keys shared with the pending-write list are measured once.");
+  MOZ_COLLECT_REPORT("explicit/startup-cache/archive-index", KIND_HEAP, UNITS_BYTES,
+    usage.mArchive, "Startup-cache ZIP reader object, entry-index arena and unshared URI string. Excludes the file mapping and shared file-handle objects.");
+  MOZ_COLLECT_REPORT("startup-cache/pending-entries", KIND_OTHER, UNITS_COUNT,
+    usage.mEntries, "In-memory serialized entries currently held by the startup cache.");
+  MOZ_COLLECT_REPORT("startup-cache/write-initiated", KIND_OTHER, UNITS_COUNT,
+    writeInitiated ? 1 : 0, "Whether the current startup-cache write cycle has started. Queuing another entry resets this flag and the normal timer. Reporting joins an existing writer but never starts one or changes its timer.");
 
   return NS_OK;
 }
@@ -348,19 +372,41 @@ StartupCache::SizeOfMapping()
 size_t
 StartupCache::HeapSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
-    // This function could measure more members, but they haven't been found by
-    // DMD to be significant.  They can be added later if necessary.
+    MemoryUsage usage;
+    MeasureMemory(aMallocSizeOf, usage);
+    return usage.mJSLoader + usage.mJSSubLoader + usage.mXUL + usage.mXBL +
+           usage.mOther + usage.mMetadata + usage.mArchive;
+}
 
-    size_t n = aMallocSizeOf(this);
-
-    n += mTable.ShallowSizeOfExcludingThis(aMallocSizeOf);
+void
+StartupCache::MeasureMemory(mozilla::MallocSizeOf aMallocSizeOf,
+                            MemoryUsage& aUsage) const
+{
+    aUsage.mMetadata = aMallocSizeOf(this) +
+      mTable.ShallowSizeOfExcludingThis(aMallocSizeOf) +
+      mPendingWrites.ShallowSizeOfExcludingThis(aMallocSizeOf);
     for (auto iter = mTable.ConstIter(); !iter.Done(); iter.Next()) {
-        n += iter.Data()->SizeOfIncludingThis(aMallocSizeOf);
+        const nsACString& key = iter.Key();
+        const CacheEntry* entry = iter.Data();
+        aUsage.mMetadata += aMallocSizeOf(entry) +
+          key.SizeOfExcludingThisEvenIfShared(aMallocSizeOf);
+        const size_t bytes = aMallocSizeOf(entry->data.get());
+        if (StringBeginsWith(key, NS_LITERAL_CSTRING("jsloader/")))
+            aUsage.mJSLoader += bytes;
+        else if (StringBeginsWith(key, NS_LITERAL_CSTRING("jssubloader/")))
+            aUsage.mJSSubLoader += bytes;
+        else if (StringBeginsWith(key, NS_LITERAL_CSTRING("xulcache/")) ||
+                 key.EqualsLiteral("nsXULPrototypeCache.startupCache"))
+            aUsage.mXUL += bytes;
+        else if (StringBeginsWith(key, NS_LITERAL_CSTRING("xblcache/")))
+            aUsage.mXBL += bytes;
+        else
+            aUsage.mOther += bytes;
+        ++aUsage.mEntries;
     }
-
-    n += mPendingWrites.ShallowSizeOfExcludingThis(aMallocSizeOf);
-
-    return n;
+    // Every pending ID has a table entry and shares its string buffer with
+    // that key. Do not count the same buffer through mPendingWrites again.
+    aUsage.mArchive = mArchive ? mArchive->SizeOfIncludingThis(aMallocSizeOf) : 0;
 }
 
 struct CacheWriteHolder

@@ -6,6 +6,10 @@
 #include "GLConsts.h"
 #include "nsBaseWidget.h"
 #include "VsyncDispatcher.h"
+#ifdef XP_WIN
+#include "cairo/cairo.h"
+#include "cairo/cairo-win32.h"
+#endif
 
 namespace mozilla {
 namespace widget {
@@ -52,6 +56,18 @@ CompositorWidget::GetBackBufferDrawTarget(gfx::DrawTarget* aScreenTarget,
     }
   } else {
     target = aScreenTarget->CreateSimilarDrawTarget(size, format);
+#ifdef XP_WIN
+    // Label the native backing exactly once, at allocation. Do not infer a
+    // new allocation by pointer comparison: an allocator can reuse an address.
+    if (target) {
+      cairo_t* context = static_cast<cairo_t*>(
+        target->GetNativeSurface(gfx::NativeSurfaceType::CAIRO_CONTEXT));
+      if (context) {
+        cairo_win32_surface_set_memory_role(cairo_get_target(context),
+                                           CAIRO_WIN32_MEMORY_COMPOSITOR);
+      }
+    }
+#endif
     mLastBackBuffer = target;
   }
   return target.forget();

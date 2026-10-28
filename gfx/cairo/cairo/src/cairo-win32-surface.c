@@ -71,6 +71,125 @@
 
 static const cairo_surface_backend_t cairo_win32_surface_backend;
 
+static cairo_win32_surface_t *memory_surfaces;
+
+static void
+_cairo_win32_measure_memory (cairo_win32_surface_t *surface,
+                            uint64_t *bytes_out, unsigned *kind_out)
+{
+    BITMAP bitmap;
+    uint64_t bytes = 0;
+    unsigned kind = 0;
+    if (surface->bitmap) {
+        kind = 3;
+        if (surface->is_dib && surface->image) {
+            cairo_image_surface_t *image = (cairo_image_surface_t *) surface->image;
+            int stride = image->stride;
+            /* _create_dc_and_bitmap creates a native 1x1 DIB even when a
+             * logical dimension is zero. Other strides are already the exact
+             * DWORD-padded stride passed to the native allocation. Avoid a
+             * GetObject syscall on every ordinary DIB allocation. */
+            if (!image->width)
+                stride = cairo_format_stride_for_width (image->format, 1);
+            bytes = (uint64_t) abs (stride) * (image->height ? image->height : 1);
+            kind = 1;
+        } else if (GetObject (surface->bitmap, sizeof (bitmap), &bitmap)) {
+            bytes = (uint64_t) abs (bitmap.bmWidthBytes) *
+                    (uint64_t) abs (bitmap.bmHeight);
+            kind = surface->is_dib ? 1 : 2;
+        }
+    }
+    *bytes_out = bytes;
+    *kind_out = kind;
+}
+
+static void
+_cairo_win32_refresh_memory (cairo_win32_surface_t *surface,
+                            cairo_win32_surface_t *previous_owner)
+{
+    uint64_t bytes;
+    unsigned kind;
+    _cairo_win32_measure_memory (surface, &bytes, &kind);
+    CAIRO_MUTEX_LOCK (_cairo_win32_surface_memory_mutex);
+    surface->memory_bytes = bytes;
+    surface->memory_kind = kind;
+    if (previous_owner) {
+        previous_owner->memory_bytes = 0;
+        previous_owner->memory_kind = 0;
+    }
+    CAIRO_MUTEX_UNLOCK (_cairo_win32_surface_memory_mutex);
+}
+
+static void
+_cairo_win32_register_memory (cairo_win32_surface_t *surface)
+{
+    uint64_t bytes;
+    unsigned kind;
+    _cairo_win32_measure_memory (surface, &bytes, &kind);
+    CAIRO_MUTEX_LOCK (_cairo_win32_surface_memory_mutex);
+    surface->memory_bytes = bytes;
+    surface->memory_kind = kind;
+    surface->memory_role = CAIRO_WIN32_MEMORY_UNCLASSIFIED;
+    surface->memory_next = memory_surfaces;
+    surface->memory_previous = &memory_surfaces;
+    if (memory_surfaces)
+        memory_surfaces->memory_previous = &surface->memory_next;
+    memory_surfaces = surface;
+    CAIRO_MUTEX_UNLOCK (_cairo_win32_surface_memory_mutex);
+}
+
+static void
+_cairo_win32_unregister_memory (cairo_win32_surface_t *surface)
+{
+    CAIRO_MUTEX_LOCK (_cairo_win32_surface_memory_mutex);
+    *surface->memory_previous = surface->memory_next;
+    if (surface->memory_next)
+        surface->memory_next->memory_previous = surface->memory_previous;
+    surface->memory_previous = NULL;
+    CAIRO_MUTEX_UNLOCK (_cairo_win32_surface_memory_mutex);
+}
+
+void
+cairo_win32_get_memory_usage (cairo_win32_memory_usage_t *usage)
+{
+    cairo_win32_surface_t *surface;
+    CAIRO_MUTEX_INITIALIZE ();
+    memset (usage, 0, sizeof (*usage));
+    CAIRO_MUTEX_LOCK (_cairo_win32_surface_memory_mutex);
+    for (surface = memory_surfaces; surface; surface = surface->memory_next) {
+        switch (surface->memory_kind) {
+        case 1:
+            usage->dib_bytes[surface->memory_role] += surface->memory_bytes;
+            usage->dib_count[surface->memory_role]++;
+            break;
+        case 2:
+            usage->ddb_estimated_bytes += surface->memory_bytes;
+            usage->ddb_count++;
+            break;
+        case 3:
+            usage->unknown_bitmap_count++;
+            break;
+        default:
+            usage->external_count++;
+        }
+    }
+    CAIRO_MUTEX_UNLOCK (_cairo_win32_surface_memory_mutex);
+}
+
+void
+cairo_win32_surface_set_memory_role (cairo_surface_t *surface,
+                                     cairo_win32_memory_role_t role)
+{
+    cairo_win32_surface_t *win;
+    if (!surface || surface->status || surface->backend != &cairo_win32_surface_backend ||
+        (unsigned) role >= CAIRO_WIN32_MEMORY_ROLE_COUNT)
+        return;
+    win = (cairo_win32_surface_t *) surface;
+    CAIRO_MUTEX_LOCK (_cairo_win32_surface_memory_mutex);
+    win->memory_role = role;
+    CAIRO_MUTEX_UNLOCK (_cairo_win32_surface_memory_mutex);
+}
+
 /**
  * _cairo_win32_print_gdi_error:
  * @context: context string to display along with the error
@@ -169,6 +288,7 @@ _create_dc_and_bitmap (cairo_win32_surface_t *surface,
 
     surface->dc = NULL;
     surface->bitmap = NULL;
+    surface->saved_dc_bitmap = NULL;
     surface->is_dib = FALSE;
 
     switch (format) {
@@ -376,6 +496,7 @@ _cairo_win32_surface_create_for_dc (HDC             original_dc,
 			 NULL, /* device */
 			 _cairo_content_from_format (format));
 
+    _cairo_win32_register_memory (surface);
     return &surface->base;
 
  FAIL:
@@ -443,6 +564,9 @@ cairo_status_t
 _cairo_win32_surface_finish (void *abstract_surface)
 {
     cairo_win32_surface_t *surface = abstract_surface;
+
+    if (surface->base.backend == &cairo_win32_surface_backend)
+        _cairo_win32_unregister_memory (surface);
 
     if (surface->image)
 	cairo_surface_destroy (surface->image);
@@ -617,6 +741,10 @@ _cairo_win32_convert_ddb_to_dib (cairo_win32_surface_t *surface)
 
     new_surface->bitmap = NULL;
     new_surface->image = NULL;
+
+    /* Publish this ownership transfer under one lock, so a concurrent census
+     * cannot count the same native backing through both records. */
+    _cairo_win32_refresh_memory (surface, new_surface);
 
     /* Finally update flags */
     surface->flags = _cairo_win32_flags_for_dc (surface->dc);
@@ -1946,6 +2074,7 @@ cairo_win32_surface_create_internal (HDC hdc, cairo_format_t format)
 			 NULL, /* device */
 			 _cairo_content_from_format (format));
 
+    _cairo_win32_register_memory (surface);
     return &surface->base;
 }
 
@@ -2077,6 +2206,7 @@ cairo_win32_surface_create_with_ddb (HDC hdc,
     new_surf->bitmap = ddb;
     new_surf->saved_dc_bitmap = saved_dc_bitmap;
     new_surf->is_dib = FALSE;
+    _cairo_win32_refresh_memory (new_surf, NULL);
 
 FINISH:
     if (screen_dc)

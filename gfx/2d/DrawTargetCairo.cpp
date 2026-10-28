@@ -1864,6 +1864,7 @@ DrawTargetCairo::CreateSimilarDrawTarget(const IntSize &aSize, SurfaceFormat aFo
     case CAIRO_SURFACE_TYPE_WIN32:
       similar = cairo_win32_surface_create_with_dib(
         GfxFormatToCairoFormat(aFormat), aSize.width, aSize.height);
+      cairo_win32_surface_set_memory_role(similar, CAIRO_WIN32_MEMORY_OFFSCREEN);
       break;
 #endif
 #ifdef CAIRO_HAS_QUARTZ_SURFACE

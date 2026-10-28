@@ -253,6 +253,7 @@ WinCompositorWidget::CreateTransparentSurface(const gfx::IntSize& aSize)
   mTransparentSurfaceLock.AssertCurrentThreadOwns();
   MOZ_ASSERT(!mTransparentSurface && !mMemoryDC);
   RefPtr<gfxWindowsSurface> surface = new gfxWindowsSurface(aSize, SurfaceFormat::A8R8G8B8_UINT32);
+  surface->SetMemoryRole(CAIRO_WIN32_MEMORY_COMPOSITOR);
   mTransparentSurface = surface;
   mMemoryDC = surface->GetDC();
 }

@@ -477,10 +477,9 @@ class SurfaceMemoryReporter final : public nsIMemoryReporter
 public:
     static void AdjustUsedMemory(gfxSurfaceType aType, int32_t aBytes)
     {
-        // A read-modify-write operation like += would require a memory barrier
-        // here, which would defeat the purpose of using relaxed memory
-        // ordering.  So separate out the read and write operations.
-        sSurfaceMemoryUsed[size_t(aType)] = sSurfaceMemoryUsed[size_t(aType)] + aBytes;
+        // Relaxed ordering still needs an atomic RMW: a separate load/store
+        // loses concurrent allocation/free updates even though each is atomic.
+        sSurfaceMemoryUsed[size_t(aType)] += aBytes;
     };
 
     NS_DECL_ISUPPORTS
@@ -522,10 +521,9 @@ gfxASurface::RecordMemoryUsedForSurfaceType(gfxSurfaceType aType,
         return;
     }
 
-    static bool registered = false;
-    if (!registered) {
+    static Atomic<bool> registered(false);
+    if (registered.compareExchange(false, true)) {
         RegisterStrongMemoryReporter(new SurfaceMemoryReporter());
-        registered = true;
     }
 
     SurfaceMemoryReporter::AdjustUsedMemory(aType, aBytes);

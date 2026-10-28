@@ -7,6 +7,7 @@
 #define nsZipArchive_h_
 
 #include "mozilla/Attributes.h"
+#include "mozilla/MemoryReporting.h"
 
 #define ZIP_TABSIZE   256
 #define ZIP_BUFLEN    (4*1024)      /* Used as output buffer when deflating items to a file */
@@ -205,6 +206,9 @@ public:
    * @return the size
    */
   int64_t SizeOfMapping();
+
+  // Reader shell and index only; shared file handles/mappings are excluded.
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 
   /*
    * Refcounting

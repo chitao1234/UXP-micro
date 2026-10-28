@@ -963,6 +963,13 @@ int64_t nsZipArchive::SizeOfMapping()
     return mFd ? mFd->SizeOfMapping() : 0;
 }
 
+size_t nsZipArchive::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
+{
+    return aMallocSizeOf(this) +
+           PL_SizeOfArenaPoolExcludingPool(&mArena, aMallocSizeOf) +
+           mURI.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+}
+
 //------------------------------------------
 // nsZipArchive constructor and destructor
 //------------------------------------------

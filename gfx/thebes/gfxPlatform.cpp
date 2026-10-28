@@ -18,6 +18,9 @@
 #include "mozilla/Services.h"
 
 #include "gfxPlatform.h"
+#ifdef XP_WIN
+#include "gfxWindowsSurface.h"
+#endif
 #include "gfxPrefs.h"
 #include "gfxEnv.h"
 #include "gfxTextRun.h"
@@ -664,6 +667,9 @@ gfxPlatform::Init()
     }
 
     RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
+#ifdef XP_WIN
+    gfxWindowsSurface::RegisterMemoryReporter();
+#endif
 
 #ifdef USE_SKIA
     uint32_t skiaCacheSize = GetSkiaGlyphCacheSize();

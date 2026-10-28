@@ -154,9 +154,10 @@ ContentClientBasic::CreateBuffer(ContentType aType,
 #ifdef XP_WIN
   if (mBackend == BackendType::CAIRO && 
       (aType == gfxContentType::COLOR || aType == gfxContentType::COLOR_ALPHA)) {
-    RefPtr<gfxASurface> surf =
+    RefPtr<gfxWindowsSurface> surf =
       new gfxWindowsSurface(size, aType == gfxContentType::COLOR ? gfxImageFormat::X8R8G8B8_UINT32 :
                                                                    gfxImageFormat::A8R8G8B8_UINT32);
+    surf->SetMemoryRole(CAIRO_WIN32_MEMORY_CONTENT);
     *aBlackDT = gfxPlatform::GetPlatform()->CreateDrawTargetForSurface(surf, size);
 
     if (*aBlackDT) {

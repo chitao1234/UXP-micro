@@ -9,6 +9,9 @@
 #include "DataSourceSurfaceWrapper.h"
 
 #include "cairo.h"
+#ifdef CAIRO_HAS_WIN32_SURFACE
+#include "cairo-win32.h"
+#endif
 
 namespace mozilla {
 namespace gfx {
@@ -102,6 +105,9 @@ SourceSurfaceCairo::DrawTargetWillChange()
     cairo_surface_t* surface = cairo_surface_create_similar(mSurface,
                                                             GfxFormatToCairoContent(mFormat),
                                                             mSize.width, mSize.height);
+#ifdef CAIRO_HAS_WIN32_SURFACE
+    cairo_win32_surface_set_memory_role(surface, CAIRO_WIN32_MEMORY_SNAPSHOT);
+#endif
     cairo_t* ctx = cairo_create(surface);
     cairo_pattern_t* pat = cairo_pattern_create_for_surface(mSurface);
     cairo_set_source(ctx, pat);

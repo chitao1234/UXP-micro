@@ -139,6 +139,19 @@ public:
   size_t SizeOfMapping();
 
 private:
+  struct MemoryUsage {
+    size_t mJSLoader = 0;
+    size_t mJSSubLoader = 0;
+    size_t mXUL = 0;
+    size_t mXBL = 0;
+    size_t mOther = 0;
+    size_t mMetadata = 0;
+    size_t mArchive = 0;
+    uint32_t mEntries = 0;
+  };
+  void MeasureMemory(mozilla::MallocSizeOf aMallocSizeOf,
+                     MemoryUsage& aUsage) const;
+
   StartupCache();
   virtual ~StartupCache();
 

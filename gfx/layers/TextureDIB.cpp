@@ -189,6 +189,8 @@ MemoryDIBTextureData::Create(gfx::IntSize aSize, gfx::SurfaceFormat aFormat)
     return nullptr;
   }
 
+  surface->SetMemoryRole(CAIRO_WIN32_MEMORY_TEXTURE);
+
   return new MemoryDIBTextureData(aSize, aFormat, surface);
 }
 
