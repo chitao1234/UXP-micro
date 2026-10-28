@@ -418,6 +418,14 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
         bool trapOnError = !mg().isAsmJS();
+#if defined(JS_CODEGEN_X86)
+        if (type == MIRType::Int64) {
+            auto* ins = MWasmBuiltinDivI64::New(alloc(), lhs, rhs, tlsPointer_, unsignd,
+                                               trapOnError, trapOffset());
+            curBlock_->add(ins);
+            return ins;
+        }
+#endif
         auto* ins = MDiv::New(alloc(), lhs, rhs, type, unsignd, trapOnError, trapOffset(),
                               mustPreserveNaN(type));
         curBlock_->add(ins);
@@ -429,6 +437,19 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
         bool trapOnError = !mg().isAsmJS();
+#if defined(JS_CODEGEN_X86)
+        if (type == MIRType::Int64) {
+            auto* ins = MWasmBuiltinModI64::New(alloc(), lhs, rhs, tlsPointer_, unsignd,
+                                               trapOnError, trapOffset());
+            curBlock_->add(ins);
+            return ins;
+        }
+        if (type == MIRType::Double) {
+            auto* ins = MWasmBuiltinModD::New(alloc(), lhs, rhs, tlsPointer_);
+            curBlock_->add(ins);
+            return ins;
+        }
+#endif
         auto* ins = MMod::New(alloc(), lhs, rhs, type, unsignd, trapOnError, trapOffset());
         curBlock_->add(ins);
         return ins;
@@ -501,6 +522,19 @@ class FunctionCompiler
         if (inDeadCode())
             return nullptr;
         auto* ins = MInt64ToFloatingPoint::New(alloc(), op, type, isUnsigned);
+        curBlock_->add(ins);
+        return ins;
+    }
+
+    MDefinition* truncateAsmJS(MDefinition* op)
+    {
+        if (inDeadCode())
+            return nullptr;
+#if defined(JS_CODEGEN_X86)
+        auto* ins = MWasmBuiltinTruncateToInt32::New(alloc(), op, tlsPointer_);
+#else
+        auto* ins = MTruncateToInt32::New(alloc(), op);
+#endif
         curBlock_->add(ins);
         return ins;
     }
@@ -915,8 +949,16 @@ class FunctionCompiler
         }
 
         CallSiteDesc desc(call.lineOrBytecode_, CallSiteDesc::Symbolic);
-        auto callee = CalleeDesc::builtin(builtin);
-        auto* ins = MWasmCall::New(alloc(), desc, callee, call.regArgs_, ToMIRType(ret),
+        auto callee = CalleeDesc::builtin(SymbolicAddressWithTLS(builtin));
+        MWasmCall::Args args;
+        if (!args.appendAll(call.regArgs_))
+            return false;
+#if defined(JS_CODEGEN_X86)
+        // A hidden fixed register operand, not another native ABI argument.
+        if (!args.append(MWasmCall::Arg(AnyRegister(WasmTlsReg), tlsPointer_)))
+            return false;
+#endif
+        auto* ins = MWasmCall::New(alloc(), desc, callee, args, ToMIRType(ret),
                                    call.spIncrement_, MWasmCall::DontSaveTls);
         if (!ins)
             return false;
@@ -935,7 +977,9 @@ class FunctionCompiler
         }
 
         CallSiteDesc desc(call.lineOrBytecode_, CallSiteDesc::Symbolic);
-        auto* ins = MWasmCall::NewBuiltinInstanceMethodCall(alloc(), desc, builtin,
+        // finishCall already appends the TLS operand for these instance
+        // methods (Need/CallerSaved), unlike ordinary native math calls.
+        auto* ins = MWasmCall::NewBuiltinInstanceMethodCall(alloc(), desc, SymbolicAddressWithTLS(builtin),
                                                             call.instanceArg_, call.regArgs_,
                                                             ToMIRType(ret), call.spIncrement_,
                                                             call.tlsStackOffset_);
@@ -1956,7 +2000,7 @@ EmitTruncate(FunctionCompiler& f, ValType operandType, ValType resultType,
 
     if (resultType == ValType::I32) {
         if (f.mg().isAsmJS())
-            f.iter().setResult(f.unary<MTruncateToInt32>(input));
+            f.iter().setResult(f.truncateAsmJS(input));
         else
             f.iter().setResult(f.truncate<MWasmTruncateToInt32>(input, isUnsigned));
     } else {

@@ -841,11 +841,49 @@ enum class SymbolicAddress
     GrowMemory,
     CurrentMemory,
     LookupFrameTLS,
+    // The caller supplies the hidden TLS register; C ABI arguments and the
+    // actual native target remain identical to the corresponding base entry.
+    ToInt32TLS,
+    ModDTLS,
+    SinDTLS,
+    CosDTLS,
+    TanDTLS,
+    ASinDTLS,
+    ACosDTLS,
+    ATanDTLS,
+    CeilDTLS,
+    CeilFTLS,
+    FloorDTLS,
+    FloorFTLS,
+    TruncDTLS,
+    TruncFTLS,
+    NearbyIntDTLS,
+    NearbyIntFTLS,
+    ExpDTLS,
+    LogDTLS,
+    PowDTLS,
+    ATan2DTLS,
+    DivI64TLS,
+    UDivI64TLS,
+    ModI64TLS,
+    UModI64TLS,
+    TruncateDoubleToInt64TLS,
+    TruncateDoubleToUint64TLS,
+    Uint64ToFloatingPointTLS,
+    Int64ToFloatingPointTLS,
+    GrowMemoryTLS,
+    CurrentMemoryTLS,
     Limit
 };
 
 void*
 AddressOf(SymbolicAddress imm);
+
+// Explicit-instance calls are certified by a fixed TLS MIR/LIR operand (or
+// Baseline's local-slot reload). Unannotated calls keep the recovery wrapper.
+SymbolicAddress SymbolicAddressWithTLS(SymbolicAddress imm);
+SymbolicAddress CanonicalSymbolicAddress(SymbolicAddress imm);
+bool SymbolicAddressRequiresTLS(SymbolicAddress imm);
 
 // Native signature used to preserve stack arguments in the x86 exit wrappers.
 jit::ABIFunctionType SymbolicAddressSignature(SymbolicAddress imm);

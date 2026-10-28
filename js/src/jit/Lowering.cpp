@@ -2216,6 +2216,74 @@ LIRGenerator::visitTruncateToInt32(MTruncateToInt32* truncate)
 }
 
 void
+LIRGenerator::visitWasmBuiltinDivI64(MWasmBuiltinDivI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto lhs = useInt64Fixed(ins->lhs(), Register64(eax, ebx), /* useAtStart = */ true);
+    auto rhs = useInt64Fixed(ins->rhs(), Register64(ecx, edx), /* useAtStart = */ true);
+    auto instance = useFixedAtStart(ins->instance(), WasmTlsReg);
+    if (ins->isUnsigned())
+        defineReturn(new(alloc()) LUDivOrModI64(lhs, rhs, instance), ins);
+    else
+        defineReturn(new(alloc()) LDivOrModI64(lhs, rhs, instance), ins);
+#else
+    MOZ_CRASH("Builtin i64 division requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinModI64(MWasmBuiltinModI64* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto lhs = useInt64Fixed(ins->lhs(), Register64(eax, ebx), /* useAtStart = */ true);
+    auto rhs = useInt64Fixed(ins->rhs(), Register64(ecx, edx), /* useAtStart = */ true);
+    auto instance = useFixedAtStart(ins->instance(), WasmTlsReg);
+    if (ins->isUnsigned())
+        defineReturn(new(alloc()) LUDivOrModI64(lhs, rhs, instance), ins);
+    else
+        defineReturn(new(alloc()) LDivOrModI64(lhs, rhs, instance), ins);
+#else
+    MOZ_CRASH("Builtin i64 modulo requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinModD(MWasmBuiltinModD* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    auto* lir = new(alloc()) LModD(useRegisterAtStart(ins->lhs()),
+                                    useRegisterAtStart(ins->rhs()),
+                                    tempFixed(CallTempReg0),
+                                    useFixedAtStart(ins->instance(), WasmTlsReg));
+    defineReturn(lir, ins);
+#else
+    MOZ_CRASH("Builtin floating modulo requires the x86 native helper ABI");
+#endif
+}
+
+void
+LIRGenerator::visitWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins)
+{
+#if defined(JS_CODEGEN_X86)
+    // Keep TLS live through the entire instruction: its slow path can make
+    // a native call after the fast conversion has used the output register.
+    auto instance = useFixed(ins->instance(), WasmTlsReg);
+    if (ins->input()->type() == MIRType::Int32) {
+        redefine(ins, ins->input());
+    } else if (ins->input()->type() == MIRType::Double) {
+        auto maybeTemp = Assembler::HasSSE3() ? LDefinition::BogusTemp() : tempDouble();
+        define(new(alloc()) LTruncateDToInt32(useRegister(ins->input()), maybeTemp, instance), ins);
+    } else {
+        MOZ_ASSERT(ins->input()->type() == MIRType::Float32);
+        auto maybeTemp = Assembler::HasSSE3() ? LDefinition::BogusTemp() : tempFloat32();
+        define(new(alloc()) LTruncateFToInt32(useRegister(ins->input()), maybeTemp, instance), ins);
+    }
+#else
+    MOZ_CRASH("Builtin numeric truncation requires the x86 native helper ABI");
+#endif
+}
+
+void
 LIRGenerator::visitWasmTruncateToInt32(MWasmTruncateToInt32* ins)
 {
     MDefinition* input = ins->input();

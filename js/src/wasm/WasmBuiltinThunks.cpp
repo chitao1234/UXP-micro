@@ -57,7 +57,7 @@ static mozilla::Atomic<BuiltinThunks*, mozilla::ReleaseAcquire> builtinThunks(nu
 static bool
 NeedsThunk(SymbolicAddress address)
 {
-    switch (address) {
+    switch (CanonicalSymbolicAddress(address)) {
       case SymbolicAddress::LookupFrameTLS:
       case SymbolicAddress::HandleThrow:
       case SymbolicAddress::HandleExecutionInterrupt:
@@ -108,9 +108,9 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
     masm.setFramePushed(0);
     range->begin = masm.currentOffset();
 
-    // System-ABI callers may use ESI for an arbitrary live value. Ordinary
-    // Wasm frames deliberately carry no TLS: recover it from the nearest
-    // instance-switching caller, using only immutable callsite metadata.
+    // Explicit-instance callers supply ESI through a fixed compiler operand.
+    // Unannotated system-ABI callers may use ESI for an arbitrary live value;
+    // recover their TLS from the nearest instance-switching caller instead.
     // Native arguments remain above the two-word header, not above a
     // FrameWithInstances. The helper neither allocates nor enters JS/GC.
     masm.push(FramePointer);
@@ -126,12 +126,14 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
                   "Native thunk locals preserve x86 call alignment");
     masm.reserveStack(LocalBytes);
     masm.storePtr(WasmTlsReg, Address(FramePointer, SavedESI));
-    masm.reserveStack(ABIStackAlignment);
-    masm.loadPtr(Address(FramePointer, offsetof(Frame, callerFP)), scratch);
-    masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
-    masm.call(ImmPtr(JS_FUNC_TO_DATA_PTR(void*, LookupFrameTLS)));
-    masm.freeStack(ABIStackAlignment);
-    masm.movePtr(ReturnReg, WasmTlsReg);
+    if (!SymbolicAddressRequiresTLS(address)) {
+        masm.reserveStack(ABIStackAlignment);
+        masm.loadPtr(Address(FramePointer, offsetof(Frame, callerFP)), scratch);
+        masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
+        masm.call(ImmPtr(JS_FUNC_TO_DATA_PTR(void*, LookupFrameTLS)));
+        masm.freeStack(ABIStackAlignment);
+        masm.movePtr(ReturnReg, WasmTlsReg);
+    }
     masm.storePtr(WasmTlsReg, Address(FramePointer, SavedTLS));
     masm.loadPtr(Address(WasmTlsReg, offsetof(TlsData, cx)), scratch);
     masm.loadPtr(Address(scratch, JSContext::offsetOfWasmActivation()), scratch);

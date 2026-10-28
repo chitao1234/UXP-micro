@@ -690,7 +690,7 @@ CodeGeneratorX86::visitTruncateDToInt32(LTruncateDToInt32* ins)
     Register output = ToRegister(ins->output());
 
     OutOfLineTruncate* ool = new(alloc()) OutOfLineTruncate(ins);
-    addOutOfLineCode(ool, ins->mir());
+    addOutOfLineCode(ool, ins->mirRaw()->toInstruction());
 
     masm.branchTruncateDoubleMaybeModUint32(input, output, ool->entry());
     masm.bind(ool->rejoin());
@@ -703,7 +703,7 @@ CodeGeneratorX86::visitTruncateFToInt32(LTruncateFToInt32* ins)
     Register output = ToRegister(ins->output());
 
     OutOfLineTruncateFloat32* ool = new(alloc()) OutOfLineTruncateFloat32(ins);
-    addOutOfLineCode(ool, ins->mir());
+    addOutOfLineCode(ool, ins->mirRaw()->toInstruction());
 
     masm.branchTruncateFloat32MaybeModUint32(input, output, ool->entry());
     masm.bind(ool->rejoin());
@@ -775,10 +775,14 @@ CodeGeneratorX86::visitOutOfLineTruncate(OutOfLineTruncate* ool)
     {
         saveVolatile(output);
 
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), output != WasmTlsReg);
         masm.setupUnalignedABICall(output);
         masm.passABIArg(input, MoveOp::DOUBLE);
         if (gen->compilingWasm())
-            masm.callWithABI(wasm::SymbolicAddress::ToInt32);
+            masm.callWithABI(ins->hasInstance()
+                             ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ToInt32)
+                             : wasm::SymbolicAddress::ToInt32);
         else
             masm.callWithABI(BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
         masm.storeCallInt32Result(output);
@@ -857,12 +861,16 @@ CodeGeneratorX86::visitOutOfLineTruncateFloat32(OutOfLineTruncateFloat32* ool)
         saveVolatile(output);
 
         masm.push(input);
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), output != WasmTlsReg);
         masm.setupUnalignedABICall(output);
         masm.vcvtss2sd(input, input, input);
         masm.passABIArg(input.asDouble(), MoveOp::DOUBLE);
 
         if (gen->compilingWasm())
-            masm.callWithABI(wasm::SymbolicAddress::ToInt32);
+            masm.callWithABI(ins->hasInstance()
+                             ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ToInt32)
+                             : wasm::SymbolicAddress::ToInt32);
         else
             masm.callWithABI(BitwiseCast<void*, int32_t(*)(double)>(JS::ToInt32));
 
@@ -953,6 +961,10 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
     if (gen->compilingWasm())
         regs.take(FramePointer);
+    if (lir->hasInstance()) {
+        MOZ_ASSERT(ToRegister(lir->instance()) == WasmTlsReg);
+        regs.take(WasmTlsReg);
+    }
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
@@ -972,7 +984,7 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
         Label notmin;
         masm.branch64(Assembler::NotEqual, lhs, Imm64(INT64_MIN), &notmin);
         masm.branch64(Assembler::NotEqual, rhs, Imm64(-1), &notmin);
-        if (lir->mir()->isMod())
+        if (lir->isModulo())
             masm.xor64(output, output);
         else
             masm.jump(trap(lir, wasm::Trap::IntegerOverflow));
@@ -987,10 +999,14 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
     masm.passABIArg(rhs.low);
 
     MOZ_ASSERT(gen->compilingWasm());
-    if (lir->mir()->isMod())
-        masm.callWithABI(wasm::SymbolicAddress::ModI64);
+    if (lir->isModulo())
+        masm.callWithABI(lir->hasInstance()
+                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ModI64)
+                         : wasm::SymbolicAddress::ModI64);
     else
-        masm.callWithABI(wasm::SymbolicAddress::DivI64);
+        masm.callWithABI(lir->hasInstance()
+                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::DivI64)
+                         : wasm::SymbolicAddress::DivI64);
 
     // output in edx:eax, move to output register.
     masm.movl(edx, output.high);
@@ -1013,6 +1029,10 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
     if (gen->compilingWasm())
         regs.take(FramePointer);
+    if (lir->hasInstance()) {
+        MOZ_ASSERT(ToRegister(lir->instance()) == WasmTlsReg);
+        regs.take(WasmTlsReg);
+    }
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
@@ -1032,10 +1052,14 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
     masm.passABIArg(rhs.low);
 
     MOZ_ASSERT(gen->compilingWasm());
-    if (lir->mir()->isMod())
-        masm.callWithABI(wasm::SymbolicAddress::UModI64);
+    if (lir->isModulo())
+        masm.callWithABI(lir->hasInstance()
+                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::UModI64)
+                         : wasm::SymbolicAddress::UModI64);
     else
-        masm.callWithABI(wasm::SymbolicAddress::UDivI64);
+        masm.callWithABI(lir->hasInstance()
+                         ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::UDivI64)
+                         : wasm::SymbolicAddress::UDivI64);
 
     // output in edx:eax, move to output register.
     masm.movl(edx, output.high);

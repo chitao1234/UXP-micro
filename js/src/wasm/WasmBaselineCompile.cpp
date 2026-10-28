@@ -2341,7 +2341,10 @@ class BaseCompiler
 
     void callSymbolic(SymbolicAddress callee, const FunctionCall& call) {
         CallSiteDesc desc(call.lineOrBytecode, CallSiteDesc::Symbolic);
-        masm.call(callee);
+#if defined(JS_CODEGEN_X86)
+        loadFromFramePtr(WasmTlsReg, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
+#endif
+        masm.call(SymbolicAddressWithTLS(callee));
     }
 
     // Precondition: sync()
@@ -2394,7 +2397,7 @@ class BaseCompiler
         loadFromFramePtr(WasmTlsReg, frameOffsetFromSlot(tlsSlot_, MIRType::Pointer));
 
         CallSiteDesc desc(call.lineOrBytecode, CallSiteDesc::Symbolic);
-        masm.wasmCallBuiltinInstanceMethod(instanceArg, builtin);
+        masm.wasmCallBuiltinInstanceMethod(instanceArg, SymbolicAddressWithTLS(builtin));
     }
 
     //////////////////////////////////////////////////////////////////////

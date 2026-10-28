@@ -170,6 +170,10 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitToFloat32(MToFloat32* convert);
     void visitToInt32(MToInt32* convert);
     void visitTruncateToInt32(MTruncateToInt32* truncate);
+    void visitWasmBuiltinDivI64(MWasmBuiltinDivI64* ins);
+    void visitWasmBuiltinModI64(MWasmBuiltinModI64* ins);
+    void visitWasmBuiltinModD(MWasmBuiltinModD* ins);
+    void visitWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins);
     void visitWasmTruncateToInt32(MWasmTruncateToInt32* truncate);
     void visitWrapInt64ToInt32(MWrapInt64ToInt32* ins);
     void visitToString(MToString* convert);

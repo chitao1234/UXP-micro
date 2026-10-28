@@ -6748,9 +6748,13 @@ CodeGenerator::visitModD(LModD* ins)
     masm.passABIArg(lhs, MoveOp::DOUBLE);
     masm.passABIArg(rhs, MoveOp::DOUBLE);
 
-    if (gen->compilingWasm())
-        masm.callWithABI(wasm::SymbolicAddress::ModD, MoveOp::DOUBLE);
-    else
+    if (gen->compilingWasm()) {
+        MOZ_ASSERT_IF(ins->hasInstance(), ToRegister(ins->instance()) == WasmTlsReg);
+        MOZ_ASSERT_IF(ins->hasInstance(), temp != WasmTlsReg);
+        masm.callWithABI(ins->hasInstance()
+                        ? wasm::SymbolicAddressWithTLS(wasm::SymbolicAddress::ModD)
+                        : wasm::SymbolicAddress::ModD, MoveOp::DOUBLE);
+    } else
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, NumberMod), MoveOp::DOUBLE);
 }
 

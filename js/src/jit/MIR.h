@@ -4233,6 +4233,135 @@ class MExtendInt32ToInt64
     }
 };
 
+// On x86 these operations call a native helper. As in current SpiderMonkey,
+// make the instance an explicit SSA operand rather than rediscovering it by
+// walking the Wasm stack at every numeric call. Other backends retain their
+// existing inline instructions and MIR nodes.
+class MWasmBuiltinDivOrModI64
+  : public MAryInstruction<3>,
+    public NoTypePolicy::Data
+{
+    bool isUnsigned_;
+    bool trapOnError_;
+    wasm::TrapOffset trapOffset_;
+
+  protected:
+    MWasmBuiltinDivOrModI64(MDefinition* lhs, MDefinition* rhs, MDefinition* instance,
+                            bool isUnsigned, bool trapOnError, wasm::TrapOffset trapOffset)
+      : isUnsigned_(isUnsigned),
+        trapOnError_(trapOnError),
+        trapOffset_(trapOffset)
+    {
+        initOperand(0, lhs);
+        initOperand(1, rhs);
+        initOperand(2, instance);
+        setResultType(MIRType::Int64);
+        if (trapOnError_)
+            setGuard();
+        else
+            setMovable();
+    }
+
+  public:
+    NAMED_OPERANDS((0, lhs), (1, rhs), (2, instance))
+    bool isUnsigned() const { return isUnsigned_; }
+    bool trapOnError() const { return trapOnError_; }
+    wasm::TrapOffset trapOffset() const { return trapOffset_; }
+    bool canBeDivideByZero() const { return true; }
+    bool canBeNegativeOverflow() const { return true; }
+    bool canBeNegativeDividend() const { return true; }
+    bool possiblyCalls() const override { return true; }
+    AliasSet getAliasSet() const override { return AliasSet::None(); }
+    bool congruentTo(const MDefinition* ins) const override {
+        if (ins->op() != op() || !congruentIfOperandsEqual(ins))
+            return false;
+        const auto* other = static_cast<const MWasmBuiltinDivOrModI64*>(ins);
+        return isUnsigned_ == other->isUnsigned_ && trapOnError_ == other->trapOnError_;
+    }
+};
+
+class MWasmBuiltinDivI64 : public MWasmBuiltinDivOrModI64
+{
+    MWasmBuiltinDivI64(MDefinition* lhs, MDefinition* rhs, MDefinition* instance,
+                       bool isUnsigned, bool trapOnError, wasm::TrapOffset trapOffset)
+      : MWasmBuiltinDivOrModI64(lhs, rhs, instance, isUnsigned, trapOnError, trapOffset)
+    { }
+
+  public:
+    INSTRUCTION_HEADER(WasmBuiltinDivI64)
+    TRIVIAL_NEW_WRAPPERS
+    ALLOW_CLONE(MWasmBuiltinDivI64)
+};
+
+class MWasmBuiltinModI64 : public MWasmBuiltinDivOrModI64
+{
+    MWasmBuiltinModI64(MDefinition* lhs, MDefinition* rhs, MDefinition* instance,
+                       bool isUnsigned, bool trapOnError, wasm::TrapOffset trapOffset)
+      : MWasmBuiltinDivOrModI64(lhs, rhs, instance, isUnsigned, trapOnError, trapOffset)
+    { }
+
+  public:
+    INSTRUCTION_HEADER(WasmBuiltinModI64)
+    TRIVIAL_NEW_WRAPPERS
+    ALLOW_CLONE(MWasmBuiltinModI64)
+};
+
+class MWasmBuiltinModD
+  : public MAryInstruction<3>,
+    public NoTypePolicy::Data
+{
+    MWasmBuiltinModD(MDefinition* lhs, MDefinition* rhs, MDefinition* instance)
+    {
+        initOperand(0, lhs);
+        initOperand(1, rhs);
+        initOperand(2, instance);
+        MOZ_ASSERT(lhs->type() == MIRType::Double && rhs->type() == MIRType::Double);
+        setResultType(MIRType::Double);
+        setMovable();
+    }
+
+  public:
+    INSTRUCTION_HEADER(WasmBuiltinModD)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, lhs), (1, rhs), (2, instance))
+    MDefinition* foldsTo(TempAllocator& alloc) override;
+    bool possiblyCalls() const override { return true; }
+    AliasSet getAliasSet() const override { return AliasSet::None(); }
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+    ALLOW_CLONE(MWasmBuiltinModD)
+};
+
+class MWasmBuiltinTruncateToInt32
+  : public MAryInstruction<2>,
+    public NoTypePolicy::Data
+{
+    MWasmBuiltinTruncateToInt32(MDefinition* input, MDefinition* instance)
+    {
+        initOperand(0, input);
+        initOperand(1, instance);
+        MOZ_ASSERT(input->type() == MIRType::Int32 || IsFloatingPointType(input->type()));
+        setResultType(MIRType::Int32);
+        setMovable();
+    }
+
+  public:
+    INSTRUCTION_HEADER(WasmBuiltinTruncateToInt32)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, input), (1, instance))
+    MDefinition* foldsTo(TempAllocator& alloc) override;
+    bool possiblyCalls() const override { return true; }
+    AliasSet getAliasSet() const override { return AliasSet::None(); }
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+#ifdef DEBUG
+    bool isConsistentFloat32Use(MUse* use) const override { return true; }
+#endif
+    ALLOW_CLONE(MWasmBuiltinTruncateToInt32)
+};
+
 class MWasmTruncateToInt64
   : public MUnaryInstruction,
     public NoTypePolicy::Data

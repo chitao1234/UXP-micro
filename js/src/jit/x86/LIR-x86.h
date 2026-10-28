@@ -108,7 +108,7 @@ class LWasmUint32ToFloat32: public LInstructionHelper<1, 1, 1>
     }
 };
 
-class LDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2, 0>
+class LDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2 + 1, 0>
 {
   public:
     LIR_HEADER(DivOrModI64)
@@ -116,27 +116,46 @@ class LDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2,
     static const size_t Lhs = 0;
     static const size_t Rhs = INT64_PIECES;
 
-    LDivOrModI64(const LInt64Allocation& lhs, const LInt64Allocation& rhs)
+    LDivOrModI64(const LInt64Allocation& lhs, const LInt64Allocation& rhs,
+                 const LAllocation& instance = LAllocation())
     {
         setInt64Operand(Lhs, lhs);
         setInt64Operand(Rhs, rhs);
+        setOperand(2 * INT64_PIECES, instance);
     }
 
-    MBinaryArithInstruction* mir() const {
-        MOZ_ASSERT(mir_->isDiv() || mir_->isMod());
-        return static_cast<MBinaryArithInstruction*>(mir_);
+    bool hasInstance() {
+        return !getOperand(2 * INT64_PIECES)->isBogus();
+    }
+    const LAllocation* instance() {
+        return getOperand(2 * INT64_PIECES);
+    }
+    bool isModulo() const {
+        return mir_->isMod() || mir_->isWasmBuiltinModI64();
     }
     bool canBeDivideByZero() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->canBeDivideByZero();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->canBeDivideByZero();
         if (mir_->isMod())
             return mir_->toMod()->canBeDivideByZero();
         return mir_->toDiv()->canBeDivideByZero();
     }
     bool canBeNegativeOverflow() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->canBeNegativeOverflow();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->canBeNegativeDividend();
         if (mir_->isMod())
             return mir_->toMod()->canBeNegativeDividend();
         return mir_->toDiv()->canBeNegativeOverflow();
     }
     wasm::TrapOffset trapOffset() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->trapOffset();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->trapOffset();
         MOZ_ASSERT(mir_->isDiv() || mir_->isMod());
         if (mir_->isMod())
             return mir_->toMod()->trapOffset();
@@ -144,7 +163,7 @@ class LDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2,
     }
 };
 
-class LUDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2, 0>
+class LUDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2 + 1, 0>
 {
   public:
     LIR_HEADER(UDivOrModI64)
@@ -152,27 +171,46 @@ class LUDivOrModI64 : public LCallInstructionHelper<INT64_PIECES, INT64_PIECES*2
     static const size_t Lhs = 0;
     static const size_t Rhs = INT64_PIECES;
 
-    LUDivOrModI64(const LInt64Allocation& lhs, const LInt64Allocation& rhs)
+    LUDivOrModI64(const LInt64Allocation& lhs, const LInt64Allocation& rhs,
+                 const LAllocation& instance = LAllocation())
     {
         setInt64Operand(Lhs, lhs);
         setInt64Operand(Rhs, rhs);
+        setOperand(2 * INT64_PIECES, instance);
     }
 
-    MBinaryArithInstruction* mir() const {
-        MOZ_ASSERT(mir_->isDiv() || mir_->isMod());
-        return static_cast<MBinaryArithInstruction*>(mir_);
+    bool hasInstance() {
+        return !getOperand(2 * INT64_PIECES)->isBogus();
+    }
+    const LAllocation* instance() {
+        return getOperand(2 * INT64_PIECES);
+    }
+    bool isModulo() const {
+        return mir_->isMod() || mir_->isWasmBuiltinModI64();
     }
     bool canBeDivideByZero() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->canBeDivideByZero();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->canBeDivideByZero();
         if (mir_->isMod())
             return mir_->toMod()->canBeDivideByZero();
         return mir_->toDiv()->canBeDivideByZero();
     }
     bool canBeNegativeOverflow() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->canBeNegativeOverflow();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->canBeNegativeDividend();
         if (mir_->isMod())
             return mir_->toMod()->canBeNegativeDividend();
         return mir_->toDiv()->canBeNegativeOverflow();
     }
     wasm::TrapOffset trapOffset() const {
+        if (mir_->isWasmBuiltinDivI64())
+            return mir_->toWasmBuiltinDivI64()->trapOffset();
+        if (mir_->isWasmBuiltinModI64())
+            return mir_->toWasmBuiltinModI64()->trapOffset();
         MOZ_ASSERT(mir_->isDiv() || mir_->isMod());
         if (mir_->isMod())
             return mir_->toMod()->trapOffset();

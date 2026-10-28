@@ -297,6 +297,10 @@ namespace jit {
     _(WasmCall)                                                             \
     _(WasmSelect)                                                           \
     _(WasmReinterpret)                                                      \
+    _(WasmBuiltinDivI64)                                                    \
+    _(WasmBuiltinModI64)                                                    \
+    _(WasmBuiltinModD)                                                      \
+    _(WasmBuiltinTruncateToInt32)                                           \
     _(WasmTruncateToInt64)
 
 // Forward declarations of MIR types.

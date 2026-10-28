@@ -251,9 +251,96 @@ FuncCast(F* pf, ABIFunctionType type)
     return pv;
 }
 
+SymbolicAddress
+wasm::CanonicalSymbolicAddress(SymbolicAddress imm)
+{
+    switch (imm) {
+      case SymbolicAddress::ToInt32TLS: return SymbolicAddress::ToInt32;
+      case SymbolicAddress::ModDTLS: return SymbolicAddress::ModD;
+      case SymbolicAddress::SinDTLS: return SymbolicAddress::SinD;
+      case SymbolicAddress::CosDTLS: return SymbolicAddress::CosD;
+      case SymbolicAddress::TanDTLS: return SymbolicAddress::TanD;
+      case SymbolicAddress::ASinDTLS: return SymbolicAddress::ASinD;
+      case SymbolicAddress::ACosDTLS: return SymbolicAddress::ACosD;
+      case SymbolicAddress::ATanDTLS: return SymbolicAddress::ATanD;
+      case SymbolicAddress::CeilDTLS: return SymbolicAddress::CeilD;
+      case SymbolicAddress::CeilFTLS: return SymbolicAddress::CeilF;
+      case SymbolicAddress::FloorDTLS: return SymbolicAddress::FloorD;
+      case SymbolicAddress::FloorFTLS: return SymbolicAddress::FloorF;
+      case SymbolicAddress::TruncDTLS: return SymbolicAddress::TruncD;
+      case SymbolicAddress::TruncFTLS: return SymbolicAddress::TruncF;
+      case SymbolicAddress::NearbyIntDTLS: return SymbolicAddress::NearbyIntD;
+      case SymbolicAddress::NearbyIntFTLS: return SymbolicAddress::NearbyIntF;
+      case SymbolicAddress::ExpDTLS: return SymbolicAddress::ExpD;
+      case SymbolicAddress::LogDTLS: return SymbolicAddress::LogD;
+      case SymbolicAddress::PowDTLS: return SymbolicAddress::PowD;
+      case SymbolicAddress::ATan2DTLS: return SymbolicAddress::ATan2D;
+      case SymbolicAddress::DivI64TLS: return SymbolicAddress::DivI64;
+      case SymbolicAddress::UDivI64TLS: return SymbolicAddress::UDivI64;
+      case SymbolicAddress::ModI64TLS: return SymbolicAddress::ModI64;
+      case SymbolicAddress::UModI64TLS: return SymbolicAddress::UModI64;
+      case SymbolicAddress::TruncateDoubleToInt64TLS: return SymbolicAddress::TruncateDoubleToInt64;
+      case SymbolicAddress::TruncateDoubleToUint64TLS: return SymbolicAddress::TruncateDoubleToUint64;
+      case SymbolicAddress::Uint64ToFloatingPointTLS: return SymbolicAddress::Uint64ToFloatingPoint;
+      case SymbolicAddress::Int64ToFloatingPointTLS: return SymbolicAddress::Int64ToFloatingPoint;
+      case SymbolicAddress::GrowMemoryTLS: return SymbolicAddress::GrowMemory;
+      case SymbolicAddress::CurrentMemoryTLS: return SymbolicAddress::CurrentMemory;
+      default: return imm;
+    }
+}
+
+bool
+wasm::SymbolicAddressRequiresTLS(SymbolicAddress imm)
+{
+    return CanonicalSymbolicAddress(imm) != imm;
+}
+
+SymbolicAddress
+wasm::SymbolicAddressWithTLS(SymbolicAddress imm)
+{
+#if defined(JS_CODEGEN_X86)
+    switch (imm) {
+      case SymbolicAddress::ToInt32: return SymbolicAddress::ToInt32TLS;
+      case SymbolicAddress::ModD: return SymbolicAddress::ModDTLS;
+      case SymbolicAddress::SinD: return SymbolicAddress::SinDTLS;
+      case SymbolicAddress::CosD: return SymbolicAddress::CosDTLS;
+      case SymbolicAddress::TanD: return SymbolicAddress::TanDTLS;
+      case SymbolicAddress::ASinD: return SymbolicAddress::ASinDTLS;
+      case SymbolicAddress::ACosD: return SymbolicAddress::ACosDTLS;
+      case SymbolicAddress::ATanD: return SymbolicAddress::ATanDTLS;
+      case SymbolicAddress::CeilD: return SymbolicAddress::CeilDTLS;
+      case SymbolicAddress::CeilF: return SymbolicAddress::CeilFTLS;
+      case SymbolicAddress::FloorD: return SymbolicAddress::FloorDTLS;
+      case SymbolicAddress::FloorF: return SymbolicAddress::FloorFTLS;
+      case SymbolicAddress::TruncD: return SymbolicAddress::TruncDTLS;
+      case SymbolicAddress::TruncF: return SymbolicAddress::TruncFTLS;
+      case SymbolicAddress::NearbyIntD: return SymbolicAddress::NearbyIntDTLS;
+      case SymbolicAddress::NearbyIntF: return SymbolicAddress::NearbyIntFTLS;
+      case SymbolicAddress::ExpD: return SymbolicAddress::ExpDTLS;
+      case SymbolicAddress::LogD: return SymbolicAddress::LogDTLS;
+      case SymbolicAddress::PowD: return SymbolicAddress::PowDTLS;
+      case SymbolicAddress::ATan2D: return SymbolicAddress::ATan2DTLS;
+      case SymbolicAddress::DivI64: return SymbolicAddress::DivI64TLS;
+      case SymbolicAddress::UDivI64: return SymbolicAddress::UDivI64TLS;
+      case SymbolicAddress::ModI64: return SymbolicAddress::ModI64TLS;
+      case SymbolicAddress::UModI64: return SymbolicAddress::UModI64TLS;
+      case SymbolicAddress::TruncateDoubleToInt64: return SymbolicAddress::TruncateDoubleToInt64TLS;
+      case SymbolicAddress::TruncateDoubleToUint64: return SymbolicAddress::TruncateDoubleToUint64TLS;
+      case SymbolicAddress::Uint64ToFloatingPoint: return SymbolicAddress::Uint64ToFloatingPointTLS;
+      case SymbolicAddress::Int64ToFloatingPoint: return SymbolicAddress::Int64ToFloatingPointTLS;
+      case SymbolicAddress::GrowMemory: return SymbolicAddress::GrowMemoryTLS;
+      case SymbolicAddress::CurrentMemory: return SymbolicAddress::CurrentMemoryTLS;
+      default: return imm;
+    }
+#else
+    return imm;
+#endif
+}
+
 void*
 wasm::AddressOf(SymbolicAddress imm)
 {
+    imm = CanonicalSymbolicAddress(imm);
     switch (imm) {
       case SymbolicAddress::LookupFrameTLS:
         return FuncCast(LookupFrameTLS, Args_General1);
@@ -369,6 +456,7 @@ wasm::AddressOf(SymbolicAddress imm)
 ABIFunctionType
 wasm::SymbolicAddressSignature(SymbolicAddress imm)
 {
+    imm = CanonicalSymbolicAddress(imm);
     switch (imm) {
       case SymbolicAddress::ToInt32:
         return Args_Int_Double;
@@ -668,9 +756,9 @@ Assumptions::operator==(const Assumptions& rhs) const
 // The metadata alias fix must invalidate code produced while a bounded memory
 // was assumed immovable, even when the embedding build ID has not changed.
 #ifdef JS_CODEGEN_X86
-static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-frames-v4";
+static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-helper-abi-v5";
 #else
-static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-callsite-v4";
+static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-callsite-v5";
 #endif
 
 size_t

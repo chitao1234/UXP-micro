@@ -3299,16 +3299,22 @@ class LMathF: public LBinaryMath<0>
     }
 };
 
-class LModD : public LBinaryMath<1>
+class LModD : public LInstructionHelper<1, 3, 1>
 {
   public:
     LIR_HEADER(ModD)
 
-    LModD(const LAllocation& lhs, const LAllocation& rhs, const LDefinition& temp) {
+    LModD(const LAllocation& lhs, const LAllocation& rhs, const LDefinition& temp,
+          const LAllocation& instance = LAllocation()) {
         setOperand(0, lhs);
         setOperand(1, rhs);
+        setOperand(2, instance);
         setTemp(0, temp);
     }
+    const LAllocation* lhs() { return getOperand(0); }
+    const LAllocation* rhs() { return getOperand(1); }
+    bool hasInstance() { return !getOperand(2)->isBogus(); }
+    const LAllocation* instance() { return getOperand(2); }
     const LDefinition* temp() {
         return getTemp(0);
     }
@@ -3698,16 +3704,21 @@ class LFloat32ToInt32 : public LInstructionHelper<1, 1, 0>
 // Convert a double to a truncated int32.
 //   Input: floating-point register
 //   Output: 32-bit integer
-class LTruncateDToInt32 : public LInstructionHelper<1, 1, 1>
+class LTruncateDToInt32 : public LInstructionHelper<1, 2, 1>
 {
   public:
     LIR_HEADER(TruncateDToInt32)
 
-    LTruncateDToInt32(const LAllocation& in, const LDefinition& temp) {
+    LTruncateDToInt32(const LAllocation& in, const LDefinition& temp,
+                        const LAllocation& instance = LAllocation()) {
         setOperand(0, in);
+        setOperand(1, instance);
         setTemp(0, temp);
     }
 
+    const LAllocation* input() { return getOperand(0); }
+    bool hasInstance() { return !getOperand(1)->isBogus(); }
+    const LAllocation* instance() { return getOperand(1); }
     const LDefinition* tempFloat() {
         return getTemp(0);
     }
@@ -3720,16 +3731,21 @@ class LTruncateDToInt32 : public LInstructionHelper<1, 1, 1>
 // Convert a float32 to a truncated int32.
 //   Input: floating-point register
 //   Output: 32-bit integer
-class LTruncateFToInt32 : public LInstructionHelper<1, 1, 1>
+class LTruncateFToInt32 : public LInstructionHelper<1, 2, 1>
 {
   public:
     LIR_HEADER(TruncateFToInt32)
 
-    LTruncateFToInt32(const LAllocation& in, const LDefinition& temp) {
+    LTruncateFToInt32(const LAllocation& in, const LDefinition& temp,
+                        const LAllocation& instance = LAllocation()) {
         setOperand(0, in);
+        setOperand(1, instance);
         setTemp(0, temp);
     }
 
+    const LAllocation* input() { return getOperand(0); }
+    bool hasInstance() { return !getOperand(1)->isBogus(); }
+    const LAllocation* instance() { return getOperand(1); }
     const LDefinition* tempFloat() {
         return getTemp(0);
     }
