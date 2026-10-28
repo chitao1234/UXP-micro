@@ -948,8 +948,11 @@ CodeGeneratorX86::visitDivOrModI64(LDivOrModI64* lir)
 
     MOZ_ASSERT(output == ReturnReg64);
 
-    // We are free to clobber all registers, since this is a call instruction.
+    // The Wasm physical frame chain survives native calls. This manual scratch
+    // set must honor the same reserved EBP as the register allocator.
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
+    if (gen->compilingWasm())
+        regs.take(FramePointer);
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
@@ -1005,8 +1008,11 @@ CodeGeneratorX86::visitUDivOrModI64(LUDivOrModI64* lir)
 
     MOZ_ASSERT(output == ReturnReg64);
 
-    // We are free to clobber all registers, since this is a call instruction.
+    // Keep the physical Wasm frame chain intact even in this manual scratch
+    // set, which is independent of the main register allocator.
     AllocatableGeneralRegisterSet regs(GeneralRegisterSet::All());
+    if (gen->compilingWasm())
+        regs.take(FramePointer);
     regs.take(lhs.low);
     regs.take(lhs.high);
     if (lhs != rhs) {
