@@ -71,7 +71,9 @@ __aeabi_uidivmod(int, int);
 static WasmActivation*
 WasmHandleThrow()
 {
-    return JSRuntime::innermostWasmActivation();
+    WasmActivation* activation = JSRuntime::innermostWasmActivation();
+    activation->clearInterruptState();
+    return activation;
 }
 
 static void*
@@ -80,7 +82,7 @@ WasmHandleExecutionInterrupt()
     WasmActivation* activation = JSRuntime::innermostWasmActivation();
     bool success = CheckForInterrupt(activation->cx());
     void* resumePC = activation->resumePC();
-    activation->setResumePC(nullptr);
+    activation->clearInterruptState();
     return success ? resumePC : nullptr;
 }
 
@@ -361,6 +363,68 @@ wasm::AddressOf(SymbolicAddress imm)
     MOZ_CRASH("Bad SymbolicAddress");
 }
 
+ABIFunctionType
+wasm::SymbolicAddressSignature(SymbolicAddress imm)
+{
+    switch (imm) {
+      case SymbolicAddress::ToInt32:
+        return Args_Int_Double;
+      case SymbolicAddress::DivI64:
+      case SymbolicAddress::UDivI64:
+      case SymbolicAddress::ModI64:
+      case SymbolicAddress::UModI64:
+        return Args_General4;
+      case SymbolicAddress::TruncateDoubleToUint64:
+      case SymbolicAddress::TruncateDoubleToInt64:
+        return Args_Int64_Double;
+      case SymbolicAddress::Uint64ToFloatingPoint:
+      case SymbolicAddress::Int64ToFloatingPoint:
+        return Args_Double_IntInt;
+      case SymbolicAddress::ModD:
+      case SymbolicAddress::PowD:
+      case SymbolicAddress::ATan2D:
+        return Args_Double_DoubleDouble;
+      case SymbolicAddress::SinD:
+      case SymbolicAddress::CosD:
+      case SymbolicAddress::TanD:
+      case SymbolicAddress::ASinD:
+      case SymbolicAddress::ACosD:
+      case SymbolicAddress::ATanD:
+      case SymbolicAddress::CeilD:
+      case SymbolicAddress::FloorD:
+      case SymbolicAddress::TruncD:
+      case SymbolicAddress::NearbyIntD:
+      case SymbolicAddress::ExpD:
+      case SymbolicAddress::LogD:
+        return Args_Double_Double;
+      case SymbolicAddress::CeilF:
+      case SymbolicAddress::FloorF:
+      case SymbolicAddress::TruncF:
+      case SymbolicAddress::NearbyIntF:
+        return Args_Float32_Float32;
+      case SymbolicAddress::GrowMemory:
+        return Args_General2;
+      case SymbolicAddress::CurrentMemory:
+        return Args_General1;
+#if defined(JS_CODEGEN_ARM)
+      case SymbolicAddress::aeabi_idivmod:
+      case SymbolicAddress::aeabi_uidivmod:
+        return Args_General2;
+      case SymbolicAddress::AtomicCmpXchg:
+        return Args_General5;
+      case SymbolicAddress::AtomicXchg:
+      case SymbolicAddress::AtomicFetchAdd:
+      case SymbolicAddress::AtomicFetchSub:
+      case SymbolicAddress::AtomicFetchAnd:
+      case SymbolicAddress::AtomicFetchOr:
+      case SymbolicAddress::AtomicFetchXor:
+        return Args_General4;
+#endif
+      default:
+        MOZ_CRASH("Symbolic address does not use a builtin wrapper");
+    }
+}
+
 static uint32_t
 GetCPUID()
 {
@@ -599,7 +663,11 @@ Assumptions::operator==(const Assumptions& rhs) const
 // application build id. Old engines see a different build id and reject it.
 // The metadata alias fix must invalidate code produced while a bounded memory
 // was assumed immovable, even when the embedding build ID has not changed.
+#ifdef JS_CODEGEN_X86
+static const char WasmCodeABI[] = "microgecko-wasm-shared-physical-fp-native-exits-v3";
+#else
 static const char WasmCodeABI[] = "microgecko-wasm-shared-tls-moving-v2";
+#endif
 
 size_t
 Assumptions::serializedSize() const

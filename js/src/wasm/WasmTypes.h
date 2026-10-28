@@ -835,6 +835,9 @@ enum class SymbolicAddress
 void*
 AddressOf(SymbolicAddress imm);
 
+// Native signature used to preserve stack arguments in the x86 exit wrappers.
+jit::ABIFunctionType SymbolicAddressSignature(SymbolicAddress imm);
+
 // Assumptions captures ambient state that must be the same when compiling and
 // deserializing a module for the compiled code to be valid. If it's not, then
 // the module must be recompiled from scratch.

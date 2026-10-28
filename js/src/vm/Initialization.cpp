@@ -30,6 +30,7 @@
 #include "vm/Time.h"
 #include "vm/TraceLogging.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmBuiltinThunks.h"
 
 using JS::detail::InitState;
 using JS::detail::libraryInitState;
@@ -203,8 +204,10 @@ JS_ShutDown(void)
 
     u_cleanup();
 
-    if (!JSRuntime::hasLiveRuntimes())
+    if (!JSRuntime::hasLiveRuntimes()) {
+        js::wasm::ReleaseBuiltinThunks();
         js::jit::ReleaseProcessExecutableMemory();
+    }
 
     libraryInitState = InitState::ShutDown;
 }

@@ -33,6 +33,7 @@
 # include "vtune/VTuneWrapper.h"
 #endif
 #include "wasm/WasmBinaryToText.h"
+#include "wasm/WasmBuiltinThunks.h"
 #include "wasm/WasmModule.h"
 #include "wasm/WasmSerialize.h"
 
@@ -91,7 +92,7 @@ StaticallyLink(CodeSegment& cs, const LinkData& linkData)
         const Uint32Vector& offsets = linkData.symbolicLinks[imm];
         for (size_t i = 0; i < offsets.length(); i++) {
             uint8_t* patchAt = cs.base() + offsets[i];
-            void* target = AddressOf(imm);
+            void* target = SymbolicAddressTarget(imm);
             Assembler::PatchDataWithValueCheck(CodeLocationLabel(patchAt),
                                                PatchedImmPtr(target),
                                                PatchedImmPtr((void*)-1));
@@ -171,6 +172,9 @@ CodeSegment::create(const Bytes& bytecode, const LinkData& linkData)
     MOZ_ASSERT(bytecode.length() % gc::SystemPageSize() == 0);
     MOZ_ASSERT(linkData.functionCodeLength < bytecode.length());
 
+    if (!EnsureBuiltinThunksInitialized())
+        return nullptr;
+
     auto cs = MakeUnique<CodeSegment>();
     if (!cs)
         return nullptr;
@@ -218,7 +222,7 @@ CodeSegment::copyUnlinked(uint8_t* destination, const LinkData& linkData) const
         for (uint32_t offset : linkData.symbolicLinks[imm]) {
             Assembler::PatchDataWithValueCheck(CodeLocationLabel(destination + offset),
                                                PatchedImmPtr((void*)-1),
-                                               PatchedImmPtr(AddressOf(imm)));
+                                               PatchedImmPtr(SymbolicAddressTarget(imm)));
         }
     }
 }
