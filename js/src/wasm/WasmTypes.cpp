@@ -756,7 +756,7 @@ Assumptions::operator==(const Assumptions& rhs) const
 // The metadata alias fix must invalidate code produced while a bounded memory
 // was assumed immovable, even when the embedding build ID has not changed.
 #ifdef JS_CODEGEN_X86
-static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-helper-abi-v5";
+static const char WasmCodeABI[] = "microgecko-wasm-shared-central-trap-abi-v6";
 #else
 static const char WasmCodeABI[] = "microgecko-wasm-shared-instance-callsite-v5";
 #endif

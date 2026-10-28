@@ -2842,16 +2842,9 @@ MacroAssembler::wasmEmitTrapOutOfLineCode()
             if (size_t dec = StackDecrementForCall(ABIStackAlignment, alreadyPushed, toPush))
                 reserveStack(dec);
 
-            // A normal frame has no per-function TLS save on x86. Recover
-            // its owner from the physical chain and instance-switch metadata.
-#if defined(JS_CODEGEN_X86)
-            setupUnalignedABICall(ABINonArgReg0);
-            passABIArg(FramePointer);
-            callWithABINoProfiler(wasm::SymbolicAddress::LookupFrameTLS, MoveOp::GENERAL);
-            movePtr(ReturnReg, WasmTlsReg);
-            storePtr(WasmTlsReg, Address(getStackPointer(), 0));
-            storePtr(WasmTlsReg, Address(getStackPointer(), sizeof(void*)));
-#else
+            // The shared x86 trap exit recovers TLS once, rather than copying
+            // the native recovery sequence into every bounds/overflow site.
+#if !defined(JS_CODEGEN_X86)
             loadPtr(Address(getStackPointer(), framePushed() + offsetof(wasm::Frame, tls)),
                     WasmTlsReg);
 #endif

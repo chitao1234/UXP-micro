@@ -256,6 +256,22 @@ GenerateCallablePrologue(MacroAssembler& masm, unsigned framePushed, ExitReason 
     MOZ_ASSERT_IF(!masm.oom(), PushedFP == masm.currentOffset() - *entry);
     masm.moveStackPtrTo(FramePointer);
     MOZ_ASSERT_IF(!masm.oom(), StoredFP == masm.currentOffset() - *entry);
+    if (reason == ExitReason::Trap) {
+        // Ordinary function bodies may repurpose ESI. A bad-signature far
+        // jump can also arrive before its callee has made a frame. In both
+        // cases our saved caller FP identifies the frame owning the trap.
+        // Recover once per shared trap exit, before publishing an exit or
+        // entering any code that can allocate, report an error or run JS.
+        uint32_t callBytes = StackDecrementForCall(ABIStackAlignment,
+                                                  sizeof(Frame), sizeof(void*));
+        masm.reserveStack(callBytes);
+        Register scratch = ABINonArgReg0;
+        masm.loadPtr(Address(FramePointer, offsetof(Frame, callerFP)), scratch);
+        masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
+        masm.call(SymbolicAddress::LookupFrameTLS);
+        masm.freeStack(callBytes);
+        masm.movePtr(ReturnReg, WasmTlsReg);
+    }
     if (reason != ExitReason::None) {
         // Exit stubs can be entered by a trap as well as an instance switch.
         // Record their stable owner before publishing the physical exit frame.
