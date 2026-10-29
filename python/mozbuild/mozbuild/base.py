@@ -748,7 +748,7 @@ class MachCommandConditions(object):
     def is_firefox(cls):
         """Must have a Firefox build."""
         if hasattr(cls, 'substs'):
-            return cls.substs.get('MOZ_PHOENIX') == 1
+            return cls.substs.get('MOZ_PHOENIX') in (1, '1')
         return False
 
     @staticmethod
