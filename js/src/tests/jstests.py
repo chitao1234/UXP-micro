@@ -308,7 +308,7 @@ def load_tests(options, requested_paths, excluded_paths):
         paths = set()
         for test_file in options.test_file:
             paths |= set(
-                [line.strip() for line in open(test_file).readlines()])
+                [os.path.normpath(line.strip()) for line in open(test_file).readlines()])
         test_gen = (_ for _ in test_gen if _.path in paths)
 
     if options.no_extensions:

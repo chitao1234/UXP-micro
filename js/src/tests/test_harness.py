@@ -4,6 +4,10 @@
 
 import os
 import unittest
+from types import SimpleNamespace
+from unittest import mock
+
+import jstests
 
 from lib.manifest import NullXULInfoTester, _parse_one
 from lib.results import TestOutput, TestResult
@@ -64,6 +68,22 @@ class NegativeTestResults(unittest.TestCase):
             test.terms = directive
             with self.assertRaises(ValueError):
                 _parse_one(test, NullXULInfoTester())
+
+
+class TestFileSelection(unittest.TestCase):
+    def test_forward_slashes_are_normalized_in_exact_file_filter(self):
+        wanted = RefTestCase(os.path.normpath('negative/fixture.js'))
+        other = RefTestCase(os.path.normpath('negative/other.js'))
+        options = SimpleNamespace(
+            js_shell=None, test_reflect_stringify=None, make_manifests=None,
+            tbpl=False, tbpl_debug=False, jitflags='none', test_file=['tests.list'],
+            no_extensions=False, random=True, run_only_skipped=False,
+            run_slow_tests=True, repeat=1)
+        with mock.patch('lib.manifest.count_tests', return_value=2), \
+             mock.patch('lib.manifest.load_reftests', return_value=iter([wanted, other])), \
+             mock.patch('builtins.open', mock.mock_open(read_data='negative/fixture.js\n')):
+            _, tests = jstests.load_tests(options, {wanted.path}, set())
+            self.assertEqual(list(tests), [wanted])
 
 
 if __name__ == '__main__':
