@@ -9343,18 +9343,20 @@ Parser<ParseHandler>::assignExpr(InHandling inHandling, YieldHandling yieldHandl
         // only if |f()| returns true.
         if (kind == PNK_COALESCEASSIGN ||
             kind == PNK_ORASSIGN ||
-            kind == PNK_ADDASSIGN) {
-          errorAt(exprPos.begin, JSMSG_BAD_LEFTSIDE_OF_ASS);
+            kind == PNK_ANDASSIGN) {
+          errorAt(exprPos.begin, JSMSG_BAD_ASSIGNMENT_TARGET);
           return null();
         }
-        
-        if (!strictModeErrorAt(exprPos.begin, JSMSG_BAD_LEFTSIDE_OF_ASS))
+
+        if (!strictModeErrorAt(exprPos.begin, JSMSG_BAD_ASSIGNMENT_TARGET))
             return null();
 
         if (possibleError)
             possibleError->setPendingDestructuringErrorAt(exprPos, JSMSG_BAD_DESTRUCT_TARGET);
     } else {
-        errorAt(exprPos.begin, JSMSG_BAD_LEFTSIDE_OF_ASS);
+        // Invalid targets are early SyntaxErrors. Keep the runtime
+        // ReferenceError diagnostic for legacy assignments to calls separate.
+        errorAt(exprPos.begin, JSMSG_BAD_ASSIGNMENT_TARGET);
         return null();
     }
 
