@@ -4026,6 +4026,69 @@ IsConstructor(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+GetDefaultLocale(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() != 0) {
+        JS_ReportErrorASCII(cx, "getDefaultLocale takes no arguments");
+        return false;
+    }
+
+    JS::UniqueChars locale = JS_GetDefaultLocale(cx);
+    if (!locale)
+        return false;
+
+    JSString* str = JS_NewStringCopyZ(cx, locale.get());
+    if (!str)
+        return false;
+
+    args.rval().setString(str);
+    return true;
+}
+
+static bool
+SetDefaultLocale(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() != 1) {
+        JS_ReportErrorASCII(cx, "setDefaultLocale requires one argument");
+        return false;
+    }
+
+    if (args[0].isUndefined()) {
+        JS_ResetDefaultLocale(cx);
+    } else {
+        if (!args[0].isString()) {
+            JS_ReportErrorASCII(cx, "setDefaultLocale expects a string or undefined");
+            return false;
+        }
+
+        RootedString str(cx, args[0].toString());
+        JS::UniqueChars locale(JS_EncodeStringToUTF8(cx, str));
+        if (!locale || !JS_SetDefaultLocale(cx, locale.get()))
+            return false;
+    }
+
+    args.rval().setUndefined();
+    return true;
+}
+
+static bool
+IsSameCompartment(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length() != 2 || !args[0].isObject() || !args[1].isObject()) {
+        JS_ReportErrorASCII(cx, "isSameCompartment expects two objects");
+        return false;
+    }
+
+    RootedObject obj1(cx, UncheckedUnwrap(&args[0].toObject()));
+    RootedObject obj2(cx, UncheckedUnwrap(&args[1].toObject()));
+    args.rval().setBoolean(obj1->compartment() == obj2->compartment());
+    return true;
+}
+
+static bool
 GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4598,6 +4661,18 @@ JS_FN_HELP("streamsAreEnabled", StreamsAreEnabled, 0, 0,
     JS_FN_HELP("isConstructor", IsConstructor, 1, 0,
 "isConstructor(value)",
 "  Returns whether the value is considered IsConstructor.\n"),
+
+    JS_FN_HELP("getDefaultLocale", GetDefaultLocale, 0, 0,
+"getDefaultLocale()",
+"  Return the JavaScript runtime's current default locale for testing.\n"),
+
+    JS_FN_HELP("setDefaultLocale", SetDefaultLocale, 1, 0,
+"setDefaultLocale(locale)",
+"  Set the JavaScript runtime's default locale for testing; undefined resets it.\n"),
+
+    JS_FN_HELP("isSameCompartment", IsSameCompartment, 2, 0,
+"isSameCompartment(obj1, obj2)",
+"  Return whether two objects, after unwrapping, belong to the same compartment.\n"),
 
     JS_FS_HELP_END
 };
