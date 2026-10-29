@@ -5,6 +5,7 @@
 <script src="abort_features.js"></script>
 <script>
 SimpleTest.waitForExplicitFinish();
+SimpleTest.requestFlakyTimeout("Deadline and teardown cancellation checks must observe time passing without an abort event; per-operation timers also bound hangs.");
 (async function() {
   await new Promise(resolve => SpecialPowers.pushPrefEnv({set: [["dom.abortController.enabled", true], ["dom.fetchObserver.enabled", true]]}, resolve));
   const base = new URL("slow.sjs", location.href).href;

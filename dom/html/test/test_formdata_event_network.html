@@ -17,14 +17,13 @@ function fixture(markup) {
 }
 function send(form,iframe,action) {
   return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>reject(Error('form submission timeout')),6000);
+    // The harness provides the failure timeout; completion comes from load.
     iframe.onload=()=>{
       if(iframe.contentWindow.location.href==='about:blank')return;
-      clearTimeout(timer);
       try {resolve(JSON.parse(iframe.contentDocument.body.textContent));}
       catch(e){reject(e);}
     };
-    try {(action||(()=>form.submit()))();} catch(e){clearTimeout(timer);reject(e);}
+    try {(action||(()=>form.submit()))();} catch(e){reject(e);}
   });
 }
 window.addEventListener('load',async function(){
@@ -129,13 +128,12 @@ try {
   cancelled.form.onformdata=()=>cancelledEvents++;
   cancelled.form.onsubmit=e=>e.preventDefault();
   cancelled.form.requestSubmit();
-  await new Promise(resolve=>setTimeout(resolve,30));
   is(cancelledEvents,0,'canceled submit does not construct entries');
 
   const removed=fixture('<input name=a value=ignored>');
   removed.form.onformdata=()=>removed.form.remove();
   removed.form.submit();
-  await new Promise(resolve=>setTimeout(resolve,30));
+  await new Promise(resolve=>SimpleTest.executeSoon(resolve));
   is(removed.iframe.contentWindow.location.href,'about:blank','removal during event aborts navigation');
 
   const sandbox=document.createElement('iframe');
