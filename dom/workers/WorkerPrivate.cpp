@@ -6473,6 +6473,8 @@ WorkerPrivate::UpdateContextOptionsInternal(
   AssertIsOnWorkerThread();
 
   JS::ContextOptionsRef(aCx) = aContextOptions;
+  JS_SetNurseryStringsEnabled(aCx, aContextOptions.nurseryStrings(),
+                             aContextOptions.nurseryStringDedup());
 
   for (uint32_t index = 0; index < mChildWorkers.Length(); index++) {
     mChildWorkers[index]->UpdateContextOptions(aContextOptions);

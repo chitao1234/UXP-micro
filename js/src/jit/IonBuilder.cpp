@@ -8943,7 +8943,7 @@ jit::NeedsPostBarrier(MDefinition* value)
 {
     if (!GetJitContext()->runtime->gcNursery().exists())
         return false;
-    return value->mightBeType(MIRType::Object);
+    return value->mightBeType(MIRType::Object) || value->mightBeType(MIRType::String);
 }
 
 bool
@@ -14880,8 +14880,8 @@ IonBuilder::storeReferenceTypedObjectValue(MDefinition* typedObj,
         store = MStoreUnboxedObjectOrNull::New(alloc(), elements, scaledOffset, value, typedObj, adjustment);
         break;
       case ReferenceTypeDescr::TYPE_STRING:
-        // Strings are not nursery allocated, so these writes do not need post
-        // barriers.
+        if (NeedsPostBarrier(value))
+            current->add(MPostWriteBarrier::New(alloc(), typedObj, value));
         store = MStoreUnboxedString::New(alloc(), elements, scaledOffset, value, adjustment);
         break;
     }

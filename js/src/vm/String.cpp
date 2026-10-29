@@ -29,6 +29,19 @@ using mozilla::RoundUpPow2;
 
 using JS::AutoCheckCannotGC;
 
+void
+JSString::writeBarrierPost(void* cellp, JSString* prev, JSString* next)
+{
+    js::gc::StoreBuffer* buffer;
+    if (next && (buffer = next->storeBuffer())) {
+        if (prev && prev->storeBuffer())
+            return;
+        buffer->putCell(static_cast<js::gc::Cell**>(cellp));
+    } else if (prev && (buffer = prev->storeBuffer())) {
+        buffer->unputCell(static_cast<js::gc::Cell**>(cellp));
+    }
+}
+
 size_t
 JSString::sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf)
 {
@@ -79,9 +92,7 @@ JS::ubi::Concrete<JSString>::size(mozilla::MallocSizeOf mallocSizeOf) const
     else
         size = str.isFatInline() ? sizeof(JSFatInlineString) : sizeof(JSString);
 
-    // We can't use mallocSizeof on things in the nursery. At the moment,
-    // strings are never in the nursery, but that may change.
-    MOZ_ASSERT(!IsInsideNursery(&str));
+    // String characters are malloc-backed even when the cell is in the nursery.
     size += str.sizeOfExcludingThis(mallocSizeOf);
 
     return size;
@@ -459,6 +470,18 @@ JSRope::flattenInternal(ExclusiveContext* maybecx)
         JSExtensibleString& left = leftMostRope->leftChild()->asExtensible();
         size_t capacity = left.capacity();
         if (capacity >= wholeLength && left.hasTwoByteChars() == IsSame<CharT, char16_t>::value) {
+            // Transfer the donor's buffer ownership before mutating the DAG.
+            // In particular, a tenured rope may steal a nursery leaf's chars.
+            if (!isTenured() && left.isTenured() &&
+                !runtimeFromMainThread()->gc.nursery.registerMallocedBuffer(
+                    left.mallocedChars()))
+            {
+                if (maybecx)
+                    ReportOutOfMemory(maybecx);
+                return nullptr;
+            }
+            if (isTenured() && !left.isTenured())
+                runtimeFromMainThread()->gc.nursery.removeMallocedBuffer(left.mallocedChars());
             /*
              * Simulate a left-most traversal from the root to leftMost->leftChild()
              * via first_visit_node
@@ -493,6 +516,14 @@ JSRope::flattenInternal(ExclusiveContext* maybecx)
     }
 
     if (!AllocChars(this, wholeLength, &wholeChars, &wholeCapacity)) {
+        if (maybecx)
+            ReportOutOfMemory(maybecx);
+        return nullptr;
+    }
+    if (!isTenured() &&
+        !runtimeFromMainThread()->gc.nursery.registerMallocedBuffer(wholeChars))
+    {
+        js_free(wholeChars);
         if (maybecx)
             ReportOutOfMemory(maybecx);
         return nullptr;
@@ -575,7 +606,9 @@ JSRope::flatten(ExclusiveContext* maybecx)
     if (maybecx && maybecx->isJSContext())
         sps.emplace(maybecx->asJSContext()->runtime(), "JSRope::flatten");
 
-    if (zone()->needsIncrementalBarrier())
+    JS::Zone* stringZone = zone();
+    MOZ_ASSERT(stringZone);
+    if (stringZone->needsIncrementalBarrier())
         return flattenInternal<WithIncrementalBarrier>(maybecx);
     return flattenInternal<NoBarrier>(maybecx);
 }
@@ -673,6 +706,11 @@ JSDependentString::undependInternal(JSContext* cx)
     CharT* s = cx->pod_malloc<CharT>(n + 1);
     if (!s)
         return nullptr;
+    if (!isTenured() && !cx->nursery().registerMallocedBuffer(s)) {
+        js_free(s);
+        ReportOutOfMemory(cx);
+        return nullptr;
+    }
 
     AutoCheckCannotGC nogc;
     PodCopy(s, nonInlineChars<CharT>(nogc), n);
@@ -940,6 +978,7 @@ AutoStableStringChars::init(JSContext* cx, JSString* s)
     }
 
     s_ = linearString;
+    linearString->setNonDeduplicatable();
     return true;
 }
 
@@ -966,6 +1005,7 @@ AutoStableStringChars::initTwoByte(JSContext* cx, JSString* s)
     state_ = TwoByte;
     twoByteChars_ = linearString->rawTwoByteChars();
     s_ = linearString;
+    linearString->setNonDeduplicatable();
     return true;
 }
 

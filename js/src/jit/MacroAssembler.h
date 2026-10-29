@@ -1025,8 +1025,8 @@ class MacroAssembler : public MacroAssemblerSpecific
         DEFINED_ON(arm, arm64, mips_shared, x86, x64, loongarch64);
     void branchPtrInNurseryChunk(Condition cond, const Address& address, Register temp, Label* label)
         DEFINED_ON(x86);
-    void branchValueIsNurseryObject(Condition cond, const Address& address, Register temp, Label* label) PER_ARCH;
-    void branchValueIsNurseryObject(Condition cond, ValueOperand value, Register temp, Label* label) PER_ARCH;
+    void branchValueIsNurseryCell(Condition cond, const Address& address, Register temp, Label* label) PER_ARCH;
+    void branchValueIsNurseryCell(Condition cond, ValueOperand value, Register temp, Label* label) PER_ARCH;
 
     // This function compares a Value (lhs) which is having a private pointer
     // boxed inside a js::Value, with a raw pointer (rhs).
@@ -1179,6 +1179,7 @@ class MacroAssembler : public MacroAssemblerSpecific
         DEFINED_ON(arm, arm64, mips32, mips64, loongarch64, x86_shared);
 
     inline void branchTestString(Condition cond, const BaseIndex& address, Label* label) PER_SHARED_ARCH;
+    inline void branchTestString(Condition cond, const Address& address, Label* label) PER_SHARED_ARCH;
     inline void branchTestString(Condition cond, const ValueOperand& value, Label* label)
         DEFINED_ON(arm, arm64, mips32, mips64, loongarch64, x86_shared);
 
@@ -1246,7 +1247,7 @@ class MacroAssembler : public MacroAssemblerSpecific
     void branchPtrInNurseryChunkImpl(Condition cond, Register ptr, Label* label)
         DEFINED_ON(x86);
     template <typename T>
-    void branchValueIsNurseryObjectImpl(Condition cond, const T& value, Register temp, Label* label)
+    void branchValueIsNurseryCellImpl(Condition cond, const T& value, Register temp, Label* label)
         DEFINED_ON(arm64, mips64, x64);
 
     template <typename T>

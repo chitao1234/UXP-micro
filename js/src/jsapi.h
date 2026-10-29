@@ -1000,7 +1000,9 @@ class JS_PUBLIC_API(ContextOptions) {
         extraWarnings_(false),
         arrayProtoValues_(true),
         streams_(false),
-        weakRefs_(false)
+        weakRefs_(false),
+        nurseryStrings_(false),
+        nurseryStringDedup_(false)
     {
     }
 
@@ -1140,6 +1142,10 @@ class JS_PUBLIC_API(ContextOptions) {
         return *this;
     }
 
+    bool nurseryStrings() const { return nurseryStrings_; }
+    bool nurseryStringDedup() const { return nurseryStringDedup_; }
+    ContextOptions& setNurseryStrings(bool flag) { nurseryStrings_ = flag; return *this; }
+    ContextOptions& setNurseryStringDedup(bool flag) { nurseryStringDedup_ = flag; return *this; }
     bool weakRefs() const { return weakRefs_; }
     ContextOptions& setWeakRefs(bool flag) {
         weakRefs_ = flag;
@@ -1168,6 +1174,8 @@ class JS_PUBLIC_API(ContextOptions) {
     bool arrayProtoValues_ : 1;
     bool streams_ : 1;
     bool weakRefs_ : 1;
+    bool nurseryStrings_ : 1;
+    bool nurseryStringDedup_ : 1;
 };
 
 JS_PUBLIC_API(ContextOptions&)

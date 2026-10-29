@@ -3411,6 +3411,33 @@ GenerateSetUnboxed(JSContext* cx, MacroAssembler& masm, IonCache::StubAttacher& 
 
     masm.storeUnboxedProperty(address, unboxedType, value, failures);
 
+    if (unboxedType == JSVAL_TYPE_STRING && !value.constant()) {
+        Label noBarrier;
+        masm.branchPtrInNurseryChunk(Assembler::Equal, object, tempReg, &noBarrier);
+        if (value.reg().hasValue()) {
+            masm.branchValueIsNurseryCell(Assembler::NotEqual, value.reg().valueReg(),
+                                         tempReg, &noBarrier);
+        } else {
+            MOZ_ASSERT(value.reg().type() == MIRType::String);
+            masm.branchPtrInNurseryChunk(Assembler::NotEqual, value.reg().typedReg().gpr(),
+                                         tempReg, &noBarrier);
+        }
+        // The cache's inputs and all other live registers survive this ABI
+        // call. Only the declared cache temp may be clobbered before saving.
+        LiveRegisterSet volatileRegs(RegisterSet::Volatile());
+        masm.PushRegsInMask(volatileRegs);
+        AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
+        regs.takeUnchecked(object);
+        Register runtimeReg = regs.takeAny();
+        masm.mov(ImmPtr(cx->runtime()), runtimeReg);
+        masm.setupUnalignedABICall(regs.takeAny());
+        masm.passABIArg(runtimeReg);
+        masm.passABIArg(object);
+        masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, PostWriteBarrier));
+        masm.PopRegsInMask(volatileRegs);
+        masm.bind(&noBarrier);
+    }
+
     attacher.jumpRejoin(masm);
 
     masm.bind(failures);

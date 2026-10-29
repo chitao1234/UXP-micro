@@ -51,6 +51,15 @@ JS_SetNurseryLazyCommitEnabled(bool enabled)
     gc::SetNurseryLazyCommitEnabled(enabled);
 }
 
+JS_FRIEND_API(void)
+JS_SetNurseryStringsEnabled(JSContext* cx, bool enabled, bool deduplicate)
+{
+    auto& nursery = cx->gc.nursery;
+    if (nursery.stringsEnabled() && !enabled)
+        cx->gc.evictNursery();
+    nursery.setStringsEnabled(enabled, deduplicate);
+}
+
 js::ContextFriendFields::ContextFriendFields(bool isJSContext)
   : JS::RootingContext(isJSContext),
     compartment_(nullptr), zone_(nullptr)

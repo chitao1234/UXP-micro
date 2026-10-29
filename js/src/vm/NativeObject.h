@@ -1044,7 +1044,7 @@ class NativeObject : public ShapedObject
     inline void elementsRangeWriteBarrierPost(uint32_t start, uint32_t count) {
         for (size_t i = 0; i < count; i++) {
             const Value& v = elements_[start + i];
-            if (v.isObject() && IsInsideNursery(&v.toObject())) {
+            if (v.isGCThing() && IsInsideNursery(static_cast<gc::Cell*>(v.toGCThing()))) {
                 JS::shadow::Runtime* shadowRuntime = shadowRuntimeFromMainThread();
                 shadowRuntime->gcStoreBufferPtr()->putSlot(this, HeapSlot::Element,
                                                            start + i, count - i);

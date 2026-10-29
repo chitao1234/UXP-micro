@@ -86,6 +86,13 @@ class RegExpStatics
 
     JSString* getPendingInput() const { return pendingInput; }
 
+    // JIT stubs write native malloc-backed state. Use the same movable-edge
+    // barriers as C++ setters, including removal when replacing a nursery edge.
+    void setInputForJit(JSLinearString* input) {
+        pendingInput = input;
+        matchesInput = input;
+    }
+
     void mark(JSTracer* trc) {
         /*
          * Changes to this function must also be reflected in

@@ -392,6 +392,11 @@ GetTenuredGCThingZone(GCCellPtr thing)
 static MOZ_ALWAYS_INLINE Zone*
 GetStringZone(JSString* str)
 {
+    if (js::gc::IsInsideNursery(reinterpret_cast<js::gc::Cell*>(str))) {
+        // NurseryCellHeader occupies one CellSize-aligned cell before the string.
+        uintptr_t header = *reinterpret_cast<uintptr_t*>(uintptr_t(str) - js::gc::CellSize);
+        return reinterpret_cast<Zone*>(header & ~(uintptr_t(js::gc::CellSize) - 1));
+    }
     return js::gc::detail::GetGCThingZone(uintptr_t(str));
 }
 

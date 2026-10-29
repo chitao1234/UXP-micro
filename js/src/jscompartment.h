@@ -52,6 +52,7 @@ class DtoaCache {
   public:
     DtoaCache() : s(nullptr) {}
     void purge() { s = nullptr; }
+    void sweepAfterMinorGC();
 
     JSFlatString* lookup(int base, double d) {
         return this->s && base == this->base && d == this->d ? this->s : nullptr;

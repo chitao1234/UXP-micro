@@ -499,28 +499,34 @@ MacroAssembler::branchPtrInNurseryChunkImpl(Condition cond, Register ptr, Label*
 }
 
 void
-MacroAssembler::branchValueIsNurseryObject(Condition cond, const Address& address, Register temp,
+MacroAssembler::branchValueIsNurseryCell(Condition cond, const Address& address, Register temp,
                                            Label* label)
 {
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
     Label done;
 
+    Label cell;
+    branchTestString(Assembler::Equal, address, &cell);
     branchTestObject(Assembler::NotEqual, address, cond == Assembler::Equal ? &done : label);
+    bind(&cell);
     branchPtrInNurseryChunk(cond, address, temp, label);
 
     bind(&done);
 }
 
 void
-MacroAssembler::branchValueIsNurseryObject(Condition cond, ValueOperand value, Register temp,
+MacroAssembler::branchValueIsNurseryCell(Condition cond, ValueOperand value, Register temp,
                                            Label* label)
 {
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
     Label done;
 
+    Label cell;
+    branchTestString(Assembler::Equal, value, &cell);
     branchTestObject(Assembler::NotEqual, value, cond == Assembler::Equal ? &done : label);
+    bind(&cell);
     branchPtrInNurseryChunk(cond, value.payloadReg(), temp, label);
 
     bind(&done);

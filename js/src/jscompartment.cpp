@@ -745,6 +745,7 @@ void
 JSCompartment::sweepAfterMinorGC(JSTracer* trc)
 {
     globalWriteBarriered = 0;
+    dtoaCache.sweepAfterMinorGC();
 
     InnerViewTable& table = innerViews.get();
     if (table.needsSweepAfterMinorGC())
@@ -957,6 +958,17 @@ JSCompartment::checkScriptMapsAfterMovingGC()
     }
 }
 #endif
+
+void
+DtoaCache::sweepAfterMinorGC()
+{
+    // The cache is weak. Follow nursery strings kept alive elsewhere, but do
+    // not promote strings just to keep a number-to-string cache hit available.
+    JSString* str = s;
+    if (str && IsAboutToBeFinalizedUnbarriered(&str))
+        str = nullptr;
+    s = static_cast<JSFlatString*>(str);
+}
 
 void
 JSCompartment::purge()

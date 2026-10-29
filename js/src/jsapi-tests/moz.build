@@ -70,6 +70,7 @@ UNIFIED_SOURCES += [
     'testNewObject.cpp',
     'testNewTargetInvokeConstructor.cpp',
     'testNullRoot.cpp',
+    'testNurseryStrings.cpp',
     'testObjectEmulatingUndefined.cpp',
     'testOOM.cpp',
     'testParseJSON.cpp',

@@ -56,6 +56,11 @@ JS_SetGCDecommitEnabled(bool enabled);
 extern JS_FRIEND_API(void)
 JS_SetNurseryLazyCommitEnabled(bool enabled);
 
+// Runtime-local policy for future string allocation. Turning it off empties
+// the nursery first so JIT string initializers cannot create unbarriered edges.
+extern JS_FRIEND_API(void)
+JS_SetNurseryStringsEnabled(JSContext* cx, bool enabled, bool deduplicate);
+
 // Process-wide default for subsequently compiled/deserialized Wasm modules.
 // Existing modules retain their ownership policy across preference changes.
 extern JS_FRIEND_API(void)

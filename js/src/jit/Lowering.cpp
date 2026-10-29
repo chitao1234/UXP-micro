@@ -2802,6 +2802,7 @@ LIRGenerator::visitPostWriteBarrier(MPostWriteBarrier* ins)
     bool useConstantObject = IsNonNurseryConstant(ins->object());
 
     switch (ins->value()->type()) {
+      case MIRType::String:
       case MIRType::Object:
       case MIRType::ObjectOrNull: {
         LDefinition tmp = needTempForPostBarrier() ? temp() : LDefinition::BogusTemp();
@@ -2848,6 +2849,7 @@ LIRGenerator::visitPostWriteElementBarrier(MPostWriteElementBarrier* ins)
         !IsInsideNursery(&ins->object()->toConstant()->toObject());
 
     switch (ins->value()->type()) {
+      case MIRType::String:
       case MIRType::Object:
       case MIRType::ObjectOrNull: {
         LDefinition tmp = needTempForPostBarrier() ? temp() : LDefinition::BogusTemp();

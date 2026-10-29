@@ -144,9 +144,36 @@ js::Allocate(ExclusiveContext* cx)
         JSContext* ncx = cx->asJSContext();
         if (!ncx->runtime()->gc.checkAllocatorState<allowGC>(ncx, kind))
             return nullptr;
+        Nursery& nursery = ncx->nursery();
+        if ((kind == AllocKind::STRING || kind == AllocKind::FAT_INLINE_STRING) &&
+            nursery.isEnabled() && nursery.stringsEnabled() && !cx->zone()->isSelfHostingZone())
+        {
+            JSString* str = ncx->runtime()->gc.tryNewNurseryString<allowGC>(ncx, thingSize);
+            if (str)
+                return reinterpret_cast<T*>(str);
+        }
     }
 
     return GCRuntime::tryNewTenuredThing<T, allowGC>(cx, kind, thingSize);
+}
+
+template <AllowGC allowGC>
+JSString*
+GCRuntime::tryNewNurseryString(JSContext* cx, size_t size)
+{
+    MOZ_ASSERT(isNurseryAllocAllowed());
+    MOZ_ASSERT(!cx->zone()->usedByExclusiveThread);
+    JSString* str = nursery.allocateString(cx->zone(), size);
+    if (str)
+        return str;
+    // Collect even on a backing failure: callers in the JIT initialize the
+    // returned string without barriers, and may otherwise retain nursery bases.
+    if (allowGC && !rt->mainThread.suppressGC) {
+        minorGC(JS::gcreason::OUT_OF_NURSERY);
+        if (nursery.isEnabled())
+            return nursery.allocateString(cx->zone(), size);
+    }
+    return nullptr;
 }
 
 #define DECL_ALLOCATOR_INSTANCES(allocKind, traceKind, type, sizedType) \

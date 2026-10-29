@@ -713,12 +713,16 @@ MacroAssembler::nurseryAllocate(Register result, Register temp, gc::AllocKind al
     // with the nursery's end will always fail in such cases.
     const Nursery& nursery = GetJitContext()->runtime->gcNursery();
     int thingSize = int(gc::Arena::thingSize(allocKind));
-    int totalSize = thingSize + nDynamicSlots * sizeof(HeapSlot);
+    int totalSize = sizeof(gc::NurseryCellHeader) + thingSize + nDynamicSlots * sizeof(HeapSlot);
     MOZ_ASSERT(totalSize % gc::CellSize == 0);
     loadPtr(AbsoluteAddress(nursery.addressOfPosition()), result);
     computeEffectiveAddress(Address(result, totalSize), temp);
     branchPtr(Assembler::Below, AbsoluteAddress(nursery.addressOfCurrentEnd()), temp, fail);
     storePtr(temp, AbsoluteAddress(nursery.addressOfPosition()));
+
+    uintptr_t header = uintptr_t(GetJitContext()->compartment->zone()) | uintptr_t(JS::TraceKind::Object);
+    storePtr(ImmWord(header), Address(result, 0));
+    addPtr(Imm32(sizeof(gc::NurseryCellHeader)), result);
 
     if (nDynamicSlots) {
         computeEffectiveAddress(Address(result, thingSize), temp);
@@ -865,7 +869,39 @@ MacroAssembler::createGCObject(Register obj, Register temp, JSObject* templateOb
 void
 MacroAssembler::allocateNonObject(Register result, Register temp, gc::AllocKind allocKind, Label* fail)
 {
+    if (allocKind == gc::AllocKind::STRING || allocKind == gc::AllocKind::FAT_INLINE_STRING) {
+        // Some shared stubs have no compilation compartment. They must take
+        // the allocating fallback, which gets the executing context's zone.
+        if (!GetJitContext()->compartment || !GetJitContext()->compartment->zone()) {
+            jump(fail);
+            return;
+        }
+    }
+
     checkAllocatorState(fail);
+
+    if (allocKind == gc::AllocKind::STRING || allocKind == gc::AllocKind::FAT_INLINE_STRING) {
+        const Nursery& nursery = GetJitContext()->runtime->gcNursery();
+        Label tenured, done;
+        movePtr(ImmPtr(&nursery.stringsEnabled_), temp);
+        load8ZeroExtend(Address(temp, 0), temp);
+        branchTest32(Assembler::Zero, temp, Imm32(0xff), &tenured);
+        loadPtr(AbsoluteAddress(nursery.addressOfPosition()), result);
+        size_t size = sizeof(gc::NurseryCellHeader) + gc::Arena::thingSize(allocKind);
+        computeEffectiveAddress(Address(result, size), temp);
+        branchPtr(Assembler::Below, AbsoluteAddress(nursery.addressOfCurrentEnd()), temp, fail);
+        storePtr(temp, AbsoluteAddress(nursery.addressOfPosition()));
+        uintptr_t header = uintptr_t(GetJitContext()->compartment->zone()) | uintptr_t(JS::TraceKind::String);
+        storePtr(ImmWord(header), Address(result, 0));
+        addPtr(Imm32(sizeof(gc::NurseryCellHeader)), result);
+        add32(Imm32(1), AbsoluteAddress(&nursery.stringAllocationsSinceGC_));
+        add32(Imm32(gc::Arena::thingSize(allocKind)), AbsoluteAddress(&nursery.stringBytesSinceGC_));
+        jump(&done);
+        bind(&tenured);
+        freeListAllocate(result, temp, allocKind, fail);
+        bind(&done);
+        return;
+    }
     freeListAllocate(result, temp, allocKind, fail);
 }
 

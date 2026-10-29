@@ -875,6 +875,8 @@ class GCRuntime
     JSObject* tryNewNurseryObject(JSContext* cx, size_t thingSize, size_t nDynamicSlots,
                                   const Class* clasp);
     template <AllowGC allowGC>
+    JSString* tryNewNurseryString(JSContext* cx, size_t thingSize);
+    template <AllowGC allowGC>
     static JSObject* tryNewTenuredObject(ExclusiveContext* cx, AllocKind kind, size_t thingSize,
                                          size_t nDynamicSlots);
     template <typename T, AllowGC allowGC>

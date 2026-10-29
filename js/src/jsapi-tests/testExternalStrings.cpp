@@ -38,6 +38,9 @@ finalize_str(JS::Zone* zone, const JSStringFinalizer* fin, char16_t* chars)
 
 BEGIN_TEST(testExternalStrings)
 {
+    // External strings must retain their individual finalizers even when
+    // ordinary nursery-string promotion deduplication is enabled.
+    JS_SetNurseryStringsEnabled(cx, true, true);
     const unsigned N = 1000;
 
     for (unsigned i = 0; i < N; ++i) {

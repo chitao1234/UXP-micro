@@ -82,11 +82,20 @@ class TenuringTracer : public JSTracer
     // things held live by intra-Nursery pointers.
     gc::RelocationOverlay* head;
     gc::RelocationOverlay** tail;
+    gc::RelocationOverlay* stringHead;
+    gc::RelocationOverlay** stringTail;
+
+    // A collection-local, direct-mapped table. Both storage and hash work are
+    // bounded; entries always point to already promoted strings in this GC.
+    static const size_t StringDedupEntries = 4096;
+    JSString** stringDedup_;
+    size_t stringDedupWork_;
 
     TenuringTracer(JSRuntime* rt, Nursery* nursery);
 
   public:
     const Nursery& nursery() const { return nursery_; }
+    ~TenuringTracer();
 
     // Returns true if the pointer was updated.
     template <typename T> void traverse(T** thingp);
@@ -96,6 +105,7 @@ class TenuringTracer : public JSTracer
 
     // The store buffers need to be able to call these directly.
     void traceObject(JSObject* src);
+    void traceString(JSString* src);
     void traceObjectSlots(NativeObject* nobj, uint32_t start, uint32_t length);
     void traceSlots(JS::Value* vp, uint32_t nslots) { traceSlots(vp, vp + nslots); }
 
@@ -103,6 +113,7 @@ class TenuringTracer : public JSTracer
     Nursery& nursery() { return nursery_; }
 
     JSObject* moveToTenured(JSObject* src);
+    JSString* moveToTenured(JSString* src);
     size_t moveObjectToTenured(JSObject* dst, JSObject* src, gc::AllocKind dstKind);
     size_t moveElementsToTenured(NativeObject* dst, NativeObject* src, gc::AllocKind dstKind);
     size_t moveSlotsToTenured(NativeObject* dst, NativeObject* src, gc::AllocKind dstKind);
@@ -172,6 +183,32 @@ class Nursery
      * pointer pre-filled. Returns nullptr if the Nursery is full.
      */
     JSObject* allocateObject(JSContext* cx, size_t size, size_t numDynamic, const js::Class* clasp);
+    gc::Cell* allocateCell(JS::Zone* zone, size_t size, JS::TraceKind kind);
+    JSString* allocateString(JS::Zone* zone, size_t size);
+
+    bool stringsEnabled() const { return stringsEnabled_; }
+    void setStringsEnabled(bool enabled, bool dedup) {
+        // This changes future allocation only. Existing cells and remembered
+        // edges are still traced, including after disabling the policy.
+        stringsEnabled_ = enabled;
+        stringDedupEnabled_ = dedup;
+    }
+    bool registerMallocedBuffer(void* buffer) { return mallocedBuffers.put(buffer); }
+    struct StringStats {
+        uint64_t allocated = 0;
+        uint64_t allocatedBytes = 0;
+        uint64_t promoted = 0;
+        uint64_t promotedBytes = 0;
+        uint64_t deduplicated = 0;
+        uint64_t deduplicatedBytes = 0;
+        uint64_t dedupWork = 0;
+    };
+    StringStats stringStats() const {
+        StringStats result = stringStats_;
+        result.allocated += stringAllocationsSinceGC_;
+        result.allocatedBytes += stringBytesSinceGC_;
+        return result;
+    }
 
     /* Allocate a buffer for a given zone, using the nursery if possible. */
     void* allocateBuffer(JS::Zone* zone, size_t nbytes);
@@ -200,7 +237,8 @@ class Nursery
      * sets |*ref| to the new location of the object and returns true. Otherwise
      * returns false and leaves |*ref| unset.
      */
-    [[nodiscard]] MOZ_ALWAYS_INLINE bool getForwardedPointer(JSObject** ref) const;
+    template <typename T>
+    [[nodiscard]] MOZ_ALWAYS_INLINE bool getForwardedPointer(T** ref) const;
 
     /* Forward a slots/elements pointer stored in an Ion frame. */
     void forwardBufferPointer(HeapSlot** pSlotsElems);
@@ -259,6 +297,13 @@ class Nursery
     void printTotalProfileTimes();
 
   private:
+    bool stringsEnabled_;
+    bool stringDedupEnabled_;
+    StringStats stringStats_;
+    // JIT counters cannot overflow between collections: they are bounded by
+    // the nursery capacity, then folded into the 64-bit lifetime counters.
+    uint32_t stringAllocationsSinceGC_ = 0;
+    uint32_t stringBytesSinceGC_ = 0;
     /* The amount of space in the mapped nursery available to allocations. */
     static const size_t NurseryChunkUsableSize = gc::ChunkSize - sizeof(gc::ChunkTrailer);
 

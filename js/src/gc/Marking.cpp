@@ -619,7 +619,7 @@ js::TraceProcessGlobalRoot(JSTracer* trc, T* thing, const char* name)
     // permanent atoms, so likewise require no subsquent marking.
     CheckTracedThing(trc, *ConvertToBase(&thing));
     if (trc->isMarkingTracer())
-        thing->markIfUnmarked(gc::BLACK);
+        thing->asTenured().markIfUnmarked(gc::BLACK);
     else
         DoCallback(trc->asCallbackTracer(), ConvertToBase(&thing), name);
 }
@@ -762,6 +762,9 @@ template <typename T>
 static inline bool
 ShouldMark(GCMarker* gcmarker, T thing)
 {
+    // Pre-barriers can encounter nursery strings between major-GC slices.
+    if (IsInsideNursery(thing))
+        return false;
     // Don't trace things that are owned by another runtime.
     if (IsOwnedByOtherRuntime(gcmarker->runtime(), thing))
         return false;
@@ -974,6 +977,8 @@ template <typename T>
 bool
 js::GCMarker::mark(T* thing)
 {
+    if (IsInsideNursery(thing))
+        return false;
     AssertShouldMarkInZone(thing);
     MOZ_ASSERT(!IsInsideNursery(gc::TenuredCell::fromPointer(thing)));
     return gc::ParticipatesInCC<T>::value
@@ -1110,7 +1115,7 @@ inline void
 js::GCMarker::eagerlyMarkChildren(JSLinearString* linearStr)
 {
     AssertShouldMarkInZone(linearStr);
-    MOZ_ASSERT(linearStr->isMarked());
+    MOZ_ASSERT(linearStr->asTenured().isMarked());
     MOZ_ASSERT(linearStr->JSString::isLinear());
 
     // Use iterative marking to avoid blowing out the stack.
@@ -1173,7 +1178,7 @@ js::GCMarker::eagerlyMarkChildren(JSRope* rope)
         JS_DIAGNOSTICS_ASSERT(rope->getTraceKind() == JS::TraceKind::String);
         JS_DIAGNOSTICS_ASSERT(rope->JSString::isRope());
         AssertShouldMarkInZone(rope);
-        MOZ_ASSERT(rope->isMarked());
+        MOZ_ASSERT(rope->asTenured().isMarked());
         JSRope* next = nullptr;
 
         JSString* right = rope->rightChild();
@@ -2243,6 +2248,14 @@ TenuringTracer::traverse(JSObject** objp)
         *objp = moveToTenured(*objp);
 }
 
+template <>
+void
+TenuringTracer::traverse(JSString** strp)
+{
+    if (IsInsideNursery(*strp) && !nursery().getForwardedPointer(strp))
+        *strp = moveToTenured(*strp);
+}
+
 template <typename S>
 struct TenuringTraversalFunctor : public IdentityDefaultAdaptor<S> {
     template <typename T> S operator()(T* t, TenuringTracer* trc) {
@@ -2336,6 +2349,12 @@ TraceWholeCell(TenuringTracer& mover, JSScript* script)
 }
 
 static inline void
+TraceWholeCell(TenuringTracer& mover, JSString* str)
+{
+    mover.traceString(str);
+}
+
+static inline void
 TraceWholeCell(TenuringTracer& mover, jit::JitCode* jitcode)
 {
     jitcode->traceChildren(&mover);
@@ -2372,6 +2391,9 @@ js::gc::StoreBuffer::traceWholeCells(TenuringTracer& mover)
           case JS::TraceKind::Script:
             TraceBufferedCells<JSScript>(mover, arena, cells);
             break;
+          case JS::TraceKind::String:
+            TraceBufferedCells<JSString>(mover, arena, cells);
+            break;
           case JS::TraceKind::JitCode:
             TraceBufferedCells<jit::JitCode>(mover, arena, cells);
             break;
@@ -2390,8 +2412,7 @@ js::gc::StoreBuffer::CellPtrEdge::trace(TenuringTracer& mover) const
         return;
     // XXX: We should check if the cell pointer is valid here too
 
-    MOZ_ASSERT((*edge)->getTraceKind() == JS::TraceKind::Object);
-    mover.traverse(reinterpret_cast<JSObject**>(edge));
+    TraceManuallyBarrieredGenericPointerEdge(&mover, edge, "remembered cell");
 }
 
 void
@@ -2437,6 +2458,89 @@ js::TenuringTracer::moveToTenured(JSObject* src)
     return dst;
 }
 
+JSString*
+js::TenuringTracer::moveToTenured(JSString* src)
+{
+    Zone* zone = src->zone();
+    AllocKind kind = src->getAllocKind();
+    size_t size = Arena::thingSize(kind);
+    JSString* dst = nullptr;
+    size_t dedupIndex = 0;
+    bool eligible = nursery().stringDedupEnabled_ && src->canDeduplicate() && src->length() <= 1024 &&
+                    stringDedupWork_ + src->length() * 2 <= 1024 * 1024 &&
+                    !zone->hasUniqueId(src);
+    if (eligible && !stringDedup_)
+        stringDedup_ = js_pod_calloc<JSString*>(StringDedupEntries);
+    eligible = eligible && stringDedup_;
+    if (eligible) {
+        // Include zone, encoding and exact representation. Never intern atoms,
+        // external/stable buffers, dependents, or extensible rope buffers.
+        JS::AutoCheckCannotGC nogc;
+        uint32_t hash = uint32_t(uintptr_t(zone) >> 3) ^ src->d.u1.flags ^ src->length();
+        for (size_t i = 0; i < src->length(); i++) {
+            uint16_t c = src->hasLatin1Chars() ? src->asLinear().latin1Chars(nogc)[i]
+                                             : src->asLinear().twoByteChars(nogc)[i];
+            hash = (hash ^ c) * 16777619;
+        }
+        size_t work = src->length() * 2;
+        stringDedupWork_ += work;
+        nursery().stringStats_.dedupWork += work;
+        dedupIndex = hash % StringDedupEntries;
+        JSString* found = stringDedup_[dedupIndex];
+        if (found && !zone->hasUniqueId(found) && found->zone() == zone &&
+            found->getAllocKind() == kind &&
+            found->d.u1.flags == src->d.u1.flags && found->length() == src->length())
+        {
+            const void* lhs = src->hasLatin1Chars()
+                              ? (const void*)src->asLinear().latin1Chars(nogc)
+                              : (const void*)src->asLinear().twoByteChars(nogc);
+            const void* rhs = found->hasLatin1Chars()
+                              ? (const void*)found->asLinear().latin1Chars(nogc)
+                              : (const void*)found->asLinear().twoByteChars(nogc);
+            if (!memcmp(lhs, rhs, src->length() * (src->hasLatin1Chars() ? 1 : 2)))
+                dst = found;
+        }
+    }
+    if (dst) {
+        nursery().stringStats_.deduplicated++;
+        nursery().stringStats_.deduplicatedBytes += size +
+            (src->ownsMallocedChars() ? (src->length() + 1) * (src->hasLatin1Chars() ? 1 : 2) : 0);
+        RelocationOverlay::fromCell(src)->forwardTo(dst);
+        return dst;
+    }
+    TenuredCell* cell = zone->arenas.allocateFromFreeList(kind, size);
+    if (!cell) {
+        AutoEnterOOMUnsafeRegion oomUnsafe;
+        cell = runtime()->gc.refillFreeListInGC(zone, kind);
+        if (!cell)
+            oomUnsafe.crash(size, "Failed to promote string");
+    }
+    dst = reinterpret_cast<JSString*>(cell);
+    js_memcpy(dst, src, size);
+    zone->transferUniqueId(dst, src);
+    if (src->ownsMallocedChars())
+        nursery().removeMallocedBuffer(src->mallocedChars());
+    tenuredSize += size;
+    nursery().stringStats_.promoted++;
+    nursery().stringStats_.promotedBytes += size;
+    if (eligible)
+        stringDedup_[dedupIndex] = dst;
+    RelocationOverlay* overlay = RelocationOverlay::fromCell(src);
+    overlay->forwardTo(dst);
+    *stringTail = overlay;
+    stringTail = &overlay->nextRef();
+    *stringTail = nullptr;
+    TracePromoteToTenured(src, dst);
+    MemProfiler::MoveNurseryToTenured(src, dst);
+    return dst;
+}
+
+void
+js::TenuringTracer::traceString(JSString* str)
+{
+    str->traceChildren(this);
+}
+
 void
 js::Nursery::collectToFixedPoint(TenuringTracer& mover, TenureCountCache& tenureCounts)
 {
@@ -2452,6 +2556,8 @@ js::Nursery::collectToFixedPoint(TenuringTracer& mover, TenureCountCache& tenure
             entry.count = 1;
         }
     }
+    for (RelocationOverlay* p = mover.stringHead; p; p = p->next())
+        mover.traceString(static_cast<JSString*>(p->forwardingAddress()));
 }
 
 struct TenuringFunctor
@@ -2708,6 +2814,9 @@ IsMarkedInternal(JSRuntime* rt, T** thingp)
     if (IsOwnedByOtherRuntime(rt, *thingp))
         return true;
 
+    if (IsInsideNursery(*thingp))
+        return rt->gc.nursery.getForwardedPointer(thingp);
+
     return IsMarkedInternalCommon(thingp);
 }
 
@@ -2767,7 +2876,7 @@ IsAboutToBeFinalizedInternal(T** thingp)
     Nursery& nursery = rt->gc.nursery;
     if (IsInsideNursery(thing)) {
         MOZ_ASSERT(rt->isHeapMinorCollecting());
-        return !nursery.getForwardedPointer(reinterpret_cast<JSObject**>(thingp));
+        return !nursery.getForwardedPointer(thingp);
     }
 
     Zone* zone = thing->asTenured().zoneFromAnyThread();

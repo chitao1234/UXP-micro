@@ -784,3 +784,10 @@ selfhosted.inputs = [
 # We are keeping this in the main moz.build because it is file specific
 if CONFIG['CLANG_CXX'] or CONFIG['GNU_CXX']:
     SOURCES['jsdtoa.cpp'].flags += ['-Wno-implicit-fallthrough']
+
+if CONFIG['GNU_CXX'] and CONFIG['JS_CODEGEN_X86']:
+    # MinGW's C++ ABI can enter with only four-byte stack alignment. Generated
+    # JIT entry trampolines require a sixteen-byte-aligned caller. Explicitly
+    # realign these C++ transition sites, including unoptimized debug builds.
+    for entry in ['jit/BaselineJIT.cpp', 'jit/Ion.cpp']:
+        SOURCES[entry].flags += ['-mpreferred-stack-boundary=4', '-mincoming-stack-boundary=2']

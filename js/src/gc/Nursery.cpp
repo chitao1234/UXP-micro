@@ -144,7 +144,9 @@ js::Nursery::NurseryChunk::fromChunkWithLazyBacking(Chunk* aChunk, JSRuntime* rt
 }
 
 js::Nursery::Nursery(JSRuntime* rt)
-  : runtime_(rt)
+  : stringsEnabled_(getenv("MOZ_NURSERY_STRINGS") && atoi(getenv("MOZ_NURSERY_STRINGS")))
+  , stringDedupEnabled_(getenv("MOZ_NURSERY_STRING_DEDUP") && atoi(getenv("MOZ_NURSERY_STRING_DEDUP")))
+  , runtime_(rt)
   , position_(0)
   , currentStartChunk_(0)
   , currentStartPosition_(0)
@@ -280,7 +282,7 @@ js::Nursery::allocateObject(JSContext* cx, size_t size, size_t numDynamic, const
                                         clasp->isProxy());
 
     /* Make the object allocation. */
-    JSObject* obj = static_cast<JSObject*>(allocate(size));
+    JSObject* obj = static_cast<JSObject*>(allocateCell(cx->zone(), size, JS::TraceKind::Object));
     if (!obj)
         return nullptr;
 
@@ -303,6 +305,28 @@ js::Nursery::allocateObject(JSContext* cx, size_t size, size_t numDynamic, const
 
     TraceNurseryAlloc(obj, size);
     return obj;
+}
+
+gc::Cell*
+js::Nursery::allocateCell(Zone* zone, size_t size, JS::TraceKind kind)
+{
+    void* allocation = allocate(sizeof(NurseryCellHeader) + size);
+    if (!allocation)
+        return nullptr;
+    auto header = new (allocation) NurseryCellHeader(zone, kind);
+    return reinterpret_cast<gc::Cell*>(header + 1);
+}
+
+JSString*
+js::Nursery::allocateString(Zone* zone, size_t size)
+{
+    auto str = static_cast<JSString*>(allocateCell(zone, size, JS::TraceKind::String));
+    if (str) {
+        stringAllocationsSinceGC_++;
+        stringBytesSinceGC_ += size;
+        TraceNurseryAlloc(str, size);
+    }
+    return str;
 }
 
 void*
@@ -479,7 +503,19 @@ js::TenuringTracer::TenuringTracer(JSRuntime* rt, Nursery* nursery)
   , tenuredSize(0)
   , head(nullptr)
   , tail(&head)
+  , stringHead(nullptr)
+  , stringTail(&stringHead)
+  , stringDedup_(nullptr)
+  , stringDedupWork_(0)
 {
+    nursery_.stringStats_ = nursery_.stringStats();
+    nursery_.stringAllocationsSinceGC_ = 0;
+    nursery_.stringBytesSinceGC_ = 0;
+}
+
+js::TenuringTracer::~TenuringTracer()
+{
+    js_free(stringDedup_);
 }
 
 /* static */ void
@@ -711,6 +747,16 @@ js::Nursery::doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
     maybeStartProfile(ProfileKey::SweepArrayBufferViewList);
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next())
         c->sweepAfterMinorGC(&mover);
+
+    // Eval cache source strings are weak and can now live in the nursery.
+    // Their hash uses contents, so forwarding a live key preserves its bucket.
+    auto& evalCache = rt->contextFromMainThread()->caches.evalCache;
+    if (evalCache.initialized()) {
+        for (EvalCache::Enum e(evalCache); !e.empty(); e.popFront()) {
+            if (IsAboutToBeFinalizedUnbarriered(&e.mutableFront().str))
+                e.removeFront();
+        }
+    }
     maybeEndProfile(ProfileKey::SweepArrayBufferViewList);
 
     // Update any slot or element pointers whose destination has been tenured.
@@ -799,11 +845,13 @@ js::Nursery::sweep()
 {
     /* Sweep unique id's in all in-use chunks. */
     for (CellsWithUniqueIdSet::Enum e(cellsWithUid_); !e.empty(); e.popFront()) {
-        JSObject* obj = static_cast<JSObject*>(e.front());
-        if (!IsForwarded(obj))
-            obj->zone()->removeUniqueId(obj);
+        Cell* cell = e.front();
+        Zone* zone = NurseryCellHeader::from(cell)->zone();
+        auto overlay = RelocationOverlay::fromCell(cell);
+        if (!overlay->isForwarded())
+            zone->removeUniqueId(cell);
         else
-            MOZ_ASSERT(Forwarded(obj)->zone()->hasUniqueId(Forwarded(obj)));
+            MOZ_ASSERT(zone->hasUniqueId(overlay->forwardingAddress()));
     }
     cellsWithUid_.clear();
 

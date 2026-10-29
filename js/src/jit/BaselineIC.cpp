@@ -2795,6 +2795,9 @@ ICSetElem_DenseOrUnboxedArray::Compiler::generateStubCode(MacroAssembler& masm)
         // Restore object.
         obj = masm.extractObject(R0, ExtractTemp0);
 
+    }
+
+    if (needsUpdateStubs() || unboxedType_ == JSVAL_TYPE_STRING) {
         // Trigger post barriers here on the value being written. Fields which
         // objects can be written to also need update stubs.
         masm.Push(R1);
@@ -3002,7 +3005,7 @@ ICSetElemDenseOrUnboxedArrayAddCompiler::generateStubCode(MacroAssembler& masm)
     // Restore object.
     obj = masm.extractObject(R0, ExtractTemp0);
 
-    if (needsUpdateStubs()) {
+    if (needsUpdateStubs() || unboxedType_ == JSVAL_TYPE_STRING) {
         // Trigger post barriers here on the value being written. Fields which
         // objects can be written to also need update stubs.
         masm.Push(R1);
@@ -5000,6 +5003,9 @@ ICSetProp_Unboxed::Compiler::generateStubCode(MacroAssembler& masm)
         // The TypeUpdate IC may have smashed object. Rederive it.
         masm.unboxObject(R0, object);
 
+    }
+
+    if (needsUpdateStubs() || fieldType_ == JSVAL_TYPE_STRING) {
         // Trigger post barriers here on the values being written. Fields which
         // objects can be written to also need update stubs.
         LiveGeneralRegisterSet saveRegs;
@@ -5070,6 +5076,9 @@ ICSetProp_TypedObject::Compiler::generateStubCode(MacroAssembler& masm)
         // We may have clobbered object in the TypeUpdate IC. Rederive it.
         masm.unboxObject(R0, object);
 
+    }
+
+    if (fieldDescr_->is<ReferenceTypeDescr>()) {
         // Trigger post barriers here on the values being written. Descriptors
         // which can write objects also need update stubs.
         LiveGeneralRegisterSet saveRegs;

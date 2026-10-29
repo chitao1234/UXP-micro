@@ -5317,13 +5317,16 @@ MacroAssembler::branchPtrInNurseryChunk(Condition cond, Register ptr, Register t
 }
 
 void
-MacroAssembler::branchValueIsNurseryObject(Condition cond, const Address& address,
+MacroAssembler::branchValueIsNurseryCell(Condition cond, const Address& address,
                                            Register temp, Label* label)
 {
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
     Label done;
+    Label cell;
+    branchTestString(Assembler::Equal, address, &cell);
     branchTestObject(Assembler::NotEqual, address, cond == Assembler::Equal ? &done : label);
+    bind(&cell);
 
     loadPtr(address, temp);
     branchPtrInNurseryChunk(cond, temp, InvalidReg, label);
@@ -5332,13 +5335,16 @@ MacroAssembler::branchValueIsNurseryObject(Condition cond, const Address& addres
 }
 
 void
-MacroAssembler::branchValueIsNurseryObject(Condition cond, ValueOperand value,
+MacroAssembler::branchValueIsNurseryCell(Condition cond, ValueOperand value,
                                            Register temp, Label* label)
 {
     MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
     Label done;
+    Label cell;
+    branchTestString(Assembler::Equal, value, &cell);
     branchTestObject(Assembler::NotEqual, value, cond == Assembler::Equal ? &done : label);
+    bind(&cell);
 
     branchPtrInNurseryChunk(cond, value.payloadReg(), InvalidReg, label);
 

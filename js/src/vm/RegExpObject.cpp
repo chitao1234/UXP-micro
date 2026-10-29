@@ -1126,8 +1126,10 @@ RegExpShared::compile(JSContext* cx, MutableHandleRegExpShared re, HandleAtom pa
         // compilation.jitCode (to ensure no purging happens between adding the
         // tables and setting the JIT code).
         for (size_t i = 0; i < tables.length(); i++) {
-            if (!re->addTable(Move(tables[i])))
+            if (!re->addTable(Move(tables[i]))) {
+                ReportOutOfMemory(cx);
                 return false;
+            }
         }
         compilation.jitCode = code.jitCode;
     } else if (code.byteCode) {

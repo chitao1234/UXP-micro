@@ -640,6 +640,14 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
     rtSizes->gc.marker += gc.marker.sizeOfExcludingThis(mallocSizeOf);
     rtSizes->gc.nurseryCommitted += gc.nursery.sizeOfHeapCommitted();
     rtSizes->gc.nurseryMallocedBuffers += gc.nursery.sizeOfMallocedBuffers(mallocSizeOf);
+    auto strings = gc.nursery.stringStats();
+    rtSizes->gc.nurseryStringsAllocated = strings.allocated;
+    rtSizes->gc.nurseryStringBytesAllocated = strings.allocatedBytes;
+    rtSizes->gc.nurseryStringsPromoted = strings.promoted;
+    rtSizes->gc.nurseryStringBytesPromoted = strings.promotedBytes;
+    rtSizes->gc.nurseryStringsDeduplicated = strings.deduplicated;
+    rtSizes->gc.nurseryStringBytesDeduplicated = strings.deduplicatedBytes;
+    rtSizes->gc.nurseryStringDedupWork = strings.dedupWork;
     gc.storeBuffer.addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
 }
 

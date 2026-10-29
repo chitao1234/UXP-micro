@@ -19,6 +19,7 @@
 #include "vm/Debugger.h"
 #include "vm/EqualityOperations.h"  // js::StrictlyEqual
 #include "vm/Interpreter.h"
+#include "vm/RegExpStatics.h"
 #include "vm/TraceLogging.h"
 
 #include "jit/BaselineFrame-inl.h"
@@ -599,6 +600,14 @@ PostWriteBarrier(JSRuntime* rt, JSObject* obj)
 {
     MOZ_ASSERT(!IsInsideNursery(obj));
     rt->gc.storeBuffer.putWholeCell(obj);
+}
+
+void
+PostWriteBarrierGCThing(void* thing)
+{
+    auto cell = static_cast<gc::Cell*>(thing);
+    MOZ_ASSERT(cell->isTenured());
+    cell->runtimeFromMainThread()->gc.storeBuffer.putWholeCell(cell);
 }
 
 static const size_t MAX_WHOLE_CELL_BUFFER_SIZE = 4096;
@@ -1282,6 +1291,12 @@ MarkStringFromIon(JSRuntime* rt, JSString** stringp)
 {
     if (*stringp)
         TraceManuallyBarrieredEdge(&rt->gc.marker, stringp, "write barrier");
+}
+
+void
+SetRegExpStaticsInput(RegExpStatics* statics, JSLinearString* input)
+{
+    statics->setInputForJit(input);
 }
 
 void

@@ -10,30 +10,19 @@ var appendToActual = function(s) {
     actual += s + ',';
 }
 
-if (!("gczeal" in this)) {
-  gczeal = function() { }
-}
-
-if (!("schedulegc" in this)) {
-  schedulegc = function() { }
-}
-
-if (!("gcslice" in this)) {
-  gcslice = function() { }
-}
-
-if (!("selectforgc" in this)) {
-  selectforgc = function() { }
-}
-
-if (!("verifyprebarriers" in this)) {
-  verifyprebarriers = function() { }
-}
-
-if (!("verifypostbarriers" in this)) {
-  verifypostbarriers = function() { }
-}
-
-if (!("gcPreserveCode" in this)) {
-  gcPreserveCode = function() { }
+// Never count an unsupported stress operation as a successful test. Keep a
+// fallback for tests which call these unconditionally, but report an explicit
+// capability skip when the operation is actually requested.
+var jitTestMissingCapabilities = {};
+for (var name of ["gczeal", "schedulegc", "gcslice", "selectforgc",
+                  "verifyprebarriers", "verifypostbarriers", "gcPreserveCode"]) {
+  if (!(name in this)) {
+    jitTestMissingCapabilities[name] = true;
+    this[name] = (function(name) {
+      return function() {
+        print("JIT-TEST-UNSUPPORTED: " + name);
+        quit(59);
+      };
+    })(name);
+  }
 }

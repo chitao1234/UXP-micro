@@ -6513,7 +6513,7 @@ js::gc::AssertGCThingHasType(js::gc::Cell* cell, JS::TraceKind kind)
     if (!cell)
         MOZ_ASSERT(kind == JS::TraceKind::Null);
     else if (IsInsideNursery(cell))
-        MOZ_ASSERT(kind == JS::TraceKind::Object);
+        MOZ_ASSERT(kind == NurseryCellHeader::from(cell)->traceKind());
     else
         MOZ_ASSERT(MapAllocToTraceKind(cell->asTenured().getAllocKind()) == kind);
 }

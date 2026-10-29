@@ -4051,7 +4051,49 @@ GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
+static bool
+NurseryStrings(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length())
+        JS_SetNurseryStringsEnabled(cx, ToBoolean(args[0]), args.length() > 1 && ToBoolean(args[1]));
+    auto stats = cx->nursery().stringStats();
+    RootedObject result(cx, JS_NewPlainObject(cx));
+    if (!result)
+        return false;
+#define STRING_STAT(name) \
+    if (!JS_DefineProperty(cx, result, #name, double(stats.name), JSPROP_ENUMERATE)) \
+        return false;
+    STRING_STAT(allocated)
+    STRING_STAT(allocatedBytes)
+    STRING_STAT(promoted)
+    STRING_STAT(promotedBytes)
+    STRING_STAT(deduplicated)
+    STRING_STAT(deduplicatedBytes)
+    STRING_STAT(dedupWork)
+#undef STRING_STAT
+    if (!JS_DefineProperty(cx, result, "enabled", cx->nursery().stringsEnabled(), JSPROP_ENUMERATE))
+        return false;
+    args.rval().setObject(*result);
+    return true;
+}
+
+static bool
+IsNurseryAllocated(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setBoolean(args.get(0).isGCThing() &&
+        gc::IsInsideNursery(static_cast<gc::Cell*>(args[0].toGCThing())));
+    return true;
+}
+
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
+    JS_FN_HELP("isNurseryAllocated", IsNurseryAllocated, 1, 0,
+"isNurseryAllocated(value)",
+"  Return whether value is a nursery cell, without causing GC."),
+    JS_FN_HELP("nurseryStrings", NurseryStrings, 2, 0,
+"nurseryStrings([enabled, deduplicate])",
+"  Configure this runtime's string nursery and return cumulative allocation/promotion counters."),
     JS_FN_HELP("gc", ::GC, 0, 0,
 "gc([obj] | 'zone' [, 'shrinking'])",
 "  Run the garbage collector. When obj is given, GC only its zone.\n"

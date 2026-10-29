@@ -250,6 +250,30 @@ static const size_t MAX_BACKGROUND_FINALIZE_KINDS =
 
 class TenuredCell;
 
+// All nursery cells have a header, including objects allocated by the JIT.
+// Keep it outside the cell: string and object layouts are public JIT contracts.
+struct alignas(CellSize) NurseryCellHeader {
+    uintptr_t zoneAndKind;
+    static const uintptr_t KindMask = CellSize - 1;
+    NurseryCellHeader(JS::Zone* zone, JS::TraceKind kind)
+      : zoneAndKind(uintptr_t(zone) | uintptr_t(kind))
+    {
+        MOZ_ASSERT(zone);
+        MOZ_ASSERT(!(uintptr_t(zone) & KindMask));
+        MOZ_ASSERT(uintptr_t(kind) <= KindMask);
+    }
+    JS::Zone* zone() const {
+        return reinterpret_cast<JS::Zone*>(zoneAndKind & ~KindMask);
+    }
+    JS::TraceKind traceKind() const { return JS::TraceKind(zoneAndKind & KindMask); }
+    static const NurseryCellHeader* from(const void* cell) {
+        return reinterpret_cast<const NurseryCellHeader*>(cell) - 1;
+    }
+};
+
+static_assert(sizeof(NurseryCellHeader) == CellSize,
+              "Public string zone lookup must match the nursery header size");
+
 // A GC cell is the base class for all GC things.
 struct Cell
 {
@@ -1205,7 +1229,7 @@ Cell::storeBuffer() const
 inline JS::TraceKind
 Cell::getTraceKind() const
 {
-    return isTenured() ? asTenured().getTraceKind() : JS::TraceKind::Object;
+    return isTenured() ? asTenured().getTraceKind() : NurseryCellHeader::from(this)->traceKind();
 }
 
 inline bool

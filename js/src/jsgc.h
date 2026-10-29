@@ -114,8 +114,8 @@ IsNurseryAllocable(AllocKind kind)
         false,     /* AllocKind::ACCESSOR_SHAPE */
         false,     /* AllocKind::BASE_SHAPE */
         false,     /* AllocKind::OBJECT_GROUP */
-        false,     /* AllocKind::FAT_INLINE_STRING */
-        false,     /* AllocKind::STRING */
+        true,      /* AllocKind::FAT_INLINE_STRING */
+        true,      /* AllocKind::STRING */
         false,     /* AllocKind::EXTERNAL_STRING */
         false,     /* AllocKind::FAT_INLINE_ATOM */
         false,     /* AllocKind::ATOM */

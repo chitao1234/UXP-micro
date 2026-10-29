@@ -21,6 +21,7 @@ class WithScope;
 class InlineTypedObject;
 class GeneratorObject;
 class TypedArrayObject;
+class RegExpStatics;
 
 namespace jit {
 
@@ -654,6 +655,7 @@ CreateThis(JSContext* cx, HandleObject callee, HandleObject newTarget, MutableHa
 void GetDynamicName(JSContext* cx, JSObject* scopeChain, JSString* str, Value* vp);
 
 void PostWriteBarrier(JSRuntime* rt, JSObject* obj);
+void PostWriteBarrierGCThing(void* thing);
 void PostWriteElementBarrier(JSRuntime* rt, JSObject* obj, int32_t index);
 void PostGlobalWriteBarrier(JSRuntime* rt, JSObject* obj);
 
@@ -756,6 +758,7 @@ void AssertValidValue(JSContext* cx, Value* v);
 
 void MarkValueFromIon(JSRuntime* rt, Value* vp);
 void MarkStringFromIon(JSRuntime* rt, JSString** stringp);
+void SetRegExpStaticsInput(RegExpStatics* statics, JSLinearString* input);
 void MarkObjectFromIon(JSRuntime* rt, JSObject** objp);
 void MarkShapeFromIon(JSRuntime* rt, Shape** shapep);
 void MarkObjectGroupFromIon(JSRuntime* rt, ObjectGroup** groupp);

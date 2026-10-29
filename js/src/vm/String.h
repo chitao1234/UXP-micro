@@ -30,6 +30,7 @@ class JSRope;
 namespace js {
 
 class AutoStableStringChars;
+class TenuringTracer;
 class StaticStrings;
 class PropertyName;
 
@@ -148,7 +149,7 @@ static const size_t UINT32_CHAR_BUFFER_LENGTH = sizeof("4294967295") - 1;
  * at least X (e.g., ensureLinear will change a JSRope to be a JSFlatString).
  */
 
-class JSString : public js::gc::TenuredCell
+class JSString : public js::gc::Cell
 {
   protected:
     static const size_t NUM_INLINE_CHARS_LATIN1   = 2 * sizeof(void*) / sizeof(JS::Latin1Char);
@@ -268,6 +269,10 @@ class JSString : public js::gc::TenuredCell
 
     static const uint32_t LATIN1_CHARS_BIT       = JS_BIT(6);
 
+    // Character buffers exposed across GC or referenced by dependent strings
+    // must not be replaced by promotion-time deduplication.
+    static const uint32_t NON_DEDUPLICATABLE_BIT  = JS_BIT(7);
+
     static const uint32_t MAX_LENGTH             = js::MaxStringLength;
 
     static const JS::Latin1Char MAX_LATIN1_CHAR = 0xff;
@@ -318,6 +323,7 @@ class JSString : public js::gc::TenuredCell
     friend class JSRope;
 
     friend class js::gc::RelocationOverlay;
+    friend class js::TenuringTracer;
 
   protected:
     template <typename CharT>
@@ -325,6 +331,30 @@ class JSString : public js::gc::TenuredCell
     void setNonInlineChars(const CharT* chars);
 
   public:
+    JS::Zone* zone() const { return JS::GetStringZone(const_cast<JSString*>(this)); }
+    JS::Zone* zoneFromAnyThread() const { return zone(); }
+    JS::shadow::Zone* shadowZone() const { return JS::shadow::Zone::asShadowZone(zone()); }
+    JS::shadow::Zone* shadowZoneFromAnyThread() const { return shadowZone(); }
+    js::gc::AllocKind getAllocKind() const {
+        if (isTenured())
+            return asTenured().getAllocKind();
+        return isFatInline() ? js::gc::AllocKind::FAT_INLINE_STRING : js::gc::AllocKind::STRING;
+    }
+    void fixupAfterMovingGC() {}
+    void setNonDeduplicatable() {
+        // Atoms can be shared across runtime threads. Their flags are immutable;
+        // only nursery cells can be candidates for this minor-GC policy.
+        if (!isTenured())
+            d.u1.flags |= NON_DEDUPLICATABLE_BIT;
+    }
+    bool canDeduplicate() const {
+        return isFlat() && !hasBase() && !isAtom() && !isExtensible() && !isExternal() &&
+               !(d.u1.flags & NON_DEDUPLICATABLE_BIT);
+    }
+    bool ownsMallocedChars() const { return isFlat() && !isInline() && !isExternal(); }
+    void* mallocedChars() const { return (void*)d.s.u2.nonInlineCharsTwoByte; }
+    static void writeBarrierPost(void* cellp, JSString* prev, JSString* next);
+
     /* All strings have length. */
 
     MOZ_ALWAYS_INLINE
@@ -514,17 +544,17 @@ class JSString : public js::gc::TenuredCell
     void traceChildren(JSTracer* trc);
 
     static MOZ_ALWAYS_INLINE void readBarrier(JSString* thing) {
-        if (thing->isPermanentAtom())
+        if (!thing || !thing->isTenured() || thing->isPermanentAtom())
             return;
 
-        TenuredCell::readBarrier(thing);
+        js::gc::TenuredCell::readBarrier(&thing->asTenured());
     }
 
     static MOZ_ALWAYS_INLINE void writeBarrierPre(JSString* thing) {
-        if (!thing || thing->isPermanentAtom())
+        if (!thing || !thing->isTenured() || thing->isPermanentAtom())
             return;
 
-        TenuredCell::writeBarrierPre(thing);
+        js::gc::TenuredCell::writeBarrierPre(&thing->asTenured());
     }
 
   private:

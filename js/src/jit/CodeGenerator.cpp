@@ -1218,17 +1218,18 @@ PrepareAndExecuteRegExp(JSContext* cx, MacroAssembler& masm, Register regexp, Re
     // Lazily update the RegExpStatics.
     masm.movePtr(ImmPtr(res), temp1);
 
-    Address pendingInputAddress(temp1, RegExpStatics::offsetOfPendingInput());
-    Address matchesInputAddress(temp1, RegExpStatics::offsetOfMatchesInput());
     Address lazySourceAddress(temp1, RegExpStatics::offsetOfLazySource());
     Address lazyIndexAddress(temp1, RegExpStatics::offsetOfLazyIndex());
 
-    masm.patchableCallPreBarrier(pendingInputAddress, MIRType::String);
-    masm.patchableCallPreBarrier(matchesInputAddress, MIRType::String);
     masm.patchableCallPreBarrier(lazySourceAddress, MIRType::String);
 
-    masm.storePtr(input, pendingInputAddress);
-    masm.storePtr(input, matchesInputAddress);
+    volatileRegs.addUnchecked(temp1);
+    masm.PushRegsInMask(volatileRegs);
+    masm.setupUnalignedABICall(temp3);
+    masm.passABIArg(temp1);
+    masm.passABIArg(input);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, SetRegExpStaticsInput));
+    masm.PopRegsInMask(volatileRegs);
     masm.storePtr(lastIndex, Address(temp1, RegExpStatics::offsetOfLazyIndex()));
     masm.store32(Imm32(1), Address(temp1, RegExpStatics::offsetOfPendingLazyEvaluation()));
 
@@ -1249,6 +1250,25 @@ PrepareAndExecuteRegExp(JSContext* cx, MacroAssembler& masm, Register regexp, Re
 static void
 CopyStringChars(MacroAssembler& masm, Register to, Register from, Register len,
                 Register byteOpScratch, size_t fromWidth, size_t toWidth);
+
+static void
+EmitPostWriteBarrierForNurseryStringEdge(MacroAssembler& masm, Register owner,
+                                         Register edge, Register temp)
+{
+    Label done;
+    masm.branchPtrInNurseryChunk(Assembler::Equal, owner, temp, &done);
+    masm.branchPtrInNurseryChunk(Assembler::NotEqual, edge, temp, &done);
+
+    LiveRegisterSet volatileRegs(RegisterSet::Volatile());
+    masm.PushRegsInMask(volatileRegs);
+    AllocatableGeneralRegisterSet regs(GeneralRegisterSet::Volatile());
+    regs.takeUnchecked(owner);
+    masm.setupUnalignedABICall(regs.takeAny());
+    masm.passABIArg(owner);
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, PostWriteBarrierGCThing));
+    masm.PopRegsInMask(volatileRegs);
+    masm.bind(&done);
+}
 
 class CreateDependentString
 {
@@ -1397,6 +1417,12 @@ CreateDependentString::generate(MacroAssembler& masm, const JSAtomState& names,
         masm.loadPtr(Address(base, JSDependentString::offsetOfBase()), temp1);
         masm.storePtr(temp1, Address(string, JSDependentString::offsetOfBase()));
         masm.bind(&noBase);
+        masm.loadPtr(Address(string, JSDependentString::offsetOfBase()), temp1);
+        Label tenuredBase;
+        masm.branchPtrInNurseryChunk(Assembler::NotEqual, temp1, temp2, &tenuredBase);
+        masm.or32(Imm32(JSString::NON_DEDUPLICATABLE_BIT), Address(temp1, JSString::offsetOfFlags()));
+        masm.bind(&tenuredBase);
+        EmitPostWriteBarrierForNurseryStringEdge(masm, string, temp1, temp2);
     }
 
     masm.bind(&done);
@@ -1632,6 +1658,7 @@ JitCompartment::generateRegExpMatcherStub(JSContext* cx)
                                      stringIndexAddress, stringLimitAddress, failure);
 
             masm.storeValue(JSVAL_TYPE_STRING, temp3, stringAddress);
+            EmitPostWriteBarrierForNurseryStringEdge(masm, object, temp3, temp5);
 
             masm.jump(&storeDone);
             masm.bind(&isUndefined);
@@ -1679,6 +1706,7 @@ JitCompartment::generateRegExpMatcherStub(JSContext* cx)
     masm.load32(pairsVectorAddress, temp3);
     masm.storeValue(JSVAL_TYPE_INT32, temp3, Address(temp2, 0));
     masm.storeValue(JSVAL_TYPE_STRING, input, Address(temp2, sizeof(Value)));
+    EmitPostWriteBarrierForNurseryStringEdge(masm, object, input, temp5);
 
     // All done!
     masm.tagValue(JSVAL_TYPE_OBJECT, object, result);
@@ -3694,7 +3722,7 @@ CodeGenerator::visitPostWriteBarrierCommonV(LPostBarrierType* lir, OutOfLineCode
     maybeEmitGlobalBarrierCheck(lir->object(), ool);
 
     ValueOperand value = ToValue(lir, LPostBarrierType::Input);
-    masm.branchValueIsNurseryObject(Assembler::Equal, value, temp, ool->entry());
+    masm.branchValueIsNurseryCell(Assembler::Equal, value, temp, ool->entry());
 
     masm.bind(ool->rejoin());
 }
@@ -5897,9 +5925,9 @@ CodeGenerator::visitNewStringObject(LNewStringObject* lir)
 
     masm.createGCObject(output, temp, templateObj, gc::DefaultHeap, ool->entry());
 
-    masm.loadStringLength(input, temp);
-
     masm.storeValue(JSVAL_TYPE_STRING, input, Address(output, StringObject::offsetOfPrimitiveValue()));
+    EmitPostWriteBarrierForNurseryStringEdge(masm, output, input, temp);
+    masm.loadStringLength(input, temp);
     masm.storeValue(JSVAL_TYPE_INT32, temp, Address(output, StringObject::offsetOfLength()));
 
     masm.bind(ool->rejoin());
@@ -6335,11 +6363,9 @@ CodeGenerator::emitLoadIteratorValues<ValueMap>(Register result, Register temp, 
     masm.storeValue(valueAddress, valueElemAddress, temp);
 
     Label keyIsNotObject, valueIsNotNurseryObject, emitBarrier;
-    masm.branchTestObject(Assembler::NotEqual, keyAddress, &keyIsNotObject);
-    masm.branchValueIsNurseryObject(Assembler::Equal, keyAddress, temp, &emitBarrier);
+    masm.branchValueIsNurseryCell(Assembler::Equal, keyAddress, temp, &emitBarrier);
     masm.bind(&keyIsNotObject);
-    masm.branchTestObject(Assembler::NotEqual, valueAddress, &valueIsNotNurseryObject);
-    masm.branchValueIsNurseryObject(Assembler::NotEqual, valueAddress, temp,
+    masm.branchValueIsNurseryCell(Assembler::NotEqual, valueAddress, temp,
                                     &valueIsNotNurseryObject);
     {
         masm.bind(&emitBarrier);
@@ -6362,8 +6388,7 @@ CodeGenerator::emitLoadIteratorValues<ValueSet>(Register result, Register temp, 
     masm.storeValue(keyAddress, keyElemAddress, temp);
 
     Label keyIsNotObject;
-    masm.branchTestObject(Assembler::NotEqual, keyAddress, &keyIsNotObject);
-    masm.branchValueIsNurseryObject(Assembler::NotEqual, keyAddress, temp, &keyIsNotObject);
+    masm.branchValueIsNurseryCell(Assembler::NotEqual, keyAddress, temp, &keyIsNotObject);
     {
         saveVolatile(temp);
         emitPostWriteBarrier(result);
@@ -7432,6 +7457,11 @@ CodeGenerator::visitSubstr(LSubstr* lir)
     masm.newGCString(output, temp, slowPath);
     masm.store32(length, Address(output, JSString::offsetOfLength()));
     masm.storePtr(string, Address(output, JSDependentString::offsetOfBase()));
+    Label tenuredBase;
+    masm.branchPtrInNurseryChunk(Assembler::NotEqual, string, temp3, &tenuredBase);
+    masm.or32(Imm32(JSString::NON_DEDUPLICATABLE_BIT), Address(string, JSString::offsetOfFlags()));
+    masm.bind(&tenuredBase);
+    EmitPostWriteBarrierForNurseryStringEdge(masm, output, string, temp3);
 
     masm.branchLatin1String(string, &isLatin1);
     {
@@ -7523,6 +7553,8 @@ JitCompartment::generateStringConcatStub(JSContext* cx)
     // Store left and right nodes.
     masm.storePtr(lhs, Address(output, JSRope::offsetOfLeft()));
     masm.storePtr(rhs, Address(output, JSRope::offsetOfRight()));
+    EmitPostWriteBarrierForNurseryStringEdge(masm, output, lhs, temp3);
+    EmitPostWriteBarrierForNurseryStringEdge(masm, output, rhs, temp3);
     masm.ret();
 
     masm.bind(&leftEmpty);
@@ -9754,7 +9786,7 @@ CodeGenerator::link(JSContext* cx, CompilerConstraintList* constraints)
         ionScript->copyConstants(vp);
         for (size_t i = 0; i < graph.numConstants(); i++) {
             const Value& v = vp[i];
-            if (v.isObject() && IsInsideNursery(&v.toObject())) {
+            if (v.isGCThing() && IsInsideNursery(static_cast<gc::Cell*>(v.toGCThing()))) {
                 cx->runtime()->gc.storeBuffer.putWholeCell(script);
                 break;
             }

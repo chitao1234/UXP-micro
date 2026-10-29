@@ -16,15 +16,16 @@
 #include "js/TracingAPI.h"
 #include "vm/Runtime.h"
 
+template <typename T>
 MOZ_ALWAYS_INLINE bool
-js::Nursery::getForwardedPointer(JSObject** ref) const
+js::Nursery::getForwardedPointer(T** ref) const
 {
     MOZ_ASSERT(ref);
     MOZ_ASSERT(isInside((void*)*ref));
     const gc::RelocationOverlay* overlay = reinterpret_cast<const gc::RelocationOverlay*>(*ref);
     if (!overlay->isForwarded())
         return false;
-    *ref = static_cast<JSObject*>(overlay->forwardingAddress());
+    *ref = static_cast<T*>(overlay->forwardingAddress());
     return true;
 }
 

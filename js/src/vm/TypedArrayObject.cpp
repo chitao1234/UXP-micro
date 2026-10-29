@@ -193,11 +193,11 @@ TypedArrayObject::finalize(FreeOp* fop, JSObject* obj)
     if (!curObj->elementsRaw())
         return;
 
-    curObj->assertZeroLengthArrayData();
-
     // Typed arrays with a buffer object do not need to be free'd
     if (curObj->hasBuffer())
         return;
+
+    curObj->assertZeroLengthArrayData();
 
     // Free the data slot pointer if it does not point into the old JSObject.
     if (!curObj->hasInlineElements())

@@ -1424,6 +1424,12 @@ ReloadPrefsCallback(const char* pref, void* data)
 {
     XPCJSContext* xpccx = reinterpret_cast<XPCJSContext*>(data);
     JSContext* cx = xpccx->Context();
+    bool nurseryStrings = Preferences::GetBool(JS_OPTIONS_DOT_STR "nursery_strings",
+        getenv("MOZ_NURSERY_STRINGS") && atoi(getenv("MOZ_NURSERY_STRINGS")));
+    bool nurseryStringDedup = Preferences::GetBool(JS_OPTIONS_DOT_STR "nursery_string_dedup",
+        getenv("MOZ_NURSERY_STRING_DEDUP") && atoi(getenv("MOZ_NURSERY_STRING_DEDUP")));
+    JS::ContextOptionsRef(cx).setNurseryStrings(nurseryStrings).setNurseryStringDedup(nurseryStringDedup);
+    JS_SetNurseryStringsEnabled(cx, nurseryStrings, nurseryStringDedup);
 
     bool safeMode = false;
     nsCOMPtr<nsIXULRuntime> xr = do_GetService("@mozilla.org/xre/runtime;1");
@@ -2471,7 +2477,28 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/nursery-malloced-buffers"),
         KIND_HEAP, rtStats.runtime.gc.nurseryMallocedBuffers,
-        "Out-of-line slots and elements belonging to objects in the nursery.");
+        "Out-of-line slots, elements and character buffers belonging to nursery cells.");
+
+    nsCString stringCounters(rtPath);
+    stringCounters.Replace(0, strlen("explicit/"), "js-gc-counters/");
+#define NURSERY_STRING_COUNTER(field, path, units, description) \
+    REPORT(stringCounters + NS_LITERAL_CSTRING("string-nursery/" path), \
+           KIND_OTHER, units, rtStats.runtime.gc.field, description);
+    NURSERY_STRING_COUNTER(nurseryStringsAllocated, "allocated", UNITS_COUNT,
+        "Cumulative ordinary string cells allocated in the nursery, including JIT allocation.")
+    NURSERY_STRING_COUNTER(nurseryStringBytesAllocated, "allocated-bytes", UNITS_BYTES,
+        "Cumulative nursery string cell bytes allocated; allocation traffic, not live memory.")
+    NURSERY_STRING_COUNTER(nurseryStringsPromoted, "promoted", UNITS_COUNT,
+        "Cumulative string cells promoted to the tenured heap.")
+    NURSERY_STRING_COUNTER(nurseryStringBytesPromoted, "promoted-bytes", UNITS_BYTES,
+        "Cumulative string cell bytes promoted, excluding owned character buffers.")
+    NURSERY_STRING_COUNTER(nurseryStringsDeduplicated, "deduplicated", UNITS_COUNT,
+        "Cumulative string cells merged during bounded promotion-time deduplication.")
+    NURSERY_STRING_COUNTER(nurseryStringBytesDeduplicated, "deduplicated-bytes", UNITS_BYTES,
+        "Cumulative cell and character payload bytes avoided by deduplication; not allocator usable size.")
+    NURSERY_STRING_COUNTER(nurseryStringDedupWork, "dedup-work", UNITS_COUNT,
+        "Cumulative character work budget charged to bounded string deduplication.")
+#undef NURSERY_STRING_COUNTER
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/store-buffer/vals"),
         KIND_HEAP, rtStats.runtime.gc.storeBufferVals,

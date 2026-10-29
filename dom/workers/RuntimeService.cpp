@@ -302,6 +302,10 @@ LoadContextOptions(const char* aPrefName, void* /* aClosure */)
                 .setWerror(GetWorkerPref<bool>(NS_LITERAL_CSTRING("werror")))
                 .setStreams(GetWorkerPref<bool>(NS_LITERAL_CSTRING("streams")))
                 .setWeakRefs(GetWorkerPref<bool>(NS_LITERAL_CSTRING("weakrefs")))
+                .setNurseryStrings(GetWorkerPref<bool>(NS_LITERAL_CSTRING("nursery_strings"),
+                    getenv("MOZ_NURSERY_STRINGS") && atoi(getenv("MOZ_NURSERY_STRINGS"))))
+                .setNurseryStringDedup(GetWorkerPref<bool>(NS_LITERAL_CSTRING("nursery_string_dedup"),
+                    getenv("MOZ_NURSERY_STRING_DEDUP") && atoi(getenv("MOZ_NURSERY_STRING_DEDUP"))))
                 .setExtraWarnings(GetWorkerPref<bool>(NS_LITERAL_CSTRING("strict")))
                 .setArrayProtoValues(GetWorkerPref<bool>(
                       NS_LITERAL_CSTRING("array_prototype_values")));
@@ -938,6 +942,8 @@ InitJSContextForWorker(WorkerPrivate* aWorkerPrivate, JSContext* aWorkerCx)
   }
 
   JS::ContextOptionsRef(aWorkerCx) = settings.contextOptions;
+  JS_SetNurseryStringsEnabled(aWorkerCx, settings.contextOptions.nurseryStrings(),
+                             settings.contextOptions.nurseryStringDedup());
 
   JSSettings::JSGCSettingsArray& gcSettings = settings.gcSettings;
 

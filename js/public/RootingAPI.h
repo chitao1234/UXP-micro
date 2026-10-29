@@ -196,6 +196,7 @@ template <typename T> class PersistentRooted;
 JS_FRIEND_API(bool) isGCEnabled();
 
 JS_FRIEND_API(void) HeapObjectPostBarrier(JSObject** objp, JSObject* prev, JSObject* next);
+JS_FRIEND_API(void) HeapStringPostBarrier(JSString** strp, JSString* prev, JSString* next);
 
 #ifdef JS_DEBUG
 /**
@@ -612,6 +613,20 @@ struct BarrierMethods<T*>
     static void exposeToJS(T* t) {
         if (t)
             js::gc::ExposeGCThingToActiveJS(JS::GCCellPtr(t));
+    }
+};
+
+template <>
+struct BarrierMethods<JSString*>
+{
+    static JSString* initial() { return nullptr; }
+    static gc::Cell* asGCThingOrNull(JSString* v) { return reinterpret_cast<gc::Cell*>(v); }
+    static void postBarrier(JSString** vp, JSString* prev, JSString* next) {
+        JS::HeapStringPostBarrier(vp, prev, next);
+    }
+    static void exposeToJS(JSString* str) {
+        if (str)
+            js::gc::ExposeGCThingToActiveJS(JS::GCCellPtr(str));
     }
 };
 

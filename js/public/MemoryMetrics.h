@@ -324,6 +324,14 @@ struct CodeSizes
 /** Data for tracking GC memory usage. */
 struct GCSizes
 {
+    // Lifetime counters, excluded from memory totals and Servo size sums.
+    uint64_t nurseryStringsAllocated = 0;
+    uint64_t nurseryStringBytesAllocated = 0;
+    uint64_t nurseryStringsPromoted = 0;
+    uint64_t nurseryStringBytesPromoted = 0;
+    uint64_t nurseryStringsDeduplicated = 0;
+    uint64_t nurseryStringBytesDeduplicated = 0;
+    uint64_t nurseryStringDedupWork = 0;
     // |nurseryDecommitted| is marked as NonHeap rather than GCHeapDecommitted
     // because we don't consider the nursery to be part of the GC heap.
 #define FOR_EACH_SIZE(macro) \

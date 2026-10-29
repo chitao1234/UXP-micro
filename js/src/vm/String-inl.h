@@ -83,11 +83,18 @@ NewInlineString(ExclusiveContext* cx, HandleLinearString base, size_t start, siz
 static inline void
 StringWriteBarrierPost(js::ExclusiveContext* maybecx, JSString** strp)
 {
+    if (IsInsideNursery(*strp) && !IsInsideNursery(reinterpret_cast<gc::Cell*>(strp)))
+        (*strp)->storeBuffer()->putCell(reinterpret_cast<gc::Cell**>(strp));
 }
 
 static inline void
 StringWriteBarrierPostRemove(js::ExclusiveContext* maybecx, JSString** strp)
 {
+    if (!maybecx || maybecx->isJSContext()) {
+        auto cell = reinterpret_cast<gc::Cell*>(strp);
+        reinterpret_cast<JSRuntime*>(gc::detail::GetCellRuntime(cell))->gc.storeBuffer.unputCell(
+            reinterpret_cast<gc::Cell**>(strp));
+    }
 }
 
 } /* namespace js */
@@ -147,6 +154,7 @@ JSDependentString::init(js::ExclusiveContext* cx, JSLinearString* base, size_t s
         d.s.u2.nonInlineCharsTwoByte = base->twoByteChars(nogc) + start;
     }
     d.s.u3.base = base;
+    base->setNonDeduplicatable();
     js::StringWriteBarrierPost(cx, reinterpret_cast<JSString**>(&d.s.u3.base));
 }
 
@@ -234,6 +242,16 @@ JSFlatString::new_(js::ExclusiveContext* cx, const CharT* chars, size_t length)
         return nullptr;
 
     str->init(chars, length);
+    if (!str->isTenured() &&
+        !cx->asJSContext()->nursery().registerMallocedBuffer(const_cast<CharT*>(chars)))
+    {
+        // The caller still owns chars on failure. Leave an inert valid cell.
+        str->d.u1.flags = INIT_THIN_INLINE_FLAGS;
+        str->d.u1.length = 0;
+        if (allowGC)
+            js::ReportOutOfMemory(cx);
+        return nullptr;
+    }
     return str;
 }
 

@@ -3464,14 +3464,17 @@ void MacroAssembler::branchPtrInNurseryChunk(Condition cond, Register ptr,
   branch32(cond, temp, Imm32(int32_t(gc::ChunkLocation::Nursery)), label);
 }
 
-void MacroAssembler::branchValueIsNurseryObject(Condition cond,
+void MacroAssembler::branchValueIsNurseryCell(Condition cond,
                                                 const Address& address,
                                                 Register temp, Label* label) {
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
   Label done;
+  Label cell;
+  branchTestString(Assembler::Equal, address, &cell);
   branchTestObject(Assembler::NotEqual, address,
                    cond == Assembler::Equal ? &done : label);
+  bind(&cell);
 
   extractObject(address, temp);
   orPtr(Imm32(gc::ChunkMask), temp);
@@ -3481,14 +3484,17 @@ void MacroAssembler::branchValueIsNurseryObject(Condition cond,
   bind(&done);
 }
 
-void MacroAssembler::branchValueIsNurseryObject(Condition cond,
+void MacroAssembler::branchValueIsNurseryCell(Condition cond,
                                                 ValueOperand value,
                                                 Register temp, Label* label) {
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
   Label done;
+  Label cell;
+  branchTestString(Assembler::Equal, value, &cell);
   branchTestObject(Assembler::NotEqual, value,
                    cond == Assembler::Equal ? &done : label);
+  bind(&cell);
 
   extractObject(value, temp);
   orPtr(Imm32(gc::ChunkMask), temp);

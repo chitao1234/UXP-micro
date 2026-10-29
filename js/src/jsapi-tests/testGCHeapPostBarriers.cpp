@@ -38,6 +38,12 @@ JSFunction* CreateGCThing(JSContext* cx)
     return static_cast<JSFunction*>(CreateGCThing<JSObject>(cx));
 }
 
+template <>
+JSString* CreateGCThing(JSContext* cx)
+{
+    return JS_NewStringCopyZ(cx, "ordinary nursery string for embedding barrier tests");
+}
+
 BEGIN_TEST(testGCHeapPostBarriers)
 {
     /* Sanity check - objects start in the nursery and then become tenured. */
@@ -51,6 +57,9 @@ BEGIN_TEST(testGCHeapPostBarriers)
     /* Currently JSObject and JSFunction objects are nursery allocated. */
     CHECK(TestHeapPostBarriersForType<JSObject>());
     CHECK(TestHeapPostBarriersForType<JSFunction>());
+    JS_SetNurseryStringsEnabled(cx, true, false);
+    CHECK(TestHeapPostBarriersForType<JSString>());
+    JS_SetNurseryStringsEnabled(cx, false, false);
 
     return true;
 }
@@ -63,6 +72,17 @@ CanAccessObject(JSObject* obj)
     CHECK(JS_GetProperty(cx, rootedObj, "x", &value));
     CHECK(value.isInt32());
     CHECK(value.toInt32() == 42);
+    return true;
+}
+
+bool
+CanAccessObject(JSString* str)
+{
+    JS::RootedString rooted(cx, str);
+    bool equal = false;
+    CHECK(JS_StringEqualsAscii(cx, rooted,
+        "ordinary nursery string for embedding barrier tests", &equal));
+    CHECK(equal);
     return true;
 }
 

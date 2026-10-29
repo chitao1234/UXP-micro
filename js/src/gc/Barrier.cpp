@@ -202,6 +202,12 @@ JS::HeapObjectPostBarrier(JSObject** objp, JSObject* prev, JSObject* next)
     js::InternalBarrierMethods<JSObject*>::postBarrier(objp, prev, next);
 }
 
+JS_FRIEND_API(void)
+JS::HeapStringPostBarrier(JSString** strp, JSString* prev, JSString* next)
+{
+    JSString::writeBarrierPost(strp, prev, next);
+}
+
 JS_PUBLIC_API(void)
 JS::HeapValuePostBarrier(JS::Value* valuep, const Value& prev, const Value& next)
 {

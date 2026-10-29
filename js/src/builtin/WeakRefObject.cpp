@@ -259,7 +259,8 @@ static const ClassOps WeakRefObjectClassOps = {
 const Class WeakRefObject::class_ = {
     "WeakRef",
     JSCLASS_HAS_PRIVATE |
-    JSCLASS_HAS_CACHED_PROTO(JSProto_WeakRef),
+    JSCLASS_HAS_CACHED_PROTO(JSProto_WeakRef) |
+    JSCLASS_FOREGROUND_FINALIZE,
     &WeakRefObjectClassOps
 };
 
