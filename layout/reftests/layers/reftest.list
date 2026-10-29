@@ -1,5 +1,6 @@
 == move-to-background-1.html move-to-background-1-ref.html
-pref(browser.memory.releaseIdleBackBuffers,true) pref(browser.memory.idleBackBufferDelayMs,50) == idle-back-buffer.html idle-back-buffer-ref.html
+# Windows Basic produces these transformed-edge differences with release off too.
+pref(browser.memory.releaseIdleBackBuffers,true) pref(browser.memory.idleBackBufferDelayMs,50) fuzzy-if(winWidget&&!layersGPUAccelerated,27,827) == idle-back-buffer.html idle-back-buffer-ref.html
 pref(layers.acceleration.enabled,false) pref(browser.memory.shrinkPaintBuffers,true) pref(browser.memory.shrinkPaintBuffers.minSavingsKB,1) pref(browser.memory.releaseIdleBackBuffers,true) pref(browser.memory.idleBackBufferDelayMs,50) == shrink-painted-buffer.html shrink-painted-buffer-ref.html
 fuzzy-if(cocoaWidget,2,6) == component-alpha-exit-1.html component-alpha-exit-1-ref.html # bug 760275
 != pull-background-1.html about:blank
@@ -22,5 +23,6 @@ skip-if(!asyncPan) != pull-background-displayport-5.html about:blank
 skip-if(!asyncPan) != pull-background-displayport-6.html about:blank # fails with non-overlay scrollbars and event regions due to bug 1148515
 fuzzy(2,30150) == opacity-blending.html opacity-blending-ref.html
 fuzzy(16,5) == mask-layer-transform.html mask-layer-transform-ref.html
-fuzzy-if(gtkWidget,1,17) == forced-bg-color-outside-visible-region.html forced-bg-color-outside-visible-region-ref.html
+# Windows Basic also differs at the six scrollbar end-cap pixels at tier 3.
+fuzzy-if(gtkWidget,1,17) fuzzy-if(winWidget&&!layersGPUAccelerated,107,6) == forced-bg-color-outside-visible-region.html forced-bg-color-outside-visible-region-ref.html
 != layerize-over-fixed-bg-1.html about:blank

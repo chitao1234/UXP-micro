@@ -116,3 +116,10 @@ user_pref("places.history.enabled", false);
 user_pref("plugin.load_flash_only", false);
 
 user_pref("media.openUnsupportedTypeWithExternalApp", false);
+
+// These optional tier controls have no product defaults. Declare their types
+// in the test profile so manifest pref() overrides can save and restore them.
+user_pref("browser.memory.releaseIdleBackBuffers", false);
+user_pref("browser.memory.idleBackBufferDelayMs", 5000);
+user_pref("browser.memory.shrinkPaintBuffers", false);
+user_pref("browser.memory.shrinkPaintBuffers.minSavingsKB", 2048);
