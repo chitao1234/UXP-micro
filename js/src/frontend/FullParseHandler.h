@@ -87,6 +87,10 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_TYPE)
         return node->isKind(PNK_OPTDOT) || node->isKind(PNK_OPTELEM);
     }
 
+    bool isOptionalChain(Node node) {
+        return node->isKind(PNK_OPTCHAIN);
+    }
+
     bool isFunctionCall(Node node) {
         // Note: super() is a special form, *not* a function call.
         return node->isKind(PNK_CALL);

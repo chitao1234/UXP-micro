@@ -9354,9 +9354,10 @@ Parser<ParseHandler>::assignExpr(InHandling inHandling, YieldHandling yieldHandl
         if (possibleError)
             possibleError->setPendingDestructuringErrorAt(exprPos, JSMSG_BAD_DESTRUCT_TARGET);
     } else {
-        // Invalid targets are early SyntaxErrors. Keep the runtime
-        // ReferenceError diagnostic for legacy assignments to calls separate.
-        errorAt(exprPos.begin, JSMSG_BAD_ASSIGNMENT_TARGET);
+        if (handler.isOptionalChain(lhs))
+            errorAt(exprPos.begin, JSMSG_BAD_ASSIGNMENT_TARGET);
+        else
+            errorAt(exprPos.begin, JSMSG_BAD_LEFTSIDE_OF_ASS);
         return null();
     }
 

@@ -12,7 +12,6 @@ const invalidTargets = [
     "({x: obj?.x = 1} = {})",
     "for ([obj?.x = 1] in []) {}",
     "for ({x: obj?.x = 1} of []) {}",
-    "1 = 2",
     "f() &&= 1",
     "f() ||= 1",
     "f() ??= 1",
@@ -43,5 +42,6 @@ assertEq(calls, 1);
 assertThrowsInstanceOf(() => eval("f() += 2"), ReferenceError);
 assertEq(calls, 2);
 assertThrowsInstanceOf(() => Function("'use strict'; f() = 2"), SyntaxError);
+assertThrowsInstanceOf(() => eval("1 = 2"), ReferenceError);
 
 reportCompare(0, 0);

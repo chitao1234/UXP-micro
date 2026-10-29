@@ -82,6 +82,8 @@ class SyntaxParseHandler
         NodeOptionalDottedProperty,
         NodeElement,
         NodeOptionalElement,
+        NodeOptionalChain,
+        NodeParenthesizedOptionalChain,
 
         // Destructuring target patterns can't be parenthesized: |([a]) = [3];|
         // must be a syntax error.  (We can't use NodeGeneric instead of these
@@ -161,6 +163,10 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_TYPE)
 
     bool isOptionalPropertyAccess(Node node) {
         return node == NodeOptionalDottedProperty || node == NodeOptionalElement;
+    }
+
+    bool isOptionalChain(Node node) {
+        return node == NodeOptionalChain || node == NodeParenthesizedOptionalChain;
     }
 
     bool isFunctionCall(Node node) {
@@ -344,7 +350,7 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_AS)
     UnaryNodeType newYieldExpression(uint32_t begin, Node value) { return NodeGeneric; }
     UnaryNodeType newYieldStarExpression(uint32_t begin, Node value) { return NodeGeneric; }
     UnaryNodeType newAwaitExpression(uint32_t begin, Node value) { return NodeGeneric; }
-    Node newOptionalChain(uint32_t begin, Node value) { return NodeGeneric; }
+    Node newOptionalChain(uint32_t begin, Node value) { return NodeOptionalChain; }
 
     // Statements
 
@@ -578,6 +584,9 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_AS)
     void setOp(Node pn, JSOp op) {}
     void setListHasNonConstInitializer(ListNodeType literal) {}
     [[nodiscard]] Node parenthesize(Node node) {
+        if (node == NodeOptionalChain)
+            return NodeParenthesizedOptionalChain;
+
         // A number of nodes have different behavior upon parenthesization, but
         // only in some circumstances.  Convert these nodes to special
         // parenthesized forms.

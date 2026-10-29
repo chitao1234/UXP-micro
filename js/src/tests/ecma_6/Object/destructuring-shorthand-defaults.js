@@ -13,7 +13,6 @@ const SYNTAX_ERROR_STMTS = [
     "({a=1, b=2, c=3, x=({}={})}),",
     "({x=1, y={z={1}}})",
     "({x=1} = {y=1});",
-    "({x = 1}) = {x: 2};",
     "({x: y={z=1}}={})",
     "({x=1}),",
     "({z={x=1}})=>{};",
@@ -89,6 +88,7 @@ for (var stmt of SYNTAX_ERROR_STMTS) {
 
 const REFERENCE_ERROR_STMTS = [
     "({x} += {});",
+    "({x = 1}) = {x: 2};",
 ]
 
 for (var stmt of REFERENCE_ERROR_STMTS) {

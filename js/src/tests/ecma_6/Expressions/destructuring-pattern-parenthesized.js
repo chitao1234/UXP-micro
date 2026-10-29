@@ -56,10 +56,9 @@ function checkError(code, nonstrictErr, strictErr)
   helper(savedEval, "'use strict'; ", strictErr);
 }
 
-// Parenthesized destructuring patterns don't trigger grammar refinement, so we
-// get an early SyntaxError for an invalid assignment target.
-checkError("var a, b; ([a, b]) = [1, 2];", SyntaxError, SyntaxError);
-checkError("var a, b; ({a, b}) = { a: 1, b: 2 };", SyntaxError, SyntaxError);
+// Parenthesized destructuring patterns retain runtime ReferenceError behavior.
+checkError("var a, b; ([a, b]) = [1, 2];", ReferenceError, ReferenceError);
+checkError("var a, b; ({a, b}) = { a: 1, b: 2 };", ReferenceError, ReferenceError);
 
 // *Nested* parenthesized destructuring patterns, on the other hand, do trigger
 // grammar refinement.  But subtargets in a destructuring pattern must be
