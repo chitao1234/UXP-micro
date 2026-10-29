@@ -48,14 +48,8 @@ from manifestparser.filters import (
     tags,
 )
 
-try:
-    from marionette_driver.addons import Addons
-    from marionette_harness import Marionette
-except ImportError as e:
-    # Defer ImportError until attempt to use Marionette
-    def reraise(*args, **kwargs):
-        raise(e)
-    Marionette = reraise
+from marionette_driver.addons import Addons
+from marionette_driver.marionette import Marionette
 
 from leaks import ShutdownLeaks, LSANLeaks
 from mochitest_options import (
@@ -69,6 +63,11 @@ from mozlog import commandline
 from mozrunner.utils import get_stack_fixer_function, test_environment
 from mozscreenshot import dump_screen
 import mozleak
+
+try:
+    basestring
+except NameError:
+    basestring = str
 
 HAVE_PSUTIL = False
 try:
@@ -185,7 +184,9 @@ class MessageLogger(object):
     def parse_line(self, line):
         """Takes a given line of input (structured or not) and
         returns a list of structured messages"""
-        line = line.rstrip().decode("UTF-8", "replace")
+        line = line.rstrip()
+        if isinstance(line, bytes):
+            line = line.decode("UTF-8", "replace")
 
         messages = []
         for fragment in line.split(MessageLogger.DELIMITER):
@@ -1392,12 +1393,7 @@ toolbar#nav-bar {
                 testob['expected'] = test['expected']
             paths.append(testob)
 
-        def path_sort(ob1, ob2):
-            path1 = ob1['path'].split('/')
-            path2 = ob2['path'].split('/')
-            return cmp(path1, path2)
-
-        paths.sort(path_sort)
+        paths.sort(key=lambda test: test['path'].split('/'))
         self._active_tests = paths
         if options.dump_tests:
             options.dump_tests = os.path.expanduser(options.dump_tests)
@@ -2021,8 +2017,8 @@ toolbar#nav-bar {
             # install specialpowers and mochikit as temporary addons
             addons = Addons(self.marionette)
 
-            addons.install(os.path.join(here, 'extensions', 'specialpowers'), temp=True)
-            addons.install(self.mochijar, temp=True)
+            addons.install(os.path.join(here, 'extensions', 'specialpowers.xpi'), temp=True)
+            addons.install(os.path.join(here, 'mochikit@mozilla.org.xpi'), temp=True)
 
             self.execute_start_script()
 

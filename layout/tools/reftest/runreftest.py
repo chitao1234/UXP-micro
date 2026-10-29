@@ -34,14 +34,8 @@ import mozrunner
 from mozrunner.utils import get_stack_fixer_function, test_environment
 from mozscreenshot import printstatus, dump_screen
 
-try:
-    from marionette_driver.addons import Addons
-    from marionette_harness import Marionette
-except ImportError as e:
-    # Defer ImportError until attempt to use Marionette
-    def reraise(*args, **kwargs):
-        raise(e)
-    Marionette = reraise
+from marionette_driver.addons import Addons
+from marionette_driver.marionette import Marionette
 
 from output import OutputHandler, ReftestFormatter
 import reftestcommandline

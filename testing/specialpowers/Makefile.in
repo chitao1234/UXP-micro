@@ -18,3 +18,7 @@ libs:: $(libs-preqs)
 	cp -RL $(DEPTH)/testing/specialpowers/specialpowers $(DEPTH)/_tests/testing/mochitest/extensions
 	$(NSINSTALL) -D $(DEPTH)/_tests/reftest/specialpowers
 	cp -RL $(DEPTH)/testing/specialpowers/specialpowers $(DEPTH)/_tests/reftest
+
+tools realchrome::
+	cp -f $(DIST)/xpi-stage/specialpowers@mozilla.org.xpi $(DEPTH)/_tests/testing/mochitest/extensions/specialpowers.xpi
+	cp -f $(DIST)/xpi-stage/specialpowers@mozilla.org.xpi $(DEPTH)/_tests/reftest/specialpowers.xpi

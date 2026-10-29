@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 _DEST_DIR = $(DEPTH)/_tests/reftest
+XPI_PKGNAME = reftest@mozilla.org
 
 include $(topsrcdir)/config/rules.mk
 
@@ -15,3 +16,6 @@ include $(topsrcdir)/build/automation-build.mk
 # The order of the :: rules ensures that.
 libs::
 	(cd $(DIST)/xpi-stage && tar $(TAR_CREATE_FLAGS) - reftest) | (cd $(_DEST_DIR) && tar -xf -)
+
+tools realchrome::
+	cp -f $(DIST)/xpi-stage/reftest@mozilla.org.xpi $(_DEST_DIR)/reftest.xpi

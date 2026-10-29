@@ -245,6 +245,11 @@ class MochitestRunner(MozbuildObject):
 def setup_argument_parser():
     build_obj = MozbuildObject.from_environment(cwd=here)
 
+    marionette_client = os.path.join(
+        build_obj.topsrcdir, 'testing', 'marionette', 'client')
+    if marionette_client not in sys.path:
+        sys.path.insert(0, marionette_client)
+
     build_path = os.path.join(build_obj.topobjdir, 'build')
     if build_path not in sys.path:
         sys.path.append(build_path)

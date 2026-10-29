@@ -66,7 +66,8 @@ class ReftestManifest(object):
 
         urlprefix = ''
         for line in lines:
-            line = line.decode('utf-8')
+            if isinstance(line, bytes):
+                line = line.decode('utf-8')
 
             # Entire line is a comment.
             if line.startswith('#'):

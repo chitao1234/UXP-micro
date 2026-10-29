@@ -176,6 +176,10 @@ class ReftestRunner(MozbuildObject):
 
     def run_desktop_test(self, **kwargs):
         """Runs a reftest, in desktop Firefox."""
+        marionette_client = os.path.join(
+            self.topsrcdir, 'testing', 'marionette', 'client')
+        if marionette_client not in sys.path:
+            sys.path.insert(0, marionette_client)
         import runreftest
 
         args = Namespace(**kwargs)

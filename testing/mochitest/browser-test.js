@@ -587,7 +587,9 @@ Tester.prototype = {
             sidebar.docShell.createAboutBlankContentViewer(null);
             sidebar.setAttribute("src", "about:blank");
 
-            SelfSupportBackend.uninit();
+            if (AppConstants.MOZ_APP_NAME == "firefox") {
+              SelfSupportBackend.uninit();
+            }
           }
 
           // Destroy BackgroundPageThumbs resources.
