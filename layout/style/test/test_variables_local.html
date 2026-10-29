@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Local custom-property resolution against inherited computed values</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="root"><div id="child"><div id="grandchild"></div></div></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+var root=document.getElementById('root'),child=document.getElementById('child'),grandchild=document.getElementById('grandchild');
+function value(node,name){return getComputedStyle(node).getPropertyValue(name).trim();}
+function names(node){var s=getComputedStyle(node),a=[];for(var i=0;i<s.length;i++)if(s.item(i).indexOf('--')===0)a.push(s.item(i));return a;}
+for(var i=0;i<256;i++)root.style.setProperty('--v'+i,String(i));
+root.style.setProperty('--source','red');
+root.style.setProperty('--alias','var(--source)');
+child.style.setProperty('--source','blue');
+is(value(child,'--alias'),'red','inherited computed alias is not resolved against child overrides');
+is(value(child,'--source'),'blue','local override shadows inherited value');
+child.style.setProperty('--new','var(--v255)');
+is(value(child,'--new'),'255','new local property reads inherited terminal');
+child.style.setProperty('--source','initial');
+child.style.setProperty('--new','var(--source,fallback)');
+is(value(child,'--source'),'','initial invalidates inherited value');
+is(value(child,'--new'),'fallback','invalid local value masks valid inherited value');
+child.style.setProperty('--source','var(--source,fallback)');
+is(value(child,'--source'),'','self-cycle is invalid despite an inherited value');
+is(value(child,'--new'),'fallback','self-cycle does not expose the inherited value');
+child.style.setProperty('--source','var(--loop)');
+child.style.setProperty('--loop','var(--source)');
+is(value(child,'--new'),'fallback','local cycle is invalid despite valid inherited source');
+child.style.setProperty('--source','inherit');
+is(value(child,'--source'),'red','inherit removes local shadow');
+is(value(child,'--loop'),'red','local dependency observes explicit inherit');
+child.style.setProperty('--source','unset');
+is(value(child,'--new'),'red','unset preserves inherited terminal');
+child.style.setProperty('--source','green');
+grandchild.style.setProperty('--source','yellow');
+is(value(grandchild,'--loop'),'green','grandchild retains already-computed parent dependency');
+root.style.setProperty('--source','purple');
+is(value(grandchild,'--alias'),'purple','ancestor mutation recomputes inherited alias');
+is(value(grandchild,'--loop'),'green','ancestor mutation preserves parent-local alias');
+child.style.removeProperty('--source');
+is(value(grandchild,'--loop'),'purple','removing override restores ancestor value');
+
+// Local DAGs with forward edges, inherited terminals, missing references and
+// dependencies in fallbacks that are not selected still have identical values.
+for(var i=0;i<24;i++)child.style.setProperty('--chain'+i,i===23?'var(--v255)':'var(--chain'+(i+1)+')');
+is(value(child,'--chain0'),'255','forward local chain resolves');
+child.style.setProperty('--chain23','var(--absent,var(--v254))');
+is(value(child,'--chain0'),'254','nested fallback reads inherited terminal');
+child.style.setProperty('--chain23','var(--v1,var(--chain0))');
+is(value(child,'--chain0'),'','unused fallback edges still participate in cycle detection');
+child.style.setProperty('--chain23','var(--v1)');
+is(value(child,'--chain0'),'1','cycle removal does not persist across restyles');
+var before=names(child);
+is(new Set(before).size,before.length,'no duplicate computed property names');
+is(names(child).join(','),before.join(','),'indexed enumeration is repeatable');
+child.style.color='black';child.offsetWidth;
+is(names(child).join(','),before.join(','),'unrelated restyle preserves computed enumeration');
+for(var i=0;i<256;i++)is(value(child,'--v'+i),String(i),'unchanged inherited property '+i);
+
+// Force dense and unprofitable construction, including replacement/addition,
+// then return to sparse edits while earlier computed styles remain accessible.
+for(var i=0;i<96;i++)child.style.setProperty('--v'+i,'changed'+i);
+for(var i=0;i<96;i++)is(value(child,'--v'+i),'changed'+i,'dense local property '+i);
+for(var i=0;i<96;i++)child.style.removeProperty('--v'+i);
+child.style.setProperty('--v7','restored-edit');
+is(value(child,'--v7'),'restored-edit','sparse edit after dense construction');
+is(value(root,'--v7'),'7','parent never mutates');
+is(value(grandchild,'--v7'),'restored-edit','descendant follows sparse edit');
+child.style.setProperty('--huge','x'.repeat(6000));
+is(value(child,'--huge').length,6000,'unprofitable string value survives');
+child.style.removeProperty('--huge');
+is(value(child,'--huge'),'','removed appended name is absent');
+
+// Authored declaration order is independent of computed map construction.
+var authored=document.createElement('div');
+authored.style.cssText='--z:1;--a:2;--m:3';
+var authoredOrder=[];for(var i=0;i<authored.style.length;i++)authoredOrder.push(authored.style.item(i));
+authored.style.setProperty('--a','4');
+authoredOrder=Array.from(authored.style);
+root.appendChild(authored);getComputedStyle(authored).color;
+is(Array.from(authored.style).join(','),authoredOrder.join(','),'computed resolution does not change authored declaration order');
+is(authored.style.getPropertyValue('--a'),'4','computed resolution does not change authored value');
+SimpleTest.finish();
+</script>

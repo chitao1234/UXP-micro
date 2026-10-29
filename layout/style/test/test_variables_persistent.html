@@ -26,7 +26,7 @@ var children = [];
 for (var row = 0; row < 64; row++) {
   var child = document.createElement("div");
   for (var j = 0; j < 64; j++) child.style.setProperty(overrideNames[j], String(1000 + row + j));
-  // This dependency moves an inherited name ahead of the first output entry.
+  // References to later inherited names must not require their recomputation.
   child.style.setProperty(dependent, "var(" + dependency + ")");
   root.appendChild(child); children.push(child);
   is(value(child, dependent), dependencyValue, "dependency with a later inherited name");
@@ -34,8 +34,8 @@ for (var row = 0; row < 64; row++) {
   is(value(child, unchanged), value(root, unchanged), "unchanged inherited entry survives");
   var order = names(child);
   is(order.length, 512, "computed custom-property count");
-  is(order[0], dependency, "dependency output retains its original enumeration order");
-  is(order[1], dependent, "dependent output follows the dependency");
+  is(order.slice().sort().join(","), rootOrder.slice().sort().join(","), "computed enumeration preserves every name without duplicates");
+  is(names(child).join(","), order.join(","), "computed enumeration remains stable");
 }
 var parent = children[0], nested = document.createElement("div");
 nested.style.setProperty(overrideNames[0], "nested"); parent.appendChild(nested);

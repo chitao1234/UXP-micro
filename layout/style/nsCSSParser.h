@@ -288,13 +288,16 @@ public:
 
   /**
    * Parses aPropertyValue as a property value and resolves variable references
-   * using the values in aVariables.
+   * using the values in aVariables. If aInherited is supplied, names absent
+   * from aVariables read their already-computed inherited values. An invalid
+   * value present in aVariables still shadows a valid inherited value.
    */
   bool ResolveVariableValue(const nsAString& aPropertyValue,
                             const mozilla::CSSVariableValues* aVariables,
                             nsString& aResult,
                             nsCSSTokenSerializationType& aFirstToken,
-                            nsCSSTokenSerializationType& aLastToken);
+                            nsCSSTokenSerializationType& aLastToken,
+                            const mozilla::CSSVariableValues* aInherited = nullptr);
 
   /**
    * Parses a string as a CSS token stream value for particular property,

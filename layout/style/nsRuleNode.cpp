@@ -11254,8 +11254,17 @@ nsRuleNode::ComputeVariablesData(void* aStartStruct,
              "declarations specified");
 
   CSSVariableResolver resolver(&variables->mVariables);
+  // The faster construction changes allocation timing during page load and
+  // can raise peak process memory even while retaining smaller dictionaries.
+  // Low-memory tiers retain the historical loading path, then use the local
+  // graph for subsequent restyles. Other tiers can favor loading throughput.
+  int32_t memoryTier = Preferences::GetInt("browser.memoryTier", 3);
+  bool allowLocal =
+    mPresContext->Document()->GetReadyStateEnum() == nsIDocument::READYSTATE_COMPLETE ||
+    Preferences::GetBool("layout.css.variables.local-resolution-during-load",
+                         memoryTier < 0 || memoryTier > 1);
   resolver.Resolve(&parentVariables->mVariables,
-                   aRuleData->mVariables);
+                   aRuleData->mVariables, allowLocal);
   aRuleData->mVariables->ResolveRevertLayerFallbacks(&parentVariables->mVariables,
                                                      &variables->mVariables);
 
@@ -11263,8 +11272,11 @@ nsRuleNode::ComputeVariablesData(void* aStartStruct,
   // inherited, or override values without changing the set of names.  Reuse
   // the parent's immutable data block when the computed result is identical;
   // CSSVariableValues is copy-on-write, so later mutations will detach safely.
-  bool factored = false;
-  if (Preferences::GetBool("layout.css.variables.base", true)) {
+  // A local resolver can construct the final bounded overlay directly. A
+  // revert-layer fallback may have flattened it again, requiring normal Factor.
+  bool factored = resolver.BuiltFromInherited() &&
+                  variables->mVariables.IsFactored();
+  if (!factored && Preferences::GetBool("layout.css.variables.base", true)) {
     factored = variables->mVariables.Factor(parentVariables->mVariables, 32);
   }
   if (!factored &&

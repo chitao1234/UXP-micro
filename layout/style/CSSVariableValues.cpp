@@ -16,6 +16,7 @@
 #include "nsHashKeys.h"
 #include "nsTHashtable.h"
 #include "nsThreadUtils.h"
+#include <algorithm>
 #include <cstring>
 
 namespace mozilla {
@@ -862,6 +863,193 @@ CSSVariableValues::Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides
   // Factor mutates the representation, even though its computed values stay
   // identical. Shared, frozen and interned dictionaries must detach first.
   return EnsureWritableData()->Factor(*aBase.mData, aMaxOverrides, persistent);
+}
+
+bool
+CSSVariableValues::FindIndex(const nsAString& aName, size_t* aIndex) const
+{
+  if (!mData) {
+    return false;
+  }
+  size_t index;
+  if (mData->Find(aName, &index)) {
+    if (!mData->mBase) {
+      *aIndex = index;
+    } else if (mData->mVariables[index].mBaseIndex != UINT32_MAX) {
+      *aIndex = mData->mVariables[index].mBaseIndex;
+    } else {
+      size_t position = mData->mBase->Count();
+      for (size_t i = 0; i < index; i++) {
+        position += mData->mVariables[i].mBaseIndex == UINT32_MAX;
+      }
+      *aIndex = position;
+    }
+    return true;
+  }
+  return mData->mBase && mData->mBase->Find(aName, aIndex);
+}
+
+bool
+CSSVariableValues::IsFactored() const
+{
+  return mData && mData->HasBase();
+}
+
+bool
+CSSVariableValues::BuildFromInherited(const CSSVariableValues& aInherited,
+                                      const CSSVariableValues& aLocal,
+                                      uint32_t aMaxOverrides)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  // Keep both inputs alive, including when this aliases one of the wrappers.
+  RefPtr<Data> parent = aInherited.mData;
+  RefPtr<Data> local = aLocal.mData;
+  MOZ_ASSERT(!local || !local->HasBase());
+  if (!local || local->mVariables.IsEmpty()) {
+    mData = parent;
+    return true;
+  }
+
+  auto sameValue = [](const Data& left, const Data::Variable& a,
+                      const Data& right, const Data::Variable& b) {
+    return a.mTokens == b.mTokens && a.mValueLength == b.mValueLength &&
+      !memcmp(left.ValueData(a), right.ValueData(b),
+              a.mValueLength * sizeof(char16_t));
+  };
+  uint32_t changes = 0;
+  for (const auto& value : local->mVariables) {
+    size_t position;
+    const Data* owner = nullptr;
+    const Data::Variable* entry = nullptr;
+    if (!aInherited.FindIndex(local->Name(value), &position) ||
+        !parent->EntryAt(position, &owner, &entry) ||
+        !sameValue(*local, value, *owner, *entry)) {
+      changes++;
+    }
+  }
+  if (!changes) {
+    mData = parent;
+    return true;
+  }
+
+  int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+  bool persistent = Preferences::GetBool("layout.css.variables.persistent",
+                                         tier >= 0 && tier <= 1);
+  const Data* base = parent && persistent && parent->mBase
+                   ? parent->mBase.get() : parent.get();
+  if (base && !base->mBase && base->mFrozen &&
+      !base->mVariables.IsEmpty() && changes <= aMaxOverrides &&
+      Preferences::GetBool("layout.css.variables.base", true)) {
+    struct Entry {
+      const Data* mOwner;
+      const Data::Variable* mValue;
+      size_t mPosition;
+    };
+    AutoTArray<Entry, 32> entries;
+    uint32_t baseCount = base->Count();
+    if (parent->mBase) {
+      size_t position = baseCount;
+      for (const auto& value : parent->mVariables) {
+        size_t order = value.mBaseIndex == UINT32_MAX
+                     ? position++ : value.mBaseIndex;
+        size_t ignored;
+        if (!local->Find(parent->Name(value), &ignored)) {
+          entries.AppendElement(Entry{parent.get(), &value, order});
+        }
+      }
+    }
+    size_t nextPosition = parent->Count();
+    for (const auto& value : local->mVariables) {
+      nsDependentString name = local->Name(value);
+      size_t position;
+      if (base->Find(name, &position)) {
+        if (sameValue(*local, value, *base, base->mVariables[position])) {
+          continue;
+        }
+      } else if (!aInherited.FindIndex(name, &position)) {
+        position = nextPosition++;
+      }
+      entries.AppendElement(Entry{local.get(), &value, position});
+    }
+    std::sort(entries.begin(), entries.end(),
+      [](const Entry& a, const Entry& b) { return a.mPosition < b.mPosition; });
+
+    // Compute the same logical flat/delta profitability test as Factor, but
+    // using only the flat ancestor's scalar size and the effective overrides.
+    // The ancestor is frozen, so its string arena has no dead replacement data.
+    uint64_t fullBytes = uint64_t(base->mStrings.Length()) * sizeof(char16_t) +
+                         uint64_t(baseCount) * (sizeof(Data::Variable) + 8);
+    uint64_t newBytes = 0;
+    for (const auto& item : entries) {
+      const auto& value = *item.mValue;
+      uint64_t bytes = uint64_t(value.mNameLength + value.mValueLength) *
+                       sizeof(char16_t);
+      newBytes += bytes + sizeof(Data::Variable) + 8;
+      if (item.mPosition < baseCount) {
+        const auto& old = base->mVariables[item.mPosition];
+        fullBytes -= uint64_t(old.mNameLength + old.mValueLength) *
+                     sizeof(char16_t);
+        fullBytes += bytes;
+      } else {
+        fullBytes += bytes + sizeof(Data::Variable) + 8;
+      }
+    }
+    if (!persistent || newBytes * 4 <= fullBytes * 3) {
+      RefPtr<Data> result = new Data();
+      result->mUseCompact = local->mUseCompact;
+      result->mBase = const_cast<Data*>(base);
+      result->mVariables.SetCapacity(entries.Length());
+      for (const auto& item : entries) {
+        const auto& value = *item.mValue;
+        uint32_t nameOffset = result->AppendString(item.mOwner->Name(value));
+        uint32_t valueOffset = result->AppendString(item.mOwner->Value(value));
+        result->mVariables.AppendElement(Data::Variable(
+          nameOffset, value.mNameLength, valueOffset, value.mValueLength,
+          value.mTokens, item.mPosition < baseCount ? item.mPosition : UINT32_MAX));
+      }
+      if (!entries.IsEmpty()) {
+        if (result->mUseCompact) {
+          result->BuildIndex(entries.Length() * 2);
+        } else {
+          result->RebuildLegacyIndex();
+        }
+      }
+      mData = result;
+      return true;
+    }
+  }
+
+  // Dense/unprofitable or incompatible representation: preserve the complete
+  // inherited prefix without repeating graph resolution. Local new properties
+  // retain the historical depth-first emission order supplied by aLocal.
+  RefPtr<Data> result = new Data();
+  result->mUseCompact = local->mUseCompact;
+  size_t units = 0;
+  uint32_t inheritedCount = parent ? parent->Count() : 0;
+  for (uint32_t i = 0; i < inheritedCount; i++) {
+    const Data* owner = nullptr;
+    const Data::Variable* entry = nullptr;
+    MOZ_ALWAYS_TRUE(parent->EntryAt(i, &owner, &entry));
+    nsDependentString name = owner->Name(*entry);
+    size_t replacement;
+    if (local->Find(name, &replacement)) {
+      owner = local.get();
+      entry = &local->mVariables[replacement];
+    }
+    result->PutFull(name, owner->Value(*entry),
+                     entry->FirstToken(), entry->LastToken());
+    units += name.Length() + entry->mValueLength;
+  }
+  for (const auto& value : local->mVariables) {
+    nsDependentString name = local->Name(value);
+    if (!parent || !parent->Contains(name)) {
+      result->PutFull(name, local->Value(value),
+                       value.FirstToken(), value.LastToken());
+    }
+  }
+  CSSVariableResolver::RecordInheritedMaterialization(inheritedCount, units);
+  mData = result;
+  return false;
 }
 
 void

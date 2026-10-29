@@ -679,7 +679,8 @@ public:
                             const CSSVariableValues* aVariables,
                             nsString& aResult,
                             nsCSSTokenSerializationType& aFirstToken,
-                            nsCSSTokenSerializationType& aLastToken);
+                            nsCSSTokenSerializationType& aLastToken,
+                            const CSSVariableValues* aInherited);
 
   /**
    * Parses a string as a CSS token stream value for particular property,
@@ -1106,13 +1107,15 @@ protected:
                               const CSSVariableValues* aVariables,
                               nsString& aResult,
                               nsCSSTokenSerializationType& aResultFirstToken,
-                              nsCSSTokenSerializationType& aResultLastToken);
+                              nsCSSTokenSerializationType& aResultLastToken,
+                              const CSSVariableValues* aInherited = nullptr);
   // Helper function for ResolveValueWithVariableReferences.
   bool ResolveValueWithVariableReferencesRec(
                              nsString& aResult,
                              nsCSSTokenSerializationType& aResultFirstToken,
                              nsCSSTokenSerializationType& aResultLastToken,
-                             const CSSVariableValues* aVariables);
+                             const CSSVariableValues* aVariables,
+                             const CSSVariableValues* aInherited);
 
   enum nsSelectorParsingStatus {
     // we have parsed a selector and we saw a token that cannot be
@@ -3112,7 +3115,8 @@ CSSParserImpl::ResolveValueWithVariableReferencesRec(
                                      nsString& aResult,
                                      nsCSSTokenSerializationType& aResultFirstToken,
                                      nsCSSTokenSerializationType& aResultLastToken,
-                                     const CSSVariableValues* aVariables)
+                                     const CSSVariableValues* aVariables,
+                                     const CSSVariableValues* aInherited)
 {
   // This function assumes we are already recording, and will leave the scanner
   // recording when it returns.
@@ -3266,9 +3270,13 @@ CSSParserImpl::ResolveValueWithVariableReferencesRec(
             // check if the variable value is the empty string, as that means
             // that the variable was invalid at computed value time due to
             // unresolveable variable references or cycles.
-            valid = aVariables->Get(variableName, variableValue,
-                                    varFirstToken, varLastToken) &&
-                    !variableValue.IsEmpty();
+            bool found = aVariables->Get(variableName, variableValue,
+                                          varFirstToken, varLastToken);
+            if (!found && aInherited) {
+              found = aInherited->Get(variableName, variableValue,
+                                       varFirstToken, varLastToken);
+            }
+            valid = found && !variableValue.IsEmpty();
           } else {
             valid = ResolveEnvironmentVariable(mToken.mIdent, variableValue,
                                                varFirstToken,varLastToken) &&
@@ -3314,7 +3322,8 @@ CSSParserImpl::ResolveValueWithVariableReferencesRec(
               if (!ResolveValueWithVariableReferencesRec(fallback,
                                                          varFirstToken,
                                                          varLastToken,
-                                                         aVariables)) {
+                                                         aVariables,
+                                                         aInherited)) {
                 // Fallback value had invalid tokens or an invalid variable reference
                 // that itself had no fallback.
                 return false;
@@ -3430,7 +3439,8 @@ CSSParserImpl::ResolveValueWithVariableReferences(
                                         const CSSVariableValues* aVariables,
                                         nsString& aResult,
                                         nsCSSTokenSerializationType& aFirstToken,
-                                        nsCSSTokenSerializationType& aLastToken)
+                                        nsCSSTokenSerializationType& aLastToken,
+                                        const CSSVariableValues* aInherited)
 {
   aResult.Truncate(0);
 
@@ -3447,7 +3457,8 @@ CSSParserImpl::ResolveValueWithVariableReferences(
 
   nsString value;
   nsCSSTokenSerializationType firstToken, lastToken;
-  bool ok = ResolveValueWithVariableReferencesRec(value, firstToken, lastToken, aVariables) &&
+  bool ok = ResolveValueWithVariableReferencesRec(value, firstToken, lastToken,
+                                                  aVariables, aInherited) &&
             !GetToken(true);
 
   mScanner->StopRecording();
@@ -3465,7 +3476,8 @@ CSSParserImpl::ResolveVariableValue(const nsAString& aPropertyValue,
                                     const CSSVariableValues* aVariables,
                                     nsString& aResult,
                                     nsCSSTokenSerializationType& aFirstToken,
-                                    nsCSSTokenSerializationType& aLastToken)
+                                    nsCSSTokenSerializationType& aLastToken,
+                                    const CSSVariableValues* aInherited)
 {
   nsCSSScanner scanner(aPropertyValue, 0);
 
@@ -3478,7 +3490,8 @@ CSSParserImpl::ResolveVariableValue(const nsAString& aPropertyValue,
   InitScanner(scanner, reporter, nullptr, nullptr, nullptr);
 
   bool valid = ResolveValueWithVariableReferences(aVariables, aResult,
-                                                  aFirstToken, aLastToken);
+                                                  aFirstToken, aLastToken,
+                                                  aInherited);
 
   ReleaseScanner();
   return valid;
@@ -20160,11 +20173,12 @@ nsCSSParser::ResolveVariableValue(const nsAString& aPropertyValue,
                                   const CSSVariableValues* aVariables,
                                   nsString& aResult,
                                   nsCSSTokenSerializationType& aFirstToken,
-                                  nsCSSTokenSerializationType& aLastToken)
+                                  nsCSSTokenSerializationType& aLastToken,
+                                  const CSSVariableValues* aInherited)
 {
   return static_cast<CSSParserImpl*>(mImpl)->
     ResolveVariableValue(aPropertyValue, aVariables,
-                         aResult, aFirstToken, aLastToken);
+                         aResult, aFirstToken, aLastToken, aInherited);
 }
 
 void

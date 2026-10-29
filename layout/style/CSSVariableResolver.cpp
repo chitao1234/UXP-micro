@@ -15,6 +15,7 @@
 #include "mozilla/UniquePtr.h"
 #include "nsIMemoryReporter.h"
 #include "nsThreadUtils.h"
+#include "nsTHashtable.h"
 #include <algorithm>
 
 namespace mozilla {
@@ -27,7 +28,15 @@ static uint64_t sResolverVariables;
 static uint64_t sResolverBitmapSlotsCleared;
 static uint64_t sResolverReferenceSlotsVisited;
 static uint64_t sResolverEdges;
+static uint64_t sInheritedCandidates;
+static uint64_t sInheritedMaterialized;
+static uint64_t sMaterializedInputUnits;
+static uint64_t sLocalGraphNodes;
+static uint64_t sGraphNodes;
+static uint64_t sLocalCalls;
+static uint64_t sLocalFallbacks;
 static bool sSparseResolution = true;
+static bool sLocalResolution = true;
 
 class CSSVariableResolverReporter final : public nsIMemoryReporter
 {
@@ -42,12 +51,17 @@ public:
     uint64_t calls = sResolverCalls, variables = sResolverVariables;
     uint64_t cleared = sResolverBitmapSlotsCleared;
     uint64_t visited = sResolverReferenceSlotsVisited, edges = sResolverEdges;
+    uint64_t inherited = sInheritedCandidates, materialized = sInheritedMaterialized;
+    uint64_t units = sMaterializedInputUnits, localNodes = sLocalGraphNodes;
+    uint64_t graphNodes = sGraphNodes, localCalls = sLocalCalls;
+    uint64_t fallbacks = sLocalFallbacks;
 #define RESOLVER_COUNT(path, value, description) \
     MOZ_COLLECT_REPORT("css-variable-resolver/" path, KIND_OTHER, \
                        UNITS_COUNT_CUMULATIVE, value, description)
     RESOLVER_COUNT("calls", calls, "Completed custom-property resolution calls.");
     RESOLVER_COUNT("variables", variables,
-      "Custom properties visited by resolution, including inherited computed values.");
+      "Effective custom-property population across resolution calls, including "
+      "inherited values that local resolution does not materialize.");
     RESOLVER_COUNT("bitmap-slots-cleared", cleared,
       "Dependency bitmap slots cleared while building custom-property graphs. "
       "This counts work, not retained memory.");
@@ -56,6 +70,22 @@ public:
       "Sorting comparisons are not included.");
     RESOLVER_COUNT("edges", edges,
       "Unique dependency edges built for custom-property resolution.");
+    RESOLVER_COUNT("inherited-candidates", inherited,
+      "Inherited custom properties available across resolution calls.");
+    RESOLVER_COUNT("inherited-materialized", materialized,
+      "Inherited entries materialized in a resolver graph or a local-builder "
+      "flat fallback. Final retained dictionaries are measured separately.");
+    RESOLVER_COUNT("materialized-input-units", units,
+      "UTF-16 name/value units in those materialized inherited entries. "
+      "Logical input size, not measured memcpy or DRAM traffic.");
+    RESOLVER_COUNT("local-graph-nodes", localNodes,
+      "Locally specified nodes in successful local-only resolution calls.");
+    RESOLVER_COUNT("graph-nodes", graphNodes,
+      "Actual custom-property graph nodes constructed across resolution calls.");
+    RESOLVER_COUNT("local-calls", localCalls,
+      "Calls resolved with a local-only graph and inherited value lookup.");
+    RESOLVER_COUNT("local-fallbacks", fallbacks,
+      "Local-only attempts that retained the historical graph path.");
 #undef RESOLVER_COUNT
     return NS_OK;
   }
@@ -101,6 +131,7 @@ public:
     }
     mDense = false;
     mReferencesNonExistentVariable = false;
+    mInheritedReferences.Clear();
   }
 
   void RecordVariableReference(const nsAString& aVariableName)
@@ -122,6 +153,11 @@ public:
           }
         }
       }
+    } else if (mResolver.mInherited &&
+               mResolver.mInherited->FindIndex(aVariableName, &id)) {
+      // Inherited values are already computed. Keep their edges only for
+      // accounting; they cannot contribute a cycle in this element's graph.
+      mInheritedReferences.PutEntry(id);
     } else {
       mReferencesNonExistentVariable = true;
     }
@@ -161,6 +197,7 @@ public:
 
   uint64_t SlotsCleared() const { return mSlotsCleared; }
   uint64_t SlotsVisited() const { return mSlotsVisited; }
+  size_t InheritedEdges() const { return mInheritedReferences.Count(); }
 
 private:
   CSSVariableResolver& mResolver;
@@ -171,6 +208,7 @@ private:
   // that ID.
   const UniquePtr<bool[]> mReferences;
   AutoTArray<size_t, 8> mReferencedIDs;
+  nsTHashtable<nsUint32HashKey> mInheritedReferences;
   const bool mSparse;
   bool mDense;
 
@@ -258,7 +296,8 @@ CSSVariableResolver::ResolveVariable(size_t aID)
     nsCSSTokenSerializationType firstToken = eCSSTokenSerialization_Nothing;
     nsCSSTokenSerializationType lastToken = eCSSTokenSerialization_Nothing;
     if (!mParser.ResolveVariableValue(mVariables[aID].mValue, mOutput,
-                                      resolvedValue, firstToken, lastToken)) {
+                                      resolvedValue, firstToken, lastToken,
+                                      mInherited)) {
       resolvedValue.Truncate(0);
       firstToken = eCSSTokenSerialization_Nothing;
       lastToken = eCSSTokenSerialization_Nothing;
@@ -270,8 +309,93 @@ CSSVariableResolver::ResolveVariable(size_t aID)
 }
 
 void
+CSSVariableResolver::RecordInheritedMaterialization(size_t aCount, size_t aUnits)
+{
+  sInheritedMaterialized += aCount;
+  sMaterializedInputUnits += aUnits;
+}
+
+bool
+CSSVariableResolver::TryResolveLocal(const CSSVariableValues* aInherited,
+                                    const CSSVariableDeclarations* aSpecified,
+                                    size_t inheritedCount)
+{
+  if (mOutput == aInherited || mOutput->Count()) {
+    return false;
+  }
+  // Count before importing declarations: dense sets must not allocate and
+  // populate the local graph only to discard it and populate the full graph.
+  if (aSpecified->Count() > std::max(size_t(32), inheritedCount / 4)) {
+    sLocalFallbacks++;
+    return false;
+  }
+
+  // Own a snapshot throughout parsing and construction. The output must never
+  // mutate the parent, including when local overrides are invalid or cyclic.
+  CSSVariableValues inherited(*aInherited);
+  aSpecified->AddVariablesToResolver(this);
+  size_t n = mVariables.Length();
+  size_t effectiveCount = inheritedCount;
+  for (const auto& variable : mVariables) {
+    size_t ignored;
+    effectiveCount += !inherited.FindIndex(variable.mVariableName, &ignored);
+  }
+
+  mInherited = &inherited;
+  mReferences.SetLength(n);
+  EnumerateVariableReferencesData data(*this, true);
+  uint64_t edges = 0;
+  for (size_t id = 0; id < n; id++) {
+    if (mVariables[id].mValue.IsEmpty()) {
+      continue;
+    }
+    data.Reset();
+    if (mParser.EnumerateVariableReferences(mVariables[id].mValue,
+                                            RecordVariableReference, &data)) {
+      data.CopyReferencesTo(mReferences[id]);
+      edges += mReferences[id].Length() + data.InheritedEdges();
+      if (data.HasReferenceToVariable(id)) {
+        mVariables[id].mValue.Truncate();
+      }
+      mVariables[id].mReferencesNonExistentVariable =
+        data.ReferencesNonExistentVariable();
+    } else {
+      MOZ_ASSERT(false, "Previously parsed local custom property is invalid");
+      mVariables[id].mValue.Truncate();
+    }
+  }
+  mNextIndex = 1;
+  for (size_t id = 0; id < n; id++) {
+    if (!mVariables[id].mIndex) {
+      RemoveCycles(id);
+      MOZ_ASSERT(mStack.IsEmpty());
+    }
+  }
+  for (size_t id = 0; id < n; id++) {
+    if (!mVariables[id].mResolved) {
+      ResolveVariable(id);
+    }
+  }
+  // Computed custom-property enumeration order is unspecified by CSSOM.
+  // Retain the inherited prefix and append newly introduced names in stable
+  // local emission order. Authored declaration enumeration is unaffected.
+  mBuiltFromInherited = mOutput->BuildFromInherited(inherited, *mOutput, 32);
+  mInherited = nullptr;
+  sResolverCalls++;
+  sResolverVariables += effectiveCount;
+  sResolverBitmapSlotsCleared += data.SlotsCleared();
+  sResolverReferenceSlotsVisited += data.SlotsVisited();
+  sResolverEdges += edges;
+  sLocalGraphNodes += n;
+  sGraphNodes += n;
+  sLocalCalls++;
+  return true;
+}
+
+void
 CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
-                             const CSSVariableDeclarations* aSpecified)
+                             const CSSVariableDeclarations* aSpecified,
+                             bool aAllowLocalResolution)
 {
   MOZ_ASSERT(!mResolved);
 
@@ -287,9 +411,22 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
     reporterInitialized = true;
     Preferences::AddBoolVarCache(&sSparseResolution,
                                  "layout.css.variables.sparse-resolution", true);
+    Preferences::AddBoolVarCache(&sLocalResolution,
+                                 "layout.css.variables.local-resolution", true);
     RegisterStrongMemoryReporter(new CSSVariableResolverReporter());
   }
   bool sparse = sSparseResolution;
+  size_t inheritedCount = aInherited->Count();
+  sInheritedCandidates += inheritedCount;
+  // Test shared eligibility before the control pref: small maps run exactly
+  // the same path in both arms, without a second Count over parent overrides.
+  if (aAllowLocalResolution && inheritedCount >= 256 && sLocalResolution &&
+      TryResolveLocal(aInherited, aSpecified, inheritedCount)) {
+#ifdef DEBUG
+    mResolved = true;
+#endif
+    return;
+  }
 
   aInherited->AddVariablesToResolver(this);
   aSpecified->AddVariablesToResolver(this);
@@ -297,6 +434,7 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   // First we look at each variable's value and record which other variables
   // it references.
   size_t n = mVariables.Length();
+  sGraphNodes += n;
   // For small maps, bitmap operations are cheaper than managing a sparse
   // list. The control and small-map paths retain the historical behavior.
   sparse &= n >= 32;
@@ -376,6 +514,9 @@ CSSVariableResolver::Put(const nsAString& aVariableName,
                          bool aWasInherited)
 {
   MOZ_ASSERT(!mResolved);
+  if (aWasInherited) {
+    RecordInheritedMaterialization(1, aVariableName.Length() + aValue.Length());
+  }
 
   size_t id;
   if (mVariableIDs.Get(aVariableName, &id)) {

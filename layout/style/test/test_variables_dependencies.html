@@ -18,7 +18,10 @@ var order=names(root),target=order[0];
 child.style.setProperty(target,'var('+order[100]+')|var('+order[10]+')|var('+order[50]+')|var('+order[100]+')');
 is(value(child,target),value(root,order[100])+'|'+value(root,order[10])+'|'+value(root,order[50])+'|'+value(root,order[100]),'duplicate and reverse-order references substitute correctly');
 var childOrder=names(child);
-is(childOrder.slice(0,4).join(','),[order[10],order[50],order[100],target].join(','),'dependency traversal retains ascending variable-ID order');
+// CSSOM leaves computed custom-property enumeration order undefined. Require
+// complete, duplicate-free and stable enumeration, not resolver DFS order.
+is(childOrder.slice().sort().join(','),order.slice().sort().join(','),'dependencies preserve the complete name set');
+is(names(child).join(','),childOrder.join(','),'computed enumeration is stable');
 child.style.setProperty(target,'var(--missing,ok)');
 is(value(child,target),'ok','missing references do not retain a preceding graph');
 child.style.setProperty(target,'var('+target+',fallback)');
@@ -33,13 +36,12 @@ for(var i=0;i<=80;i++)is(value(child,order[i]),'','all cycle members are invalid
 child.style.setProperty('--result','var('+order[80]+',recovered)');
 is(value(child,'--result'),'recovered','cycle fallback resolves outside the cycle');
 child.removeAttribute('style');
-// A dense dependency set uses the bitmap-copy path. The exact order remains
-// the original ascending IDs even when references occur in reverse order.
+// A dense dependency set preserves substitution text and every property name.
 var dense=[];
 for(var i=127;i>=1;i--)dense.push('var('+order[i]+')');
 child.style.setProperty(target,dense.join('|'));
 is(value(child,target),order.slice(1).reverse().map(n=>value(root,n)).join('|'),'dense references preserve substitution text');
-is(names(child).join(','),order.slice(1).concat([target]).join(','),'dense dependency traversal order');
+is(names(child).sort().join(','),order.slice().sort().join(','),'dense dependencies preserve the complete name set');
 // Repeated references must not grow a scratch list in proportion to source
 // length: there are only two distinct dependencies in this value.
 var repeated=[];
@@ -50,7 +52,7 @@ for(var i=0;i<3000;i++)repeated.push('var('+order[90]+')');
 repeated.push('var('+order[20]+')');
 child.style.setProperty(target,repeated.join(''));
 is(value(child,target),repeated.map((_,i)=>value(root,i===3000?order[20]:order[90])).join(''),'large duplicate-reference input');
-is(names(child).slice(0,3).join(','),[order[20],order[90],target].join(','),'duplicate references produce one edge per dependency');
+is(names(child).sort().join(','),order.slice().sort().join(','),'duplicate references do not duplicate property names');
 for(var round=0;round<12;round++){
   child.style.setProperty(target,round%2?'var(--absent,yes)':'var('+order[40]+')');
   is(value(child,target),round%2?'yes':value(root,order[40]),'alternating dependency/nonexistent reset '+round);

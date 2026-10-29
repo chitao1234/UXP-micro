@@ -9,6 +9,41 @@
 
 using namespace mozilla;
 
+TEST(CSSVariableValues, BuildResolvedLocalChanges)
+{
+  CSSVariableValues parent;
+  for (int i = 0; i < 128; i++) {
+    nsAutoString name;
+    name.AppendInt(i);
+    parent.Put(name, NS_LITERAL_STRING("inherited"),
+               eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  }
+  parent.Intern();
+  CSSVariableValues local;
+  local.Put(NS_LITERAL_STRING("110"), NS_LITERAL_STRING("replacement"),
+             eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  local.Put(NS_LITERAL_STRING("appended"), NS_LITERAL_STRING("new"),
+             eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  CSSVariableValues result;
+  ASSERT_TRUE(result.BuildFromInherited(parent, local, 32));
+  result.Intern();
+  nsString value, name;
+  ASSERT_TRUE(result.Get(NS_LITERAL_STRING("110"), value));
+  EXPECT_TRUE(value.EqualsLiteral("replacement"));
+  ASSERT_TRUE(parent.Get(NS_LITERAL_STRING("110"), value));
+  EXPECT_TRUE(value.EqualsLiteral("inherited"));
+  EXPECT_EQ(129u, result.Count());
+  result.GetVariableAt(128, name);
+  EXPECT_TRUE(name.EqualsLiteral("appended"));
+  size_t index = 0;
+  ASSERT_TRUE(result.FindIndex(NS_LITERAL_STRING("110"), &index));
+  EXPECT_EQ(110u, index);
+  result.Remove(NS_LITERAL_STRING("110"));
+  EXPECT_FALSE(result.Get(NS_LITERAL_STRING("110"), value));
+  ASSERT_TRUE(parent.Get(NS_LITERAL_STRING("110"), value));
+  EXPECT_TRUE(value.EqualsLiteral("inherited"));
+}
+
 TEST(CSSVariableValues, PutGetAndOrder)
 {
   CSSVariableValues values;

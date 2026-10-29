@@ -144,6 +144,19 @@ public:
    */
   bool Factor(const CSSVariableValues& aBase, uint32_t aMaxOverrides);
 
+  // Find a property's position in the effective enumeration without copying
+  // its name/value. Used to merge local edits into the inherited representation.
+  bool FindIndex(const nsAString& aName, size_t* aIndex) const;
+
+  // Combine already-resolved local values with an unchanged inherited prefix.
+  // Local entries absent from the parent are appended in local enumeration
+  // order. Returns true when the result directly shares inherited data; a
+  // false return still constructs the complete, flat result.
+  bool BuildFromInherited(const CSSVariableValues& aInherited,
+                          const CSSVariableValues& aLocal,
+                          uint32_t aMaxOverrides);
+  bool IsFactored() const;
+
   /**
    * Freezes this object's computed data and, when enabled, replaces it with
    * an equivalent interned block.  Frozen data is immutable; mutations

@@ -33,6 +33,8 @@ public:
    */
   explicit CSSVariableResolver(CSSVariableValues* aOutput)
     : mOutput(aOutput)
+    , mInherited(nullptr)
+    , mBuiltFromInherited(false)
 #ifdef DEBUG
     , mResolved(false)
 #endif
@@ -46,7 +48,10 @@ public:
    * are written into mOutput.
    */
   void Resolve(const CSSVariableValues* aInherited,
-               const CSSVariableDeclarations* aSpecified);
+               const CSSVariableDeclarations* aSpecified,
+               bool aAllowLocalResolution = false);
+
+  bool BuiltFromInherited() const { return mBuiltFromInherited; }
 
 private:
   struct Variable
@@ -85,6 +90,7 @@ private:
     bool mInStack;
     size_t mIndex;
     size_t mLowLink;
+
   };
 
   /**
@@ -110,6 +116,10 @@ private:
   // Helper functions for Resolve.
   void RemoveCycles(size_t aID);
   void ResolveVariable(size_t aID);
+  bool TryResolveLocal(const CSSVariableValues* aInherited,
+                       const CSSVariableDeclarations* aSpecified,
+                       size_t aInheritedCount);
+  static void RecordInheritedMaterialization(size_t aCount, size_t aUnits);
 
   // A mapping of variable names to an ID that indexes into mVariables
   // and mReferences.
@@ -135,6 +145,8 @@ private:
 
   // The object to output the resolved variables into.
   CSSVariableValues* mOutput;
+  const CSSVariableValues* mInherited;
+  bool mBuiltFromInherited;
 
 #ifdef DEBUG
   // Whether Resolve has been called.
