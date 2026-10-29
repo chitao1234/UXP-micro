@@ -177,6 +177,7 @@ class RefTestCase(RefTest):
         self.random = False  # bool: True => ignore output as 'random'
         self.slow = False    # bool: True => test may run slowly
         self.is_module = False
+        self.expected_error = None
 
         # The terms parsed to produce the above properties.
         self.terms = None

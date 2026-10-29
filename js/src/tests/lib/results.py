@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import os
 import re
 from .progressbar import NullProgressBar, ProgressBar
 import pipes
@@ -80,6 +81,27 @@ class TestResult:
                              ' ((?:-|\\d)+) ---', line)
                 if m:
                     expected_rcs.append(int(m.group(1)))
+
+        expected_error = getattr(test, 'expected_error', None)
+        if expected_error:
+            # A negative test must fail in the test file with the declared
+            # exception, not in a shell.js prelude or with a native crash.
+            expected_path = os.path.normcase(os.path.abspath(test.path))
+            matched = False
+            for line in output.err.splitlines():
+                diagnostic = re.match(
+                    r'^(.+?):\d+(?::\d+)? ([A-Za-z_$][\w$]*):', line)
+                if diagnostic:
+                    source, error = diagnostic.groups()
+                    source = os.path.normcase(os.path.abspath(source))
+                    if source == expected_path and error == expected_error:
+                        matched = True
+            if rc == 3 and matched and not failures and not output.timed_out:
+                return cls(test, cls.PASS, results)
+            results.append((cls.FAIL, 'Expected {} from {}; exit code {}'.format(
+                expected_error, test.path, rc)))
+            result = cls.CRASH if rc not in (0, 3) else cls.FAIL
+            return cls(test, result, results)
 
         if rc and not rc in expected_rcs:
             if rc == 3:

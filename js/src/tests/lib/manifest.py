@@ -163,6 +163,11 @@ def _parse_one(testcase, xul_tester):
         elif parts[pos] == 'module':
             testcase.is_module = True
             pos += 1
+        elif parts[pos].startswith('error:'):
+            testcase.expected_error = parts[pos][len('error:'):]
+            if not re.match(r'^[A-Za-z_$][\w$]*$', testcase.expected_error):
+                raise ValueError('Invalid expected error: ' + parts[pos])
+            pos += 1
         elif parts[pos] == 'silentfail':
             # silentfails use tons of memory, and Darwin doesn't support ulimit.
             if xul_tester.test("xulRuntime.OS == 'Darwin'"):
