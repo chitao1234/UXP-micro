@@ -9782,6 +9782,7 @@ BytecodeEmitter::emitOptionalTree(
             kind == PNK_TRUE ||
             kind == PNK_FALSE ||
             kind == PNK_NUMBER ||
+            kind == PNK_BIGINT ||
             kind == PNK_STRING ||
             kind == PNK_ARRAY ||
             kind == PNK_OBJECT ||
@@ -9796,11 +9797,10 @@ BytecodeEmitter::emitOptionalTree(
         bool isMemberExpression = isPrimaryExpression ||
                                   kind == PNK_TAGGED_TEMPLATE ||
                                   kind == PNK_NEW ||
-                                  kind == PNK_NEWTARGET;
-                                  //kind == ParseNodeKind::ImportMetaExpr;
+                                  kind == PNK_NEWTARGET ||
+                                  kind == PNK_IMPORT_META;
 
-        bool isCallExpression = kind == PNK_SETTHIS;
-                                //kind == ParseNodeKind::CallImportExpr;
+        bool isCallExpression = kind == PNK_SETTHIS || kind == PNK_CALL_IMPORT;
 
         MOZ_ASSERT(isMemberExpression || isCallExpression,
                    "Unknown ParseNodeKind for OptionalChain");

@@ -86,7 +86,15 @@ if (typeof parseModule === "function") {
     tryParse(`void ((${expr})?.());`, parseModule);
     tryParse(`void ((${expr})?.p());`, parseModule);
   }
+
+  // These supported expressions must compile, rather than merely avoiding a
+  // native assertion in tryParse above.
+  parseModule("import.meta?.url;");
+  parseModule("import('')?.then;");
 }
+
+assertEq(123n?.valueOf(), 123n);
+assertEq(123n?.missing, undefined);
 
 if (typeof reportCompare === "function")
   reportCompare(true, true);
