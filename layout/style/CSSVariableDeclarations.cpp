@@ -282,12 +282,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
   uint32_t mIndexMask = 0;
   uint32_t mLiveStringLength = 0;
 
-  // Optional hash-order index used only by the transient accumulator built in
-  // MapRuleInfoInto.  The old implementation enumerated that accumulator in
-  // PLDHashTable order; preserving it keeps computed custom-property order
-  // observable through CSSOM identical.
-  nsDataHashtable<nsStringHashKey, uint32_t>* mOrderIndex = nullptr;
-
   nsDataHashtable<nsStringHashKey, nsString> mRevertLayerSources;
   nsClassHashtable<nsStringHashKey, RevertLayerFallbackList>
     mRevertLayerFallbacks;
@@ -302,7 +296,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
       RemoveInternedData(this);
     }
     remove();
-    delete mOrderIndex;
   }
 
   const char16_t* NameData(const Entry& aEntry) const
@@ -438,11 +431,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
       entry.mValueOffset = AppendString(aValue);
       entry.mValueLength = aValue.Length();
       mLiveStringLength += entry.mValueLength;
-      if (mOrderIndex) {
-        nsString name;
-        name.Assign(aName);
-        mOrderIndex->Put(name, static_cast<uint32_t>(index));
-      }
       MaybeCompactStrings();
       return;
     }
@@ -454,11 +442,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
     entry.mValueLength = aValue.Length();
     mLiveStringLength += entry.mNameLength + entry.mValueLength;
     mEntries.AppendElement(entry);
-    if (mOrderIndex) {
-      nsString name;
-      name.Assign(aName);
-      mOrderIndex->Put(name, static_cast<uint32_t>(mEntries.Length() - 1));
-    }
 
     if (!mIndex.IsEmpty()) {
       if ((mEntries.Length() + 1) * 2 > mIndex.Length()) {
@@ -482,14 +465,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
     mEntries.RemoveElementAt(index);
     if (!mIndex.IsEmpty()) {
       BuildIndex(mIndex.Length());
-    }
-    if (mOrderIndex) {
-      mOrderIndex->Clear();
-      for (size_t i = 0, n = mEntries.Length(); i < n; i++) {
-        nsString name;
-        name.Assign(Name(mEntries[i]));
-        mOrderIndex->Put(name, static_cast<uint32_t>(i));
-      }
     }
     MaybeCompactStrings();
   }
@@ -552,12 +527,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
     copy->mIndex = mIndex;
     copy->mIndexMask = mIndexMask;
     copy->mLiveStringLength = mLiveStringLength;
-    if (mOrderIndex) {
-      copy->mOrderIndex = new nsDataHashtable<nsStringHashKey, uint32_t>();
-      for (auto iter = mOrderIndex->ConstIter(); !iter.Done(); iter.Next()) {
-        copy->mOrderIndex->Put(iter.Key(), iter.UserData());
-      }
-    }
     for (auto iter = mRevertLayerSources.ConstIter(); !iter.Done();
          iter.Next()) {
       copy->mRevertLayerSources.Put(iter.Key(), iter.UserData());
@@ -588,13 +557,6 @@ struct CSSVariableDeclarations::Data : public RefCounted<Data>,
       }
       return aString.SizeOfExcludingThisEvenIfShared(aMallocSizeOf);
     };
-    if (mOrderIndex) {
-      n += aMallocSizeOf(mOrderIndex);
-      n += mOrderIndex->ShallowSizeOfExcludingThis(aMallocSizeOf);
-      for (auto iter = mOrderIndex->ConstIter(); !iter.Done(); iter.Next()) {
-        n += stringSize(iter.Key());
-      }
-    }
     n += mRevertLayerSources.ShallowSizeOfExcludingThis(aMallocSizeOf);
     for (auto iter = mRevertLayerSources.ConstIter(); !iter.Done();
          iter.Next()) {
@@ -677,21 +639,6 @@ CSSVariableDeclarations::EnsureWritableData()
   return mData;
 }
 
-void
-CSSVariableDeclarations::EnsureHashOrder()
-{
-  Data* data = EnsureWritableData();
-  if (data->mOrderIndex) {
-    return;
-  }
-  data->mOrderIndex = new nsDataHashtable<nsStringHashKey, uint32_t>();
-  for (size_t i = 0, n = data->mEntries.Length(); i < n; i++) {
-    nsString name;
-    name.Assign(data->Name(data->mEntries[i]));
-    data->mOrderIndex->Put(name, static_cast<uint32_t>(i));
-  }
-}
-
 uint32_t
 CSSVariableDeclarations::Count() const
 {
@@ -721,7 +668,7 @@ void
 CSSVariableDeclarations::InternWithHash(uint64_t aHash)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  if (!mData || mData->mInterned || mData->mOrderIndex) {
+  if (!mData || mData->mInterned) {
     return;
   }
   // The revert-layer side tables are rare and have their own lifetime rules;
@@ -895,7 +842,6 @@ CSSVariableDeclarations::MapRuleInfoInto(nsRuleData* aRuleData)
 
   if (!aRuleData->mVariables) {
     aRuleData->mVariables = new CSSVariableDeclarations;
-    aRuleData->mVariables->EnsureHashOrder();
   }
 
   Data* target = aRuleData->mVariables->EnsureWritableData();
@@ -948,31 +894,9 @@ CSSVariableDeclarations::AddVariablesToResolver(
   if (!mData) {
     return;
   }
-  if (mData->mOrderIndex) {
-    for (auto iter = mData->mOrderIndex->ConstIter(); !iter.Done();
-         iter.Next()) {
-      const Data::Entry& entry = mData->mEntries[iter.UserData()];
-      nsDependentString name = mData->Name(entry);
-      nsDependentString value = mData->Value(entry);
-      if (value.EqualsLiteral(INITIAL_VALUE)) {
-        aResolver->Put(name, EmptyString(),
-                       eCSSTokenSerialization_Nothing,
-                       eCSSTokenSerialization_Nothing,
-                       false);
-      } else if (value.EqualsLiteral(INHERIT_VALUE) ||
-                 value.EqualsLiteral(UNSET_VALUE) ||
-                 value.EqualsLiteral(REVERT_VALUE) ||
-                 IsRevertLayerValue(value)) {
-        // Keep the inherited value.
-      } else {
-        aResolver->Put(name, value,
-                       eCSSTokenSerialization_Nothing,
-                       eCSSTokenSerialization_Nothing,
-                       false);
-      }
-    }
-    return;
-  }
+  // Computed custom-property enumeration order is unspecified by CSSOM.
+  // Iterate the compact records directly; cascade winners have already been
+  // selected by MapRuleInfoInto, independently of their enumeration order.
   for (size_t index = 0, n = mData->mEntries.Length(); index < n; index++) {
     const Data::Entry& entry = mData->mEntries[index];
     nsDependentString name = mData->Name(entry);

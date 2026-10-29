@@ -35,7 +35,6 @@ static uint64_t sLocalGraphNodes;
 static uint64_t sGraphNodes;
 static uint64_t sLocalCalls;
 static uint64_t sLocalFallbacks;
-static bool sSparseResolution = true;
 static bool sLocalResolution = true;
 
 class CSSVariableResolverReporter final : public nsIMemoryReporter
@@ -409,13 +408,10 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   static bool reporterInitialized = false;
   if (!reporterInitialized) {
     reporterInitialized = true;
-    Preferences::AddBoolVarCache(&sSparseResolution,
-                                 "layout.css.variables.sparse-resolution", true);
     Preferences::AddBoolVarCache(&sLocalResolution,
                                  "layout.css.variables.local-resolution", true);
     RegisterStrongMemoryReporter(new CSSVariableResolverReporter());
   }
-  bool sparse = sSparseResolution;
   size_t inheritedCount = aInherited->Count();
   sInheritedCandidates += inheritedCount;
   // Test shared eligibility before the control pref: small maps run exactly
@@ -435,20 +431,16 @@ CSSVariableResolver::Resolve(const CSSVariableValues* aInherited,
   // it references.
   size_t n = mVariables.Length();
   sGraphNodes += n;
-  // For small maps, bitmap operations are cheaper than managing a sparse
-  // list. The control and small-map paths retain the historical behavior.
-  sparse &= n >= 32;
+  // Small maps retain their cheap bitmap path. Larger graphs always track
+  // sparse references, switching to bitmap extraction when the graph is dense.
+  // Reset only before specified values; inherited terminals add no references.
+  bool sparse = n >= 32;
   mReferences.SetLength(n);
   EnumerateVariableReferencesData data(*this, sparse);
   for (size_t id = 0; id < n; id++) {
-    if (!sparse) {
-      data.Reset();
-    }
     if (!mVariables[id].mWasInherited &&
         !mVariables[id].mValue.IsEmpty()) {
-      if (sparse) {
-        data.Reset();
-      }
+      data.Reset();
       if (mParser.EnumerateVariableReferences(mVariables[id].mValue,
                                               RecordVariableReference,
                                               &data)) {

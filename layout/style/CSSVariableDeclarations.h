@@ -198,7 +198,6 @@ private:
 
   Data* EnsureWritableData();
   const Data* GetData() const { return mData; }
-  void EnsureHashOrder();
   void InternWithHash(uint64_t aHash);
   static void RemoveInternedData(void* aData);
 

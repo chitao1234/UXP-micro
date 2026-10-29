@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Custom-property cascade accumulation without hash-order emulation</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<style id="rules">
+@layer { #child { --winner: lower; --fallback: lower; } }
+@layer { #child { --winner: upper; --fallback: var(--missing,revert-layer); } }
+#child { color:var(--color); width:calc(var(--number) * 1px); }
+</style>
+<div id="root"><div id="child"></div></div>
+<script>
+SimpleTest.waitForExplicitFinish();
+var root=document.getElementById('root'),child=document.getElementById('child');
+function value(name){return getComputedStyle(child).getPropertyValue(name).trim();}
+function names(){var s=getComputedStyle(child),out=[];for(var i=0;i<s.length;i++)if(s.item(i).indexOf('--')===0)out.push(s.item(i));return out;}
+for(var i=0;i<512;i++)root.style.setProperty('--entry-'+i,String(i));
+root.style.setProperty('--color','rgb(1, 2, 3)');
+root.style.setProperty('--number','23');
+var before=Array.from(root.style);
+child.style.cssText='--number:var(--entry-511);--alias:var(--number);--left:var(--right);--right:var(--left);--recover:var(--left,recovered)';
+is(value('--winner'),'upper','layer precedence does not depend on accumulator enumeration');
+is(value('--fallback'),'lower','computed revert-layer fallback retains provenance');
+is(value('--alias'),'511','forward references resolve from the winning declaration');
+is(value('--left'),'','cycle is invalid');
+is(value('--right'),'','other cycle member is invalid');
+is(value('--recover'),'recovered','cycle fallback survives accumulation');
+is(getComputedStyle(child).color,'rgb(1, 2, 3)','ordinary property reads inherited token stream');
+is(getComputedStyle(child).width,'511px','ordinary property reads local computed token stream');
+var list=names();
+is(new Set(list).size,list.length,'computed names are unique');
+is(names().join(','),list.join(','),'computed enumeration is repeatable');
+for(var i=0;i<512;i++)is(value('--entry-'+i),String(i),'inherited entry survives '+i);
+is(Array.from(root.style).join(','),before.join(','),'resolution does not mutate authored property order');
+var rule=document.getElementById('rules').sheet.cssRules[2];
+rule.style.setProperty('--number','41');
+child.style.removeProperty('--number');
+is(value('--alias'),'41','CSSOM rule mutation updates the winning local dependency');
+rule.style.setProperty('--number','42','important');
+child.style.setProperty('--number','99');
+is(value('--alias'),'42','important author declaration beats ordinary inline declaration');
+child.style.setProperty('--number','17','important');
+is(value('--alias'),'17','important inline declaration wins');
+child.style.removeProperty('--number');rule.style.removeProperty('--number');
+is(value('--alias'),'23','removing declarations restores inherited terminal');
+child.style.setProperty('--case','var(--Case,lowercase)');
+child.style.setProperty('--Case','uppercase');
+is(value('--case'),'uppercase','case-sensitive names remain distinct');
+child.style.removeProperty('--Case');
+is(value('--case'),'lowercase','removed dependency uses fallback');
+child.style.setProperty('--Case','readded');
+is(value('--case'),'readded','readded dependency is visible');
+child.style.setProperty('--number','initial');
+is(value('--alias'),'','invalid local value shadows inherited number');
+child.style.setProperty('--number','inherit');
+is(value('--alias'),'23','inherit restores terminal after invalid local value');
+SimpleTest.finish();
+</script>

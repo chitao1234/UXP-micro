@@ -24,10 +24,6 @@ public:
     return aLeft.mData.get() == aRight.mData.get();
   }
 
-  static void EnsureHashOrder(CSSVariableDeclarations& aValues)
-  {
-    aValues.EnsureHashOrder();
-  }
 };
 
 namespace {
@@ -187,21 +183,14 @@ TEST(CSSVariableDeclarations, LocalMeasurementAlwaysIncludesWrapper)
   EXPECT_EQ(1u, values.SizeOfIncludingThis(CountAllocation));
 }
 
-TEST(CSSVariableDeclarations, TransientOrderIndexIncludesObjectTableAndKeys)
+TEST(CSSVariableDeclarations, InternedRecordsDetachOnMutation)
 {
   CSSVariableDeclarations values;
   values.PutTokenStream(NS_LITERAL_STRING("one"), NS_LITERAL_STRING("1"));
   values.PutTokenStream(NS_LITERAL_STRING("two"), NS_LITERAL_STRING("2"));
-  MemoryStats before;
-  CSSVariableDeclarationsTest::EnsureHashOrder(values);
-  MemoryStats indexed;
-  // Index object, hash storage, and two owned name buffers.
-  EXPECT_EQ(before.mAllocations + 4, indexed.mAllocations);
-
-  // Accumulator enumeration order is part of its state; don't intern it with
-  // an ordinary authored set, even when names and values happen to match.
+  // Compact records remain safe to share without a second order-only index.
   CSSVariableDeclarationsTest::Intern(values, 0x53dd10);
-  EXPECT_FALSE(values.IsInterned());
+  EXPECT_TRUE(values.IsInterned());
 
   CSSVariableDeclarations copy(values);
   copy.PutTokenStream(NS_LITERAL_STRING("three"), NS_LITERAL_STRING("3"));

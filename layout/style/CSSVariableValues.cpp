@@ -12,7 +12,6 @@
 #include "mozilla/Mutex.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RefCounted.h"
-#include "nsAutoPtr.h"
 #include "nsHashKeys.h"
 #include "nsTHashtable.h"
 #include "nsThreadUtils.h"
@@ -100,8 +99,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
   MOZ_DECLARE_REFCOUNTED_TYPENAME(Data)
 
   Data()
-    : mUseCompact(Preferences::GetBool("layout.css.variables.compact", true))
-    , mIndexMask(0)
+    : mIndexMask(0)
     , mHash(0)
     , mFrozen(false)
     , mInCache(false)
@@ -113,19 +111,14 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     , mVariables(aOther.mVariables)
     , mIndex(aOther.mIndex)
     , mBase(aOther.mBase)
-    , mUseCompact(aOther.mUseCompact)
     , mIndexMask(aOther.mIndexMask)
     , mHash(0)
     , mFrozen(false)
     , mInCache(false)
     , mFactorFailure(NoFailure)
   {
-    if (mUseCompact) {
-      if (!mVariables.IsEmpty() && mIndex.IsEmpty()) {
-        BuildIndex(8);
-      }
-    } else {
-      RebuildLegacyIndex();
+    if (!mVariables.IsEmpty() && mIndex.IsEmpty()) {
+      BuildIndex(8);
     }
   }
 
@@ -215,21 +208,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     }
   }
 
-  void RebuildLegacyIndex()
-  {
-    MOZ_ASSERT(!mUseCompact);
-    if (!mLegacyIDs) {
-      mLegacyIDs = new nsDataHashtable<nsStringHashKey, size_t>();
-    } else {
-      mLegacyIDs->Clear();
-    }
-    for (size_t i = 0, n = mVariables.Length(); i < n; i++) {
-      nsString name;
-      name.Assign(Name(mVariables[i]));
-      mLegacyIDs->Put(name, i);
-    }
-  }
-
   bool HasBase() const { return !!mBase; }
 
   bool IsOverridden(size_t aBaseIndex, const Variable** aVariable) const
@@ -271,9 +249,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
 
   bool Find(const nsAString& aName, size_t* aIndex) const
   {
-    if (!mUseCompact) {
-      return mLegacyIDs && mLegacyIDs->Get(aName, aIndex);
-    }
     if (!mIndex.IsEmpty()) {
       uint32_t slot = NameHash(aName) & mIndexMask;
       while (uint32_t entry = mIndex[slot]) {
@@ -299,27 +274,56 @@ struct CSSVariableValues::Data : public RefCounted<Data>
            nsCSSTokenSerializationType& aLastToken) const
   {
     size_t index;
-    if (mUseCompact) {
-      if (!mIndex.IsEmpty()) {
-        uint32_t slot = NameHash(aName) & mIndexMask;
-        while (uint32_t entry = mIndex[slot]) {
-          size_t i = entry - 1;
-          if (NameEquals(mVariables[i], aName)) {
-            aValue.Assign(Value(mVariables[i]));
-            aFirstToken = mVariables[i].FirstToken();
-            aLastToken = mVariables[i].LastToken();
-            return true;
-          }
-          slot = (slot + 1) & mIndexMask;
-        }
-      }
-    } else if (mLegacyIDs && mLegacyIDs->Get(aName, &index)) {
+    if (Find(aName, &index)) {
       aValue.Assign(Value(mVariables[index]));
       aFirstToken = mVariables[index].FirstToken();
       aLastToken = mVariables[index].LastToken();
       return true;
     }
     return mBase && mBase->Get(aName, aValue, aFirstToken, aLastToken);
+  }
+
+  bool FindEntry(const nsAString& aName, const Data** aOwner,
+                 const Variable** aEntry) const
+  {
+    size_t index;
+    if (Find(aName, &index)) {
+      *aOwner = this;
+      *aEntry = &mVariables[index];
+      return true;
+    }
+    return mBase && mBase->FindEntry(aName, aOwner, aEntry);
+  }
+
+  bool ValuesEqual(const Data& aOther) const
+  {
+    uint32_t count = Count();
+    if (count != aOther.Count()) {
+      return false;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+      const Data* leftOwner = nullptr;
+      const Data* rightOwner = nullptr;
+      const Variable* left = nullptr;
+      const Variable* right = nullptr;
+      MOZ_ALWAYS_TRUE(EntryAt(i, &leftOwner, &left));
+      MOZ_ALWAYS_TRUE(aOther.EntryAt(i, &rightOwner, &right));
+      if (left->mNameLength != right->mNameLength ||
+          memcmp(leftOwner->NameData(*left), rightOwner->NameData(*right),
+                  left->mNameLength * sizeof(char16_t))) {
+        if (!aOther.FindEntry(leftOwner->Name(*left), &rightOwner, &right)) {
+          return false;
+        }
+      }
+      // Match operator=='s existing value-only semantics. Token metadata and
+      // enumeration order are compared separately by EqualsInOrder.
+      if (left->mValueLength != right->mValueLength ||
+          memcmp(leftOwner->ValueData(*left), rightOwner->ValueData(*right),
+                  left->mValueLength * sizeof(char16_t))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool EntryAt(uint32_t aIndex, const Data** aOwner,
@@ -380,7 +384,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
       return self.forget();
     }
     RefPtr<Data> flat = new Data();
-    flat->mUseCompact = mUseCompact;
     uint32_t count = Count();
     for (uint32_t i = 0; i < count; i++) {
       nsString name, value;
@@ -397,10 +400,8 @@ struct CSSVariableValues::Data : public RefCounted<Data>
                nsCSSTokenSerializationType aLastToken)
   {
     size_t id = mVariables.Length();
-    if (mUseCompact) {
-      if (mIndex.IsEmpty() || (id + 1) * 2 > mIndex.Length()) {
-        BuildIndex(mIndex.IsEmpty() ? 8 : mIndex.Length() * 2);
-      }
+    if (mIndex.IsEmpty() || (id + 1) * 2 > mIndex.Length()) {
+      BuildIndex(mIndex.IsEmpty() ? 8 : mIndex.Length() * 2);
     }
     uint32_t nameOffset = AppendString(aName);
     uint32_t valueOffset = AppendString(aValue);
@@ -408,15 +409,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
                                       valueOffset, aValue.Length(),
                                       Variable::PackTokens(aFirstToken,
                                                            aLastToken)));
-    if (mUseCompact) {
-      InsertIndex(id);
-    } else {
-      if (!mLegacyIDs) {
-        mLegacyIDs = new nsDataHashtable<nsStringHashKey, size_t>();
-      }
-      nsString name(aName);
-      mLegacyIDs->Put(name, id);
-    }
+    InsertIndex(id);
   }
 
   bool Factor(const Data& aParent, uint32_t aMaxOverrides, bool aPersistent)
@@ -445,7 +438,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
       return false;
     }
     RefPtr<Data> overrides = new Data();
-    overrides->mUseCompact = mUseCompact;
     uint32_t parentOverrides = 0;
     for (uint32_t i = 0; i < fullCount; i++) {
       const Variable& variable = mVariables[i];
@@ -514,7 +506,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
       mVariables.Clear();
       mStrings.Clear();
       mIndex.Clear();
-      mLegacyIDs = nullptr;
       mIndexMask = 0;
       return true;
     }
@@ -522,11 +513,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     mStrings.SwapElements(overrides->mStrings);
     mVariables.SwapElements(overrides->mVariables);
     mIndex.Clear();
-    if (mUseCompact) {
-      BuildIndex(mVariables.Length() * 2);
-    } else {
-      RebuildLegacyIndex();
-    }
+    BuildIndex(mVariables.Length() * 2);
     return true;
   }
 
@@ -556,7 +543,7 @@ struct CSSVariableValues::Data : public RefCounted<Data>
       return;
     }
     CompactStrings();
-    if (mUseCompact && !mVariables.IsEmpty() && mIndex.IsEmpty()) {
+    if (!mVariables.IsEmpty() && mIndex.IsEmpty()) {
       BuildIndex(8);
     }
     mFrozen = true;
@@ -632,12 +619,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
     usage.mStrings = mStrings.ShallowSizeOfExcludingThis(aMallocSizeOf);
     usage.mRecords = mVariables.ShallowSizeOfExcludingThis(aMallocSizeOf);
     usage.mIndexes = mIndex.ShallowSizeOfExcludingThis(aMallocSizeOf);
-    if (mLegacyIDs) {
-      usage.mIndexes += mLegacyIDs->ShallowSizeOfExcludingThis(aMallocSizeOf);
-      for (auto iter = mLegacyIDs->ConstIter(); !iter.Done(); iter.Next()) {
-        usage.mIndexes += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
-      }
-    }
     usage.mTotal = usage.mMetadata + usage.mStrings + usage.mRecords + usage.mIndexes;
     return usage;
   }
@@ -646,8 +627,6 @@ struct CSSVariableValues::Data : public RefCounted<Data>
   nsTArray<Variable> mVariables;
   nsTArray<uint32_t> mIndex;
   RefPtr<Data> mBase;
-  nsAutoPtr<nsDataHashtable<nsStringHashKey, size_t> > mLegacyIDs;
-  bool mUseCompact;
   uint32_t mIndexMask;
   uint64_t mHash;
   bool mFrozen;
@@ -707,24 +686,10 @@ CSSVariableValues::operator==(const CSSVariableValues& aOther) const
   if (!mData || !aOther.mData) {
     return false;
   }
-  if (mData->Count() != aOther.mData->Count()) {
-    return false;
-  }
-
-  for (size_t i = 0, n = mData->Count(); i < n; ++i) {
-    nsString name, value;
-    nsCSSTokenSerializationType first = eCSSTokenSerialization_Nothing;
-    nsCSSTokenSerializationType last = eCSSTokenSerialization_Nothing;
-    MOZ_ALWAYS_TRUE(mData->GetAt(i, name, value, first, last));
-    nsString otherValue;
-    nsCSSTokenSerializationType otherFirst, otherLast;
-    if (!aOther.mData->Get(name, otherValue, otherFirst, otherLast) ||
-        !value.Equals(otherValue)) {
-      return false;
-    }
-  }
-
-  return true;
+  // Avoid allocating temporary strings or rehashing names when corresponding
+  // entries already have the same names. The accumulator no longer randomizes
+  // enumeration merely to find changed values earlier in this full comparison.
+  return mData->ValuesEqual(*aOther.mData);
 }
 
 bool
@@ -791,12 +756,10 @@ CSSVariableValues::Put(const nsAString& aName,
     variable.mTokens = Data::Variable::PackTokens(aFirstToken, aLastToken);
   } else {
     id = data->mVariables.Length();
-    if (data->mUseCompact) {
-      if (data->mIndex.IsEmpty() ||
-          (id + 1) * 2 > data->mIndex.Length()) {
-        data->BuildIndex(data->mIndex.IsEmpty() ? 8 :
-                           data->mIndex.Length() * 2);
-      }
+    if (data->mIndex.IsEmpty() ||
+        (id + 1) * 2 > data->mIndex.Length()) {
+      data->BuildIndex(data->mIndex.IsEmpty() ? 8 :
+                         data->mIndex.Length() * 2);
     }
     uint32_t nameOffset = data->AppendString(aName);
     uint32_t valueOffset = data->AppendString(aValue);
@@ -804,16 +767,7 @@ CSSVariableValues::Put(const nsAString& aName,
       Data::Variable(nameOffset, aName.Length(), valueOffset,
                      aValue.Length(),
                      Data::Variable::PackTokens(aFirstToken, aLastToken)));
-    if (data->mUseCompact) {
-      data->InsertIndex(id);
-    } else {
-      if (!data->mLegacyIDs) {
-        data->mLegacyIDs = new nsDataHashtable<nsStringHashKey, size_t>();
-      }
-      nsString name;
-      name.Assign(aName);
-      data->mLegacyIDs->Put(name, id);
-    }
+    data->InsertIndex(id);
   }
 }
 
@@ -836,11 +790,7 @@ CSSVariableValues::Remove(const nsAString& aName)
     mData = nullptr;
     return;
   }
-  if (data->mUseCompact) {
-    data->BuildIndex(data->mIndex.Length());
-  } else {
-    data->RebuildLegacyIndex();
-  }
+  data->BuildIndex(data->mIndex.Length());
 }
 
 bool
@@ -996,7 +946,6 @@ CSSVariableValues::BuildFromInherited(const CSSVariableValues& aInherited,
     }
     if (!persistent || newBytes * 4 <= fullBytes * 3) {
       RefPtr<Data> result = new Data();
-      result->mUseCompact = local->mUseCompact;
       result->mBase = const_cast<Data*>(base);
       result->mVariables.SetCapacity(entries.Length());
       for (const auto& item : entries) {
@@ -1008,11 +957,7 @@ CSSVariableValues::BuildFromInherited(const CSSVariableValues& aInherited,
           value.mTokens, item.mPosition < baseCount ? item.mPosition : UINT32_MAX));
       }
       if (!entries.IsEmpty()) {
-        if (result->mUseCompact) {
-          result->BuildIndex(entries.Length() * 2);
-        } else {
-          result->RebuildLegacyIndex();
-        }
+        result->BuildIndex(entries.Length() * 2);
       }
       mData = result;
       return true;
@@ -1023,7 +968,6 @@ CSSVariableValues::BuildFromInherited(const CSSVariableValues& aInherited,
   // inherited prefix without repeating graph resolution. Local new properties
   // retain the historical depth-first emission order supplied by aLocal.
   RefPtr<Data> result = new Data();
-  result->mUseCompact = local->mUseCompact;
   size_t units = 0;
   uint32_t inheritedCount = parent ? parent->Count() : 0;
   for (uint32_t i = 0; i < inheritedCount; i++) {

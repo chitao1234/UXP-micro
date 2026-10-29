@@ -156,6 +156,29 @@ TEST(CSSVariableValues, EqualsInOrder)
   EXPECT_FALSE(a.EqualsInOrder(b));
 }
 
+TEST(CSSVariableValues, ValueEqualityIgnoresOrderAndTokenMetadata)
+{
+  CSSVariableValues a, b;
+  a.Put(NS_LITERAL_STRING("first"), NS_LITERAL_STRING("one"),
+        eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  a.Put(NS_LITERAL_STRING("last"), NS_LITERAL_STRING("two"),
+        eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  b.Put(NS_LITERAL_STRING("last"), NS_LITERAL_STRING("two"),
+        eCSSTokenSerialization_Ident, eCSSTokenSerialization_Ident);
+  b.Put(NS_LITERAL_STRING("first"), NS_LITERAL_STRING("one"),
+        eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  EXPECT_TRUE(a == b);
+  EXPECT_TRUE(b == a);
+  EXPECT_FALSE(a.EqualsInOrder(b));
+  b.Put(NS_LITERAL_STRING("last"), NS_LITERAL_STRING("changed"),
+        eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  EXPECT_FALSE(a == b);
+  b.Remove(NS_LITERAL_STRING("last"));
+  b.Put(NS_LITERAL_STRING("other"), NS_LITERAL_STRING("two"),
+        eCSSTokenSerialization_Nothing, eCSSTokenSerialization_Nothing);
+  EXPECT_FALSE(a == b);
+}
+
 TEST(CSSVariableValues, RemoveFactoredValueUsesFlattenedIndex)
 {
   CSSVariableValues parent;
