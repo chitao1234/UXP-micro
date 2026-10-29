@@ -211,7 +211,7 @@ class Preferences(object):
         """write preferences to a file"""
 
         if isinstance(_file, str):
-            f = file(_file, 'a')
+            f = open(_file, 'a')
         else:
             f = _file
 

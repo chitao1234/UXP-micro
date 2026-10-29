@@ -10,6 +10,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 import sysconfig
 import os
 import shutil
+import site
 import subprocess
 import sys
 import warnings
@@ -161,6 +162,20 @@ class VirtualenvManager(object):
         if self.up_to_date(python):
             return self.virtualenv_root
         return self.build(python)
+
+    def activate(self):
+        """Add this venv's packages and executable directory to this process."""
+        self.ensure()
+        if IS_NATIVE_WIN or IS_CYGWIN:
+            python_lib = os.path.join(self.virtualenv_root, 'Lib', 'site-packages')
+        else:
+            version = '%s.%s' % sys.version_info[:2]
+            python_lib = os.path.join(self.virtualenv_root, 'lib',
+                                      'python' + version, 'site-packages')
+
+        site.addsitedir(python_lib)
+        os.environ['VIRTUAL_ENV'] = self.virtualenv_root
+        os.environ['PATH'] = self.bin_path + os.pathsep + os.environ.get('PATH', '')
 
     def _log_process_output(self, *args, **kwargs):
         if hasattr(self.log_handle, 'fileno'):

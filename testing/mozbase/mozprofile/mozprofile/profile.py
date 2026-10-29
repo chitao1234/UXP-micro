@@ -238,7 +238,7 @@ class Profile(object):
         """
 
         path = os.path.join(self.profile, filename)
-        with file(path) as f:
+        with open(path) as f:
             lines = f.read().splitlines()
 
         def last_index(_list, value):
@@ -265,7 +265,7 @@ class Profile(object):
 
         # write the prefs
         cleaned_prefs = '\n'.join(lines[:s] + lines[e + 1:])
-        with file(path, 'w') as f:
+        with open(path, 'w') as f:
             f.write(cleaned_prefs)
         return True
 
