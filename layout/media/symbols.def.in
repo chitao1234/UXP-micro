@@ -344,6 +344,9 @@ qcms_profile_sRGB
 qcms_transform_create
 qcms_transform_data
 qcms_transform_release
+#ifdef ENABLE_TESTS
+lut_inverse_interp16
+#endif
 MOZ_XMLCheckQName
 MOZ_XMLIsLetter
 MOZ_XMLIsNCNameChar

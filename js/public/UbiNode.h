@@ -390,16 +390,16 @@ class StackFrame {
     // Copy this StackFrame's source name into the given |destination|
     // buffer. Copy no more than |length| characters. The result is *not* null
     // terminated. Returns how many characters were written into the buffer.
-    size_t source(RangedPtr<char16_t> destination, size_t length) const;
+    JS_PUBLIC_API(size_t) source(RangedPtr<char16_t> destination, size_t length) const;
 
     // Copy this StackFrame's function display name into the given |destination|
     // buffer. Copy no more than |length| characters. The result is *not* null
     // terminated. Returns how many characters were written into the buffer.
-    size_t functionDisplayName(RangedPtr<char16_t> destination, size_t length) const;
+    JS_PUBLIC_API(size_t) functionDisplayName(RangedPtr<char16_t> destination, size_t length) const;
 
     // Get the size of the respective strings. 0 is returned for null strings.
-    size_t sourceLength();
-    size_t functionDisplayNameLength();
+    JS_PUBLIC_API(size_t) sourceLength();
+    JS_PUBLIC_API(size_t) functionDisplayNameLength();
 
     // Methods that forward to virtual calls through BaseStackFrame.
 
