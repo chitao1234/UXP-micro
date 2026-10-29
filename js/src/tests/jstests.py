@@ -239,6 +239,8 @@ def parse_args():
                              not ProgressBar.conservative_isatty() or
                              options.hide_progress)
 
+    requested_paths = set(os.path.normpath(path) for path in requested_paths)
+    excluded_paths = set(os.path.normpath(path) for path in excluded_paths)
     return (options, prefix, requested_paths, excluded_paths)
 
 
@@ -257,7 +259,7 @@ def load_tests(options, requested_paths, excluded_paths):
             xul_info = manifest.XULInfo.create(options.js_shell)
         else:
             xul_abi, xul_os, xul_debug = options.xul_info_src.split(r':')
-            xul_debug = xul_debug.lower() is 'true'
+            xul_debug = xul_debug.lower() == 'true'
             xul_info = manifest.XULInfo(xul_abi, xul_os, xul_debug)
         xul_tester = manifest.XULInfoTester(xul_info, options.js_shell)
 

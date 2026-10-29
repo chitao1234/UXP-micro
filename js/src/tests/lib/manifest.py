@@ -5,6 +5,7 @@
 from __future__ import print_function
 
 import os, re, sys
+import io
 from subprocess import Popen, PIPE
 
 from .tests import RefTestCase
@@ -32,6 +33,7 @@ class XULInfo:
         predicates on XUL build info evaluate properly."""
 
         return ('var xulRuntime = {{ OS: "{}", XPCOMABI: "{}", shell: true }};'
+                'var release_or_beta = !!getBuildConfiguration().release_or_beta;'
                 'var isDebugBuild={}; var Android={}; '
                 'var browserIsRemote={}'.format(
                     self.os,
@@ -100,6 +102,9 @@ class XULInfoTester:
             ]
             p = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
             out, err = p.communicate()
+            if not isinstance(out, str):
+                out = out.decode('utf-8', 'replace')
+                err = err.decode('utf-8', 'replace')
             if out in ('true\n', 'true\r\n'):
                 ans = True
             elif out in ('false\n', 'false\r\n'):
@@ -150,6 +155,13 @@ def _parse_one(testcase, xul_tester):
             pos += 1
         elif parts[pos] == 'slow':
             testcase.slow = True
+            pos += 1
+        elif parts[pos] == 'async':
+            # The shell drains its job queue before exit. A test must still
+            # report successful assertions; empty output is never a pass.
+            pos += 1
+        elif parts[pos] == 'module':
+            testcase.is_module = True
             pos += 1
         elif parts[pos] == 'silentfail':
             # silentfails use tons of memory, and Darwin doesn't support ulimit.
@@ -245,7 +257,7 @@ def _parse_test_header(fullpath, testcase, xul_tester):
     This looks a bit weird.  The reason is that it needs to be efficient, since
     it has to be done on every test
     """
-    fp = open(fullpath, 'r')
+    fp = io.open(fullpath, 'r', encoding='utf-8')
     try:
         buf = fp.read(512)
     finally:
@@ -280,7 +292,7 @@ def _parse_external_manifest(filename, relpath):
     """
     entries = []
 
-    with open(filename, 'r') as fp:
+    with io.open(filename, 'r', encoding='utf-8') as fp:
         manifest_re = re.compile(r'^\s*(.*)\s+(include|script)\s+(\S+)$')
         for line in fp:
             line, _, comment = line.partition('#')

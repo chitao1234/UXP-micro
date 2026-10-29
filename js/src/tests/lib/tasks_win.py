@@ -22,7 +22,7 @@ class TaskFinishedMarker:
 
 def _do_work(qTasks, qResults, qWatch, prefix, run_skipped, timeout, show_cmd):
     while True:
-        test = qTasks.get(block=True, timeout=sys.maxsize)
+        test = qTasks.get(block=True)
         if test is EndMarker:
             qWatch.put(EndMarker)
             qResults.put(EndMarker)
@@ -46,6 +46,9 @@ def _do_work(qTasks, qResults, qWatch, prefix, run_skipped, timeout, show_cmd):
         # buffer clear on the "main" worker thread.
         qWatch.put(proc)
         out, err = proc.communicate()
+        if not isinstance(out, str):
+            out = out.decode('utf-8', 'replace')
+            err = err.decode('utf-8', 'replace')
         qWatch.put(TaskFinishedMarker)
 
         # Create a result record and forward to result processing.
@@ -73,7 +76,7 @@ def _do_watch(qWatch, timeout):
                 # ignore this.
                 if ex.winerror != 5:
                     raise
-            fin = qWatch.get(block=True, timeout=sys.maxsize)
+            fin = qWatch.get(block=True)
             assert fin is TaskFinishedMarker, "invalid finish marker"
 
 
@@ -81,6 +84,10 @@ def run_all_tests(tests, prefix, pb, options):
     """
     Uses scatter-gather to a thread-pool to manage children.
     """
+    # Manifest conditions can raise. Evaluate them on the calling thread, as
+    # the Unix runner does, so an exception cannot strand every worker waiting
+    # for a producer which died without sending its end markers.
+    tests = list(tests)
     qTasks, qResults = Queue(), Queue()
 
     workers = []

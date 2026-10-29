@@ -149,8 +149,11 @@ class RefTest(object):
         if path == '':
             return ['-f', 'shell.js']
         head, base = os.path.split(path)
-        return RefTest.prefix_command(head) \
-            + ['-f', os.path.join(path, 'shell.js')]
+        command = RefTest.prefix_command(head)
+        shell = os.path.join(path, 'shell.js')
+        if os.path.isfile(shell):
+            command += ['-f', shell]
+        return command
 
     def get_command(self, prefix):
         dirname, filename = os.path.split(self.path)
@@ -158,6 +161,8 @@ class RefTest(object):
               + RefTest.prefix_command(dirname)
         if self.test_reflect_stringify is not None:
             cmd += [self.test_reflect_stringify, "--check", self.path]
+        elif self.is_module:
+            cmd += ["--module", os.path.abspath(self.path)]
         else:
             cmd += ["-f", self.path]
         return cmd
@@ -171,6 +176,7 @@ class RefTestCase(RefTest):
         self.expect = True   # bool: expected result, True => pass
         self.random = False  # bool: True => ignore output as 'random'
         self.slow = False    # bool: True => test may run slowly
+        self.is_module = False
 
         # The terms parsed to produce the above properties.
         self.terms = None

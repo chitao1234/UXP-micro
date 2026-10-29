@@ -12,6 +12,8 @@ import subprocess
 from collections import namedtuple
 import io
 
+SKIPPED_EXIT_STATUS = 59
+
 if sys.platform.startswith('linux') or sys.platform.startswith('darwin'):
     from .tasks_unix import run_all_tests
 else:
@@ -126,6 +128,7 @@ class JitTest:
 
         # Expected by the test runner. Always true for jit-tests.
         self.enable = True
+        self.skip_if_cond = ''
 
     def copy(self):
         t = JitTest(self.path)
@@ -146,6 +149,7 @@ class JitTest:
         t.test_reflect_stringify = self.test_reflect_stringify
         t.enable = True
         t.is_module = self.is_module
+        t.skip_if_cond = self.skip_if_cond
         return t
 
     def copy_and_extend_jitflags(self, variant):
@@ -174,7 +178,8 @@ class JitTest:
     @classmethod
     def find_directives(cls, file_name):
         meta = ''
-        line = open(file_name).readline()
+        with io.open(file_name, encoding='utf-8') as source:
+            line = source.readline()
         i = line.find(cls.COOKIE)
         if i != -1:
             meta = ';' + line[i + len(cls.COOKIE):].strip('\n')
@@ -213,6 +218,9 @@ class JitTest:
                     value = value.strip()
                     if name == 'error':
                         test.expect_error = value
+                    elif name == 'skip-if':
+                        test.skip_if_cond = ('(' + test.skip_if_cond + ') || (' + value + ')'
+                                             if test.skip_if_cond else value)
                     elif name == 'exitstatus':
                         try:
                             test.expect_status = int(value, 0)
@@ -229,6 +237,7 @@ class JitTest:
                     else:
                         print('{}: warning: unrecognized |jit-test| attribute'
                               ' {}'.format(path, part))
+
                 else:
                     if name == 'slow':
                         test.slow = True
@@ -301,6 +310,9 @@ class JitTest:
         # via the "|jit-test|" line.  Remove dups because they are toggles.
         cmd = prefix + ['--js-cache', JitTest.CacheDir]
         cmd += list(set(self.jitflags)) + ['-e', expr]
+        if self.skip_if_cond:
+            cmd += ['-e', 'if ({}) {{ print("JIT-TEST-SKIP"); quit({}); }}'.format(
+                self.skip_if_cond, SKIPPED_EXIT_STATUS)]
         if self.is_module:
             cmd += ['--module-load-path', moduledir]
             cmd += ['--module', path]
@@ -320,6 +332,8 @@ class JitTest:
 
 
 def find_tests(substring=None):
+    if substring is not None:
+        substring = os.path.normpath(substring)
     ans = []
     for dirpath, dirnames, filenames in os.walk(TEST_DIR):
         dirnames.sort()
@@ -363,6 +377,9 @@ def run_test_remote(test, device, prefix, options):
     return TestOutput(test, cmd, out, out, returncode, None, False)
 
 def check_output(out, err, rc, timed_out, test, options):
+    if (test.skip_if_cond and rc == SKIPPED_EXIT_STATUS and not timed_out and
+            'JIT-TEST-SKIP' in out.splitlines()):
+        return True
     if timed_out:
         if test.relpath_tests in options.ignore_timeouts:
             return True
@@ -470,7 +487,7 @@ def print_automation_format(ok, res):
     for line in res.err.splitlines():
         print("INFO stderr         2> " + line.strip())
 
-def print_test_summary(num_tests, failures, complete, doing, options):
+def print_test_summary(num_tests, failures, complete, doing, options, skipped=0):
     if failures:
         if options.write_failures:
             try:
@@ -517,8 +534,9 @@ def print_test_summary(num_tests, failures, complete, doing, options):
     if options.format == 'automation':
         num_failures = len(failures) if failures else 0
         print('Result summary:')
-        print('Passed: {:d}'.format(num_tests - num_failures))
+        print('Passed: {:d}'.format(num_tests - num_failures - skipped))
         print('Failed: {:d}'.format(num_failures))
+        print('Skipped: {:d}'.format(skipped))
 
     return not failures
 
@@ -536,6 +554,7 @@ def create_progressbar(num_tests, options):
 
 def process_test_results(results, num_tests, pb, options):
     failures = []
+    skipped = 0
     timeouts = 0
     complete = False
     output_dict = {}
@@ -548,6 +567,23 @@ def process_test_results(results, num_tests, pb, options):
 
     try:
         for i, res in enumerate(results):
+            unsupported = (res.rc == SKIPPED_EXIT_STATUS and not res.timed_out and
+                           'JIT-TEST-UNSUPPORTED:' in (res.out + res.err))
+            if unsupported or (res.test.skip_if_cond and res.rc == SKIPPED_EXIT_STATUS and
+                               not res.timed_out and 'JIT-TEST-SKIP' in res.out.splitlines()):
+                skipped += 1
+                if options.format == 'automation':
+                    reason = res.test.skip_if_cond or next(
+                        (line for line in (res.out + res.err).splitlines()
+                         if 'JIT-TEST-UNSUPPORTED:' in line), 'unsupported directive')
+                    print('TEST-SKIP | {} | {}'.format(res.test.relpath_top, reason))
+                pb.update(i + 1, {
+                    'PASS': i - len(failures) - skipped + 1,
+                    'FAIL': len(failures),
+                    'TIMEOUT': timeouts,
+                    'SKIP': skipped
+                })
+                continue
             ok = check_output(res.out, res.err, res.rc, res.timed_out,
                               res.test, options)
 
@@ -587,10 +623,10 @@ def process_test_results(results, num_tests, pb, options):
 
             n = i + 1
             pb.update(n, {
-                'PASS': n - len(failures),
+                'PASS': n - len(failures) - skipped,
                 'FAIL': len(failures),
                 'TIMEOUT': timeouts,
-                'SKIP': 0
+                'SKIP': skipped
             })
         complete = True
     except KeyboardInterrupt:
@@ -598,7 +634,7 @@ def process_test_results(results, num_tests, pb, options):
               " : Test execution interrupted by user")
 
     pb.finish(True)
-    return print_test_summary(num_tests, failures, complete, doing, options)
+    return print_test_summary(num_tests, failures, complete, doing, options, skipped)
 
 def run_tests(tests, num_tests, prefix, options):
     # The jstests tasks runner requires the following options. The names are

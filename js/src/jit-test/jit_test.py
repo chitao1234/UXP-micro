@@ -5,19 +5,19 @@
 
 from __future__ import print_function, unicode_literals
 
-import math, os, platform, posixpath, shlex, shutil, subprocess, sys, traceback
+import math, os, platform, posixpath, shlex, shutil, subprocess, sys, tempfile, traceback
 
 def add_libdir_to_path():
     from os.path import dirname, exists, join, realpath
     js_src_dir = dirname(dirname(realpath(sys.argv[0])))
     assert exists(join(js_src_dir, 'jsapi.h'))
     sys.path.insert(0, join(js_src_dir, 'lib'))
-    sys.path.insert(0, join(js_src_dir, 'tests', 'lib'))
+    sys.path.insert(0, join(js_src_dir, 'tests'))
 
 add_libdir_to_path()
 
-import jittests
-from tests import get_jitflags, valid_jitflags, get_cpu_count, get_environment_overlay, \
+from lib import jittests
+from lib.tests import get_jitflags, valid_jitflags, get_cpu_count, get_environment_overlay, \
                   change_env
 
 # Python 3.3 added shutil.which, but we can't use that yet.
@@ -83,6 +83,8 @@ def main(argv):
                   help='set test timeout in seconds')
     op.add_option('--no-progress', dest='hide_progress', action='store_true',
                   help='hide progress bar')
+    op.add_option('--cache-dir', default=jittests.JS_CACHE_DIR,
+                  help='Parent directory for this run\'s private script cache.')
     op.add_option('--tinderbox', dest='format', action='store_const',
                   const='automation',
                   help='Use automation-parseable output format')
@@ -244,7 +246,7 @@ def main(argv):
     if not test_list:
         print("No tests found matching command line arguments.",
               file=sys.stderr)
-        sys.exit(0)
+        sys.exit(1)
 
     test_list = [jittests.JitTest.from_file(_, options) for _ in test_list]
 
@@ -298,9 +300,11 @@ def main(argv):
 
     prefix += ['-f', prologue]
 
-    # Clean up any remnants from previous crashes etc
-    shutil.rmtree(jittests.JS_CACHE_DIR, ignore_errors=True)
-    os.mkdir(jittests.JS_CACHE_DIR)
+    # Concurrent control/arm runs must never delete or share each other's cache.
+    cache_parent = os.path.abspath(options.cache_dir)
+    if not os.path.isdir(cache_parent):
+        os.makedirs(cache_parent)
+    jittests.JitTest.CacheDir = tempfile.mkdtemp(prefix='run-', dir=cache_parent)
 
     if options.debugger:
         if job_count > 1:
