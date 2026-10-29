@@ -1507,6 +1507,15 @@ MOZ_ARG_HEADER(External Packages)
 
 MOZ_CONFIG_NSPR(js)
 
+dnl Standalone collector/JIT tests need the same ICU setup as the browser.
+dnl The browser configures ICU in its outer configure instead.
+if test -n "$JS_STANDALONE"; then
+    case "$target" in
+    *-mingw*) MOZ_SHARED_ICU=1 ;;
+    esac
+    MOZ_CONFIG_ICU()
+fi
+
 dnl ========================================================
 dnl system zlib Support
 dnl ========================================================
