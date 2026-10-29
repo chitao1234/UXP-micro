@@ -921,6 +921,21 @@ function $ERROR(msg)
   throw new Error("Test262 error: " + msg);
 }
 
+var $mozAsyncTestDone = false;
+function $DONE(failure)
+{
+  if ($mozAsyncTestDone) {
+    reportFailure("$DONE() already called");
+    return;
+  }
+  $mozAsyncTestDone = true;
+
+  if (failure)
+    reportFailure(String(failure));
+  else
+    reportCompare(0, 0);
+}
+
 /*
  * Test262 function $INCLUDE loads a file with support functions for the tests.
  * This function is replaced in browser.js.
@@ -939,30 +954,34 @@ var fnGlobalObject = (function()
   return function fnGlobalObject() { return global; };
 })();
 
-var assert = {
-    sameValue: assertEq,
-    notSameValue(a, b, msg) {
-      try {
-        assertEq(a, b);
-        throw "equal"
-      } catch (e) {
-        if (e === "equal")
-          throw new Error("Assertion failed: expected different values, got " + a);
-      }
-    },
-    throws(ctor, f) {
-      var fullmsg;
-      try {
-        f();
-      } catch (exc) {
-        if (exc instanceof ctor)
-          return;
-        fullmsg = "Assertion failed: expected exception " + ctor.name + ", got " + exc;
-      }
-      if (fullmsg === undefined)
-        fullmsg = "Assertion failed: expected exception " + ctor.name + ", no exception thrown";
-      if (msg !== undefined)
-        fullmsg += " - " + msg;
-      throw new Error(fullmsg);
-    }
+function assert(mustBeTrue, message)
+{
+  if (mustBeTrue !== true)
+    throw new Error(message || "Assertion failed: expected true, got " + mustBeTrue);
 }
+
+assert.sameValue = assertEq;
+assert.notSameValue = function(actual, unexpected, message) {
+  var same = actual === unexpected;
+  if (!same && actual !== actual && unexpected !== unexpected)
+    same = true;
+  if (same && actual === 0)
+    same = 1 / actual === 1 / unexpected;
+  if (same)
+    throw new Error(message || "Assertion failed: values should differ");
+};
+assert.throws = function(ctor, f, message) {
+  var fullmsg;
+  try {
+    f();
+  } catch (exc) {
+    if (exc instanceof ctor)
+      return;
+    fullmsg = "Assertion failed: expected exception " + ctor.name + ", got " + exc;
+  }
+  if (fullmsg === undefined)
+    fullmsg = "Assertion failed: expected exception " + ctor.name + ", no exception thrown";
+  if (message !== undefined)
+    fullmsg += " - " + message;
+  throw new Error(fullmsg);
+};
