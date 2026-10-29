@@ -48,20 +48,19 @@ for (let invalid of invalidSyntax) {
 assertThrowsInstanceOf(() => eval(`({ m() { for (super.p = 0 in {}); } })`), SyntaxError);
 assertThrowsInstanceOf(() => eval(`({ m() { for (super[0] = 0 in {}); } })`), SyntaxError);
 
-// Throws ReferenceError instead of SyntaxError, because we intermingle parsing
-// and early error checking.
-assertThrowsInstanceOf(() => eval(`for (0 = 0 in {});`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`for (i++ = 0 in {});`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`for (new F() = 0 in {});`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`function f() { for (new.target = 0 in {}); }`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`class C extends D { constructor() { for (super() = 0 in {}); } }`), ReferenceError);
+// Invalid assignment targets are early SyntaxErrors.
+assertThrowsInstanceOf(() => eval(`for (0 = 0 in {});`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`for (i++ = 0 in {});`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`for (new F() = 0 in {});`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`function f() { for (new.target = 0 in {}); }`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`class C extends D { constructor() { for (super() = 0 in {}); } }`), SyntaxError);
 
 // Same as above, only this time don't make it look like we actually parse a for-in statement.
-assertThrowsInstanceOf(() => eval(`for (0 = 0 #####`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`for (i++ = 0 #####`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`for (new F() = 0 #####`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`function f() { for (new.target = 0 #####`), ReferenceError);
-assertThrowsInstanceOf(() => eval(`class C extends D { constructor() { for (super() = 0 #####`), ReferenceError);
+assertThrowsInstanceOf(() => eval(`for (0 = 0 #####`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`for (i++ = 0 #####`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`for (new F() = 0 #####`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`function f() { for (new.target = 0 #####`), SyntaxError);
+assertThrowsInstanceOf(() => eval(`class C extends D { constructor() { for (super() = 0 #####`), SyntaxError);
 
 
 if (typeof reportCompare === "function")
