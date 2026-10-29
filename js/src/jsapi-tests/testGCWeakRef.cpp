@@ -23,6 +23,8 @@ BEGIN_TEST(testGCWeakRef)
 {
     CHECK(cx->options().weakRefs());
     cx->options().setWeakRefs(false);
+    CHECK(!cx->options().weakRefs());
+    cx->options().setWeakRefs(true);
     CHECK(cx->options().weakRefs());
 
     JS::RootedValue v(cx);
@@ -31,8 +33,8 @@ BEGIN_TEST(testGCWeakRef)
          "weakRefTarget = null;\n");
 
     // The constructor keeps the target alive until the host clears kept
-    // objects. This must remain true even after callers try the old disabled
-    // option path above.
+    // objects. The context's optional API must be enabled before the global
+    // initializes its standard classes.
     JS_GC(cx);
     JS_GC(cx);
     EVAL("weakRef.deref()", &v);
@@ -116,5 +118,12 @@ BEGIN_TEST(testGCWeakRef)
     CHECK(heap.get().weak == nullptr);
 
     return true;
+}
+
+JSContext* createContext() override {
+    JSContext* context = JSAPITest::createContext();
+    if (context)
+        JS::ContextOptionsRef(context).setWeakRefs(true);
+    return context;
 }
 END_TEST(testGCWeakRef)
