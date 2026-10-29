@@ -5,6 +5,7 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/IntegerPrintfMacros.h" // this must pick up <stdint.h>
+#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/Sprintf.h"
 
 #include <stddef.h>
@@ -565,10 +566,29 @@ TestPrintUnsigned()
 }
 
 static void
+TestPrintSize()
+{
+  const size_t value = 0x2a;
+  PoisonOutput();
+  SprintfLiteral(gOutput, "%" PRIoSIZE, value);
+  MOZ_RELEASE_ASSERT(!strcmp(gOutput, "52"));
+  SprintfLiteral(gOutput, "%" PRIuSIZE, value);
+  MOZ_RELEASE_ASSERT(!strcmp(gOutput, "42"));
+  SprintfLiteral(gOutput, "%08" PRIxSIZE, value);
+  MOZ_RELEASE_ASSERT(!strcmp(gOutput, "0000002a"));
+  SprintfLiteral(gOutput, "%" PRIXSIZE, value);
+  MOZ_RELEASE_ASSERT(!strcmp(gOutput, "2A"));
+  SprintfLiteral(gOutput, "%" PRIxSIZE, SIZE_MAX);
+  MOZ_RELEASE_ASSERT(!strcmp(gOutput, sizeof(size_t) == 4 ? "ffffffff" :
+                            "ffffffffffffffff"));
+}
+
+static void
 TestPrint()
 {
   TestPrintSigned();
   TestPrintUnsigned();
+  TestPrintSize();
 }
 
 /*

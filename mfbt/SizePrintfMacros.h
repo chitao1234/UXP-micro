@@ -17,7 +17,8 @@
  * http://msdn.microsoft.com/en-us/library/tcxf1dw6.aspx
  */
 
-#if defined(XP_WIN)
+/* MinGW's ANSI stdio supports the C99 modifier, as does GCC's format checker. */
+#if defined(XP_WIN) && !defined(__MINGW32__)
 #  define PRIoSIZE  "Io"
 #  define PRIuSIZE  "Iu"
 #  define PRIxSIZE  "Ix"
