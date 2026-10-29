@@ -1,17 +1,19 @@
 for (var constructor of anyTypedArrayConstructors) {
+    var resultConstructor = this[constructor.name];
     assertEq(constructor.prototype.with.length, 2);
 
     var original = new constructor([1, 2, 3, 4]);
     var updated = original.with(1, 9);
-    assertDeepEq(updated, new constructor([1, 9, 3, 4]));
+    assertDeepEq(updated, new resultConstructor([1, 9, 3, 4]));
     assertDeepEq(original, new constructor([1, 2, 3, 4]));
     assertEq(updated === original, false);
-    assertEq(updated.constructor, constructor);
+    assertEq(updated.constructor, resultConstructor);
+    assertEq(updated.buffer instanceof ArrayBuffer, true);
 
     assertDeepEq(new constructor([1, 2, 3]).with(-1, 7),
-                 new constructor([1, 2, 7]));
+                 new resultConstructor([1, 2, 7]));
     assertDeepEq(new constructor([1, 2, 3]).with(-0, 7),
-                 new constructor([7, 2, 3]));
+                 new resultConstructor([7, 2, 3]));
 
     assertThrowsInstanceOf(() => {
         new constructor([1, 2, 3]).with(3, 9);
@@ -38,14 +40,14 @@ for (var constructor of anyTypedArrayConstructors) {
             throw new Error("constructor accessor called");
         }
     });
-    assertDeepEq(ctorIgnored.with(0, 4), new constructor([4, 6, 7]));
+    assertDeepEq(ctorIgnored.with(0, 4), new resultConstructor([4, 6, 7]));
 
     if (constructor === Uint8ClampedArray ||
         (typeof isSharedConstructor === "function" && isSharedConstructor(constructor) &&
          constructor.name === Uint8ClampedArray.name))
     {
         assertDeepEq(new constructor([0, 1, 2]).with(1, 2.6),
-                     new constructor([0, 3, 2]));
+                     new resultConstructor([0, 3, 2]));
     }
 
     var invalidReceivers = [undefined, null, 1, false, "", Symbol(), [], {}, /./,
@@ -60,11 +62,14 @@ for (var constructor of anyTypedArrayConstructors) {
 
 for (var constructor of typedArrayConstructors) {
     if (typeof newGlobal === "function") {
-        var withFn = newGlobal()[constructor.name].prototype.with;
+        var otherGlobal = newGlobal();
+        var otherConstructor = otherGlobal[constructor.name];
+        var withFn = otherConstructor.prototype.with;
         var original = new constructor([3, 2, 1]);
         var updated = withFn.call(original, 1, 8);
 
-        assertDeepEq(updated, new constructor([3, 8, 1]));
+        assertDeepEq(updated, new otherConstructor([3, 8, 1]));
+        assertEq(Object.getPrototypeOf(updated), otherConstructor.prototype);
         assertDeepEq(original, new constructor([3, 2, 1]));
     }
 }

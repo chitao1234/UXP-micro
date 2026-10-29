@@ -1,24 +1,26 @@
 for (var constructor of anyTypedArrayConstructors) {
+    var resultConstructor = this[constructor.name];
     assertEq(constructor.prototype.toSorted.length, 1);
 
     var original = new constructor([3, 1, 2]);
     var sorted = original.toSorted();
-    assertDeepEq(sorted, new constructor([1, 2, 3]));
+    assertDeepEq(sorted, new resultConstructor([1, 2, 3]));
     assertDeepEq(original, new constructor([3, 1, 2]));
     assertEq(sorted === original, false);
-    assertEq(sorted.constructor, constructor);
+    assertEq(sorted.constructor, resultConstructor);
+    assertEq(sorted.buffer instanceof ArrayBuffer, true);
 
     var descending = original.toSorted((a, b) => b - a);
-    assertDeepEq(descending, new constructor([3, 2, 1]));
+    assertDeepEq(descending, new resultConstructor([3, 2, 1]));
     assertDeepEq(original, new constructor([3, 1, 2]));
 
     var stableInput = new constructor([2, 1, 4, 3]);
     var stableSorted = stableInput.toSorted((a, b) => (a % 2) - (b % 2));
-    assertDeepEq(stableSorted, new constructor([2, 4, 1, 3]));
+    assertDeepEq(stableSorted, new resultConstructor([2, 4, 1, 3]));
 
     var nanComparatorInput = new constructor([4, 1, 3, 2]);
     var nanComparatorSorted = nanComparatorInput.toSorted(() => NaN);
-    assertDeepEq(nanComparatorSorted, nanComparatorInput);
+    assertDeepEq(nanComparatorSorted, new resultConstructor([4, 1, 3, 2]));
 
     var ctorIgnored = new constructor([5, 1, 4]);
     Object.defineProperty(ctorIgnored, "constructor", {
@@ -26,7 +28,7 @@ for (var constructor of anyTypedArrayConstructors) {
             throw new Error("constructor accessor called");
         }
     });
-    assertDeepEq(ctorIgnored.toSorted(), new constructor([1, 4, 5]));
+    assertDeepEq(ctorIgnored.toSorted(), new resultConstructor([1, 4, 5]));
 
     if (isFloatConstructor(constructor)) {
         var floatInput = new constructor([0, -0, 1, -1, NaN]);
@@ -51,11 +53,14 @@ for (var constructor of anyTypedArrayConstructors) {
 
 for (var constructor of typedArrayConstructors) {
     if (typeof newGlobal === "function") {
-        var toSorted = newGlobal()[constructor.name].prototype.toSorted;
+        var otherGlobal = newGlobal();
+        var otherConstructor = otherGlobal[constructor.name];
+        var toSorted = otherConstructor.prototype.toSorted;
         var original = new constructor([3, 2, 1]);
         var sorted = toSorted.call(original);
 
-        assertDeepEq(sorted, new constructor([1, 2, 3]));
+        assertDeepEq(sorted, new otherConstructor([1, 2, 3]));
+        assertEq(Object.getPrototypeOf(sorted), otherConstructor.prototype);
         assertDeepEq(original, new constructor([3, 2, 1]));
     }
 }
@@ -97,7 +102,8 @@ if (typeof newGlobal === "function" && typeof detachArrayBuffer === "function") 
         }
         return a - b;
     });
-    assertDeepEq(sorted, new Int32Array([1, 2, 3]));
+    assertDeepEq(sorted, new otherGlobal.Int32Array([1, 2, 3]));
+    assertEq(Object.getPrototypeOf(sorted), otherGlobal.Int32Array.prototype);
 }
 
 if (typeof BigInt64Array === "function" && typeof BigUint64Array === "function") {
