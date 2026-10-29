@@ -33,3 +33,16 @@ function runWeakRefManual() {
 
   return results;
 }
+
+// Exercise the helper when the standard harness loads this file. Keep console
+// use unchanged when its assertion helpers are absent.
+if (typeof reportCompare === "function") {
+  const results = runWeakRefManual();
+  assertEq(results.length, 4);
+  assertEq(results[0].value, "alpha");
+  assertEq(results[1].value, true);
+  // A dereferenced target is kept alive until the current job ends.
+  assertEq(results[2].value, "alpha");
+  assertEq(results[3].value, true);
+  reportCompare(0, 0);
+}
