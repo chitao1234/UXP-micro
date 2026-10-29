@@ -1,192 +1,135 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-# This script exists to generate the Certificate Authority and server
-# certificates used for SSL testing in Mochitest. The already generated
-# certs are located at $topsrcdir/build/pgo/certs/ .
+"""Generate the SQL NSS certificate fixtures used by mochitest/ssltunnel.
 
-import mozinfo
+Uses the certificate/key specifications introduced in Firefox ESR52. Test keys
+are public fixtures from pykey, never personal or production keys.
+"""
+
+import argparse
+import io
 import os
-import random
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 
 from mozbuild.base import MozbuildObject
-from mozfile import NamedTemporaryFile
 from mozprofile.permissions import ServerLocations
 
-dbFiles = [
-  re.compile("^cert[0-9]+\.db$"),
-  re.compile("^key[0-9]+\.db$"),
-  re.compile("^secmod\.db$")
-]
 
-def unlinkDbFiles(path):
-  for root, dirs, files in os.walk(path):
-    for name in files:
-      for dbFile in dbFiles:
-        if dbFile.match(name) and os.path.exists(os.path.join(root, name)):
-          os.unlink(os.path.join(root, name))
-
-def dbFilesExist(path):
-  for root, dirs, files in os.walk(path):
-    for name in files:
-      for dbFile in dbFiles:
-        if dbFile.match(name) and os.path.exists(os.path.join(root, name)):
-          return True
-  return False
+def server_spec(locations):
+    hosts = sorted(set(loc.host for loc in locations
+                       if loc.scheme == 'https' and 'nocert' not in loc.options
+                       and not any(option.startswith('cert=')
+                                   for option in loc.options)))
+    if not hosts:
+        raise ValueError('No automatic HTTPS server locations')
+    return ('issuer:printableString/CN=Temporary Certificate Authority/'
+            'O=Mozilla Testing/OU=Profile Guided Optimization\n'
+            'subject:{}\n'
+            'extension:subjectAlternativeName:{}\n').format(hosts[0], ','.join(hosts))
 
 
-def runUtil(util, args, inputdata = None):
-  env = os.environ.copy()
-  if mozinfo.os == "linux":
-    pathvar = "LD_LIBRARY_PATH"
-    app_path = os.path.dirname(util)
-    if pathvar in env:
-      env[pathvar] = "%s%s%s" % (app_path, os.pathsep, env[pathvar])
+def construct_cert_database(build, output_dir, openssl):
+    spec_dir = os.path.join(build.topsrcdir, 'build', 'pgo', 'certs')
+    sys.path.insert(0, os.path.join(build.topsrcdir, 'security', 'manager',
+                                  'ssl', 'tests', 'unit'))
+    import pycert
+    import pykey
+
+    certutil = build.get_binary_path(what='certutil')
+    pk12util = build.get_binary_path(what='pk12util')
+    locations = ServerLocations(os.path.join(build.topsrcdir, 'build', 'pgo',
+                                             'server-locations.txt'))
+    specs = {}
+    for filename in sorted(os.listdir(spec_dir)):
+        if filename.endswith('.certspec'):
+            with open(os.path.join(spec_dir, filename)) as source:
+                specs[filename[:-len('.certspec')]] = source.read()
+    specs['pgo server certificate'] = server_spec(locations)
+
+    # Work under the object directory. Publish only after all imports succeed,
+    # so a failed generation cannot replace a working fixture database.
+    scratch = os.path.join(build.topobjdir, 'build', 'pgo')
+    os.makedirs(scratch, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    work = tempfile.mkdtemp(prefix='certs-', dir=scratch)
+    try:
+        database = 'sql:' + work
+        password = os.path.join(work, 'password')
+        with open(password, 'wb') as stream:
+            stream.write(b'\n')
+        subprocess.check_call([certutil, '-N', '-d', database, '-f', password])
+
+        certificates = {}
+        for name, spec in sorted(specs.items()):
+            print('Generating certificate: ' + name, flush=True)
+            path = os.path.join(work, name + '.pem')
+            with open(path, 'w', newline='\n') as stream:
+                stream.write(pycert.Certificate(io.StringIO(spec)).toPEM() + '\n')
+            certificates[name] = path
+            subprocess.check_call([certutil, '-A', '-n', name, '-t', ',,',
+                                   '-i', path, '-d', database, '-f', password])
+
+        exports = {}
+        for filename in sorted(os.listdir(spec_dir)):
+            if not filename.endswith('.keyspec'):
+                continue
+            name, kind, unused = filename.rsplit('.', 2)
+            if kind not in ('ca', 'client', 'server') or name not in certificates:
+                raise ValueError('Invalid key/certificate pair: ' + filename)
+            with open(os.path.join(spec_dir, filename)) as stream:
+                key = pykey.keyFromSpecification(stream.read().strip())
+            key_path = os.path.join(work, name + '.key.pem')
+            with open(key_path, 'w', newline='\n') as stream:
+                stream.write(key.toPEM() + '\n')
+            p12 = os.path.join(work, name + '.p12')
+            subprocess.check_call([openssl, 'pkcs12', '-export', '-inkey', key_path,
+                                   '-in', certificates[name], '-name', name, '-out',
+                                   p12, '-passout', 'file:' + password])
+            subprocess.check_call([pk12util, '-i', p12, '-d', database,
+                                   '-w', password, '-k', password])
+            if kind == 'ca':
+                subprocess.check_call([certutil, '-M', '-n', name, '-t', 'CT,,',
+                                       '-d', database, '-f', password])
+                exports[name + '.ca'] = certificates[name]
+            elif kind == 'client':
+                exports[name + '.client'] = p12
+
+        # Exercise lookup before copying the closed SQL databases. The module
+        # configuration is regenerated by NSS at its actual runtime location;
+        # do not publish scratch-directory paths in pkcs11.txt.
+        subprocess.check_call([certutil, '-L', '-d', database,
+                               '-n', 'pgo server certificate'])
+        exports['cert9.db'] = os.path.join(work, 'cert9.db')
+        exports['key4.db'] = os.path.join(work, 'key4.db')
+        for filename, path in sorted(exports.items()):
+            shutil.copyfile(path, os.path.join(output_dir, filename))
+    except Exception:
+        print('Certificate generation failed; diagnostics retained in ' + work,
+              file=sys.stderr)
+        raise
     else:
-      env[pathvar] = app_path
-  proc = subprocess.Popen([util] + args, env=env,
-                          stdin=subprocess.PIPE if inputdata else None)
-  proc.communicate(inputdata)
-  return proc.returncode
+        shutil.rmtree(work)
 
 
-def createRandomFile(randomFile):
-  for count in range(0, 2048):
-    randomFile.write(chr(random.randint(0, 255)))
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-dir', help='Output fixture directory (default: source fixtures)')
+    parser.add_argument('--openssl', default=shutil.which('openssl'),
+                        help='OpenSSL executable used to package test private keys')
+    args = parser.parse_args()
+    if not args.openssl:
+        parser.error('OpenSSL is required; use --openssl or add it to PATH')
+    build = MozbuildObject.from_environment()
+    output = args.output_dir or os.path.join(build.topsrcdir, 'build', 'pgo', 'certs')
+    construct_cert_database(build, os.path.abspath(output), args.openssl)
+    return 0
 
 
-def createCertificateAuthority(build, srcDir):
-  certutil = build.get_binary_path(what="certutil")
-  pk12util = build.get_binary_path(what="pk12util")
-
-  #TODO: mozfile.TemporaryDirectory
-  tempDbDir = tempfile.mkdtemp()
-  with NamedTemporaryFile() as pwfile, NamedTemporaryFile() as rndfile:
-    pgoCAModulePathSrc = os.path.join(srcDir, "pgoca.p12")
-    pgoCAPathSrc = os.path.join(srcDir, "pgoca.ca")
-
-    pwfile.write("\n")
-
-    # Create temporary certification database for CA generation
-    status = runUtil(certutil, ["-N", "-d", tempDbDir, "-f", pwfile.name])
-    if status:
-      return status
-
-    createRandomFile(rndfile)
-    status = runUtil(certutil, ["-S", "-d", tempDbDir, "-s", "CN=Temporary Certificate Authority, O=Mozilla Testing, OU=Profile Guided Optimization", "-t", "C,,", "-x", "-m", "1", "-v", "120", "-n", "pgo temporary ca", "-2", "-f", pwfile.name, "-z", rndfile.name], "Y\n0\nN\n")
-    if status:
-      return status
-
-    status = runUtil(certutil, ["-L", "-d", tempDbDir, "-n", "pgo temporary ca", "-a", "-o", pgoCAPathSrc, "-f", pwfile.name])
-    if status:
-      return status
-
-    status = runUtil(pk12util, ["-o", pgoCAModulePathSrc, "-n", "pgo temporary ca", "-d", tempDbDir, "-w", pwfile.name, "-k", pwfile.name])
-    if status:
-      return status
-
-  shutil.rmtree(tempDbDir)
-  return 0
-
-
-def createSSLServerCertificate(build, srcDir):
-  certutil = build.get_binary_path(what="certutil")
-  pk12util = build.get_binary_path(what="pk12util")
-
-  with NamedTemporaryFile() as pwfile, NamedTemporaryFile() as rndfile:
-    pgoCAPath = os.path.join(srcDir, "pgoca.p12")
-
-    pwfile.write("\n")
-
-    if not dbFilesExist(srcDir):
-      # Make sure all DB files from src are really deleted
-      unlinkDbFiles(srcDir)
-
-      # Create certification database for ssltunnel
-      status = runUtil(certutil, ["-N", "-d", srcDir, "-f", pwfile.name])
-      if status:
-        return status
-
-      status = runUtil(pk12util, ["-i", pgoCAPath, "-w", pwfile.name, "-d", srcDir, "-k", pwfile.name])
-      if status:
-        return status
-
-    # Generate automatic certificate
-    locations = ServerLocations(os.path.join(build.topsrcdir,
-                                             "build", "pgo",
-                                             "server-locations.txt"))
-    iterator = iter(locations)
-
-    # Skips the first entry, I don't know why: bug 879740
-    next(iterator)
-
-    locationsParam = ""
-    firstLocation = ""
-    for loc in iterator:
-      if loc.scheme == "https" and "nocert" not in loc.options:
-        customCertOption = False
-        customCertRE = re.compile("^cert=(?:\w+)")
-        for option in loc.options:
-          match = customCertRE.match(option)
-          if match:
-            customCertOption = True
-            break
-
-        if not customCertOption:
-          if len(locationsParam) > 0:
-            locationsParam += ","
-          locationsParam += loc.host
-
-          if firstLocation == "":
-            firstLocation = loc.host
-
-    if not firstLocation:
-      print("Nothing to generate, no automatic secure hosts specified")
-    else:
-      createRandomFile(rndfile)
-
-      runUtil(certutil, ["-D", "-n", "pgo server certificate", "-d", srcDir, "-z", rndfile.name, "-f", pwfile.name])
-      # Ignore the result, the certificate may not be present when new database is being built
-
-      status = runUtil(certutil, ["-S", "-s", "CN=%s" % firstLocation, "-t", "Pu,,", "-c", "pgo temporary ca", "-m", "2", "-8", locationsParam, "-v", "120", "-n", "pgo server certificate", "-d", srcDir, "-z", rndfile.name, "-f", pwfile.name])
-      if status:
-        return status
-
-  return 0
-
-if len(sys.argv) == 1:
-  print("Specify --gen-server or --gen-ca")
-  sys.exit(1)
-
-build = MozbuildObject.from_environment()
-certdir = os.path.join(build.topsrcdir, "build", "pgo", "certs")
-if sys.argv[1] == "--gen-server":
-  certificateStatus = createSSLServerCertificate(build, certdir)
-  if certificateStatus:
-    print("TEST-UNEXPECTED-FAIL | SSL Server Certificate generation")
-
-  sys.exit(certificateStatus)
-
-if sys.argv[1] == "--gen-ca":
-  certificateStatus = createCertificateAuthority(build, certdir)
-  if certificateStatus:
-    print("TEST-UNEXPECTED-FAIL | Certificate Authority generation")
-  else:
-    print("\n\n")
-    print("===================================================")
-    print(" IMPORTANT:")
-    print(" To use this new certificate authority in tests")
-    print(" run 'make' at testing/mochitest")
-    print("===================================================")
-
-  sys.exit(certificateStatus)
-
-print("Invalid option specified")
-sys.exit(1)
+if __name__ == '__main__':
+    sys.exit(main())
