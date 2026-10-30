@@ -10,9 +10,17 @@ var toolbox, toolIDs, idIndex, modifiedPrefs = [];
 
 function test() {
   addTab("about:blank").then(function () {
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    // Tool support can depend on the actors advertised by the target.
+    return target.makeRemote().then(() => target);
+  }).then(function (target) {
     toolIDs = [];
     for (let [id, definition] of gDevTools._tools) {
       if (definition.key) {
+        if (!definition.isTargetSupported(target)) {
+          info("No shortcut test for unsupported tool: " + id);
+          continue;
+        }
         toolIDs.push(id);
 
         // Enable disabled tools
@@ -28,11 +36,10 @@ function test() {
         }
       }
     }
-    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    ok(toolIDs.length > 1, "Multiple supported tools have shortcuts to test");
     idIndex = 0;
-    gDevTools.showToolbox(target, toolIDs[0], Toolbox.HostType.WINDOW)
-             .then(testShortcuts);
-  });
+    return gDevTools.showToolbox(target, toolIDs[0], Toolbox.HostType.WINDOW);
+  }).then(testShortcuts);
 }
 
 function testShortcuts(aToolbox, aIndex) {
