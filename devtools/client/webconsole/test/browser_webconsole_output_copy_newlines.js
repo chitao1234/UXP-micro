@@ -19,8 +19,11 @@ add_task(function* () {
                    .getControllerForCommand("cmd_copy");
   is(controller.isCommandEnabled("cmd_copy"), false, "cmd_copy is disabled");
 
-  content.console.log("Hello world! bug916997a");
-  content.console.log("Hello world 2! bug916997b");
+  // Console evaluation intentionally hides the "debugger eval code" source
+  // location. Test message separators independently of source-link layout.
+  yield hud.jsterm.requestEvaluation(
+    'console.log("Hello world! bug916997a");' +
+    'console.log("Hello world 2! bug916997b");');
 
   yield waitForMessages({
     webconsole: hud,
@@ -35,6 +38,8 @@ add_task(function* () {
     }],
   });
 
+  is(hud.outputNode.querySelectorAll(".message-location").length, 0,
+     "The fixture messages have no source-location lines");
   hud.ui.output.selectAllMessages();
   hud.outputNode.focus();
 
@@ -46,26 +51,23 @@ add_task(function* () {
   let selection = hud.iframeWindow.getSelection() + "";
   info("selection '" + selection + "'");
 
-  waitForClipboard((str) => {
-    clipboardValue = str;
-    return str.indexOf("bug916997a") > -1 && str.indexOf("bug916997b") > -1;
-  },
+  yield waitForClipboardPromise(
     () => {
       goDoCommand("cmd_copy");
     },
-    () => {
-      info("clipboard value '" + clipboardValue + "'");
-      let lines = clipboardValue.trim().split("\n");
-      is(hud.outputNode.children.length, 2, "number of messages");
-      is(lines.length, hud.outputNode.children.length, "number of lines");
-      isnot(lines[0].indexOf("bug916997a"), -1,
-            "first message text includes 'bug916997a'");
-      isnot(lines[1].indexOf("bug916997b"), -1,
-            "second message text includes 'bug916997b'");
-      is(lines[0].indexOf("bug916997b"), -1,
-         "first message text does not include 'bug916997b'");
-    },
-    () => {
-      info("last clipboard value: '" + clipboardValue + "'");
+    (str) => {
+      clipboardValue = str;
+      return str.indexOf("bug916997a") > -1 && str.indexOf("bug916997b") > -1;
     });
+
+  info("clipboard value '" + clipboardValue + "'");
+  let lines = clipboardValue.trim().split("\n");
+  is(hud.outputNode.children.length, 2, "number of messages");
+  is(lines.length, hud.outputNode.children.length, "number of lines");
+  isnot(lines[0].indexOf("bug916997a"), -1,
+        "first message text includes 'bug916997a'");
+  isnot(lines[1].indexOf("bug916997b"), -1,
+        "second message text includes 'bug916997b'");
+  is(lines[0].indexOf("bug916997b"), -1,
+     "first message text does not include 'bug916997b'");
 });
