@@ -20,9 +20,11 @@ function run_test() {
   // Test friendly-ing.
   do_check_eq("abcdefghijk8mn9pqrstuvwxyz234567",
               Utils.base32ToFriendly("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"));
+  do_check_eq("89898", Utils.base32ToFriendly("LOLOL"));
   do_check_eq("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
               Utils.base32FromFriendly(
                 Utils.base32ToFriendly("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")));
+  do_check_eq("LOLOL", Utils.base32FromFriendly("89898"));
 
   // Test translation.
   do_check_false(Utils.isPassphrase("o-5wmnu-o5tqc-7lz2h-amkbw-izqzi"));  // Wrong charset.

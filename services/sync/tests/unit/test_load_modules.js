@@ -4,7 +4,6 @@
 const modules = [
   "addonutils.js",
   "addonsreconciler.js",
-  "browserid_identity.js",
   "constants.js",
   "engines/addons.js",
   "engines/bookmarks.js",

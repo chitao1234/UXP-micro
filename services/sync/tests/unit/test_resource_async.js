@@ -128,7 +128,8 @@ function server_headers(metadata, response) {
   let ignore_headers = ["host", "user-agent", "accept", "accept-language",
                         "accept-encoding", "accept-charset", "keep-alive",
                         "connection", "pragma", "cache-control",
-                        "content-length"];
+                        "content-length", "sec-fetch-dest", "sec-fetch-mode",
+                        "sec-fetch-site", "sec-fetch-user"];
   let headers = metadata.headers;
   let header_names = [];
   while (headers.hasMoreElements()) {

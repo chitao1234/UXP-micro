@@ -681,7 +681,7 @@ ErrorHandler.prototype = {
         }
 
         if (Status.service == SYNC_FAILED_PARTIAL) {
-          this._log.debug("Some engines did not sync correctly.");
+          this._log.error("Some engines did not sync correctly.");
           this.resetFileLog(this._logManager.REASON_ERROR);
 
           if (this.shouldReportError()) {

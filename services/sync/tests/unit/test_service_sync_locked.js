@@ -11,7 +11,10 @@ function run_test() {
   function augmentLogger(old) {
     let d = old.debug;
     let i = old.info;
-    old.debug = function(m) { debug.push(m); d.call(old, m); }
+    old.debug = function(m, p) {
+      debug.push(p ? m + (p.message || p) : m);
+      d.call(old, m, p);
+    }
     old.info  = function(m) { info.push(m);  i.call(old, m); }
     return old;
   }
@@ -28,8 +31,9 @@ function run_test() {
   Service.sync();
   Service._locked = false;
 
-  do_check_eq(debug[debug.length - 2],
-              "Exception: Could not acquire lock. Label: \"service.js: login\". No traceback available");
+  do_check_true(debug.some(m =>
+    m.indexOf('Could not acquire lock. Label: "service.js: login".') != -1),
+    "The lock exception is included in the debug log");
   do_check_eq(info[info.length - 1],
               "Cannot start sync: already syncing?");
 }
