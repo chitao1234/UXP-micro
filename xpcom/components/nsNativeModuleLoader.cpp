@@ -120,6 +120,16 @@ nsNativeModuleLoader::LoadModule(FileLocation& aFile)
   {
 #ifdef HAS_DLL_BLOCKLIST
     AutoSetXPCOMLoadOnMainThread guard;
+#elif defined(XP_WIN)
+    // MinGW does not install the LdrLoadDll hook. Enforce the same component
+    // ASLR requirement before invoking the native loader.
+    nsAutoString modulePath;
+    rv = file->GetPath(modulePath);
+    if (NS_FAILED(rv) || !DllBlocklist_CheckModuleASLR(modulePath.get())) {
+      LogMessage("Blocked native module '%s': XPCOM components must support ASLR.",
+                 filePath.get());
+      return nullptr;
+    }
 #endif
     rv = file->Load(&data.mLibrary);
   }

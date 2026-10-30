@@ -761,6 +761,12 @@ WindowsDllInterceptor NtDllIntercept;
 
 } // namespace
 
+MFBT_API bool
+DllBlocklist_CheckModuleASLR(const wchar_t* aPath)
+{
+  return !IsWindowsVersionOrLater(0x06000000) || CheckASLR(aPath);
+}
+
 MFBT_API void
 DllBlocklist_Initialize()
 {

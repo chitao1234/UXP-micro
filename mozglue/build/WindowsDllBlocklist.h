@@ -6,6 +6,12 @@
 #ifndef mozilla_windowsdllblocklist_h
 #define mozilla_windowsdllblocklist_h
 
+#include "mozilla/Types.h"
+
+#ifdef XP_WIN
+MFBT_API bool DllBlocklist_CheckModuleASLR(const wchar_t* aPath);
+#endif
+
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
 
 #include <windows.h>

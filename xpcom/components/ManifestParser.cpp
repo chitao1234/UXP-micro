@@ -568,7 +568,10 @@ ParseManifest(NSLocationType aType, FileLocation& aFile, char* aBuf,
   // outer loop tokenizes by newline
   while (*newline) {
     while (*newline && IsNewline(*newline)) {
-      ++newline;
+      char delimiter = *newline++;
+      if (delimiter == '\r' && *newline == '\n') {
+        ++newline;
+      }
       ++line;
     }
     if (!*newline) {
@@ -581,8 +584,11 @@ ParseManifest(NSLocationType aType, FileLocation& aFile, char* aBuf,
     }
 
     if (*newline) {
-      *newline = '\0';
-      ++newline;
+      char delimiter = *newline;
+      *newline++ = '\0';
+      if (delimiter == '\r' && *newline == '\n') {
+        ++newline;
+      }
     }
     ++line;
 

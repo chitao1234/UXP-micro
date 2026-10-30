@@ -14,6 +14,12 @@ SOURCES += [
 
 XPCOMBinaryComponent('testcompnoaslr')
 
+if CONFIG['OS_ARCH'] == 'WINNT':
+    if CONFIG['CC_TYPE'] == 'gcc':
+        LDFLAGS += ['-Wl,--disable-dynamicbase']
+    else:
+        LDFLAGS += ['-DYNAMICBASE:NO']
+
 DEFINES['LIBRARY_FILENAME'] = '%s%s%s' % (
     CONFIG['DLL_PREFIX'],
     LIBRARY_NAME,
