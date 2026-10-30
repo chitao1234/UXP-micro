@@ -17,8 +17,7 @@
  */
 function commonLog(message) {
   let log;
-  if (Services && Services.appinfo && Services.appinfo.name &&
-      Services.appinfo.name == "Firefox") {
+  if (typeof info === "function") {
     log = info;
   } else {
     log = do_print;
