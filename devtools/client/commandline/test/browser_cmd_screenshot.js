@@ -25,13 +25,19 @@ function* spawnTest() {
 
   info("RUN TEST: non-private window");
   let normWin = yield addWindow({ private: false });
-  yield addTabWithToolbarRunTests(normWin);
-  normWin.close();
+  try {
+    yield addTabWithToolbarRunTests(normWin);
+  } finally {
+    yield BrowserTestUtils.closeWindow(normWin);
+  }
 
   info("RUN TEST: private window");
   let pbWin = yield addWindow({ private: true });
-  yield addTabWithToolbarRunTests(pbWin);
-  pbWin.close();
+  try {
+    yield addTabWithToolbarRunTests(pbWin);
+  } finally {
+    yield BrowserTestUtils.closeWindow(pbWin);
+  }
 }
 
 function* addTabWithToolbarRunTests(win) {
