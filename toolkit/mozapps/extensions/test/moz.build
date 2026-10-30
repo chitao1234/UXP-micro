@@ -1,0 +1,4 @@
+# Stage the legacy AddonManager helper used by the Sync xpcshell tests.
+TEST_HARNESS_FILES.xpcshell.toolkit.mozapps.extensions.test.xpcshell += [
+    'xpcshell/head_addons.js',
+]

@@ -76,7 +76,7 @@ add_test(function test_track_install() {
 
   reconciler.startListening();
 
-  Svc.Obs.notify("weave:engine:start-tracking");
+  tracker.startTracking();
 
   do_check_eq(0, tracker.score);
   let addon = installAddon("test_bootstrap1_1");
@@ -99,7 +99,7 @@ add_test(function test_track_uninstall() {
   let guid = addon.syncGUID;
   do_check_eq(0, tracker.score);
 
-  Svc.Obs.notify("weave:engine:start-tracking");
+  tracker.startTracking();
 
   uninstallAddon(addon);
   let changed = tracker.changedIDs;
@@ -120,7 +120,7 @@ add_test(function test_track_user_disable() {
   do_check_false(addon.appDisabled);
   do_check_true(addon.isActive);
 
-  Svc.Obs.notify("weave:engine:start-tracking");
+  tracker.startTracking();
   do_check_eq(0, tracker.score);
 
   let cb = Async.makeSyncCallback();
@@ -164,7 +164,7 @@ add_test(function test_track_enable() {
 
   do_check_eq(0, tracker.score);
 
-  Svc.Obs.notify("weave:engine:start-tracking");
+  tracker.startTracking();
   addon.userDisabled = false;
   store._sleep(0);
 

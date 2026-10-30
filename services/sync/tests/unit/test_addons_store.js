@@ -14,6 +14,7 @@ const HTTP_PORT = 8888;
 let prefs = new Preferences();
 
 prefs.set("extensions.getAddons.get.url", "http://localhost:8888/search/guid:%IDS%");
+prefs.set("extensions.install.requireSecureOrigin", false);
 loadAddonTestFunctions();
 startupManager();
 

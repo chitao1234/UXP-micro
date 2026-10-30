@@ -34,6 +34,8 @@ function run_test() {
     Svc.Prefs.set("prefs.sync.testing.dont.change", true);
     Svc.Prefs.set("prefs.sync.testing.turned.off", false);
     Svc.Prefs.set("prefs.sync.testing.nonexistent", true);
+    Svc.Prefs.set("prefs.sync.lightweightThemes.isThemeSelected", true);
+    Svc.Prefs.set("prefs.sync.lightweightThemes.usedThemes", true);
 
     prefs.set("testing.int", 123);
     prefs.set("testing.string", "ohai");
