@@ -4300,9 +4300,13 @@ nsDocShell::AddChildSHEntry(nsISHEntry* aCloneRef, nsISHEntry* aNewEntry,
     }
   } else if (!aCloneRef) {
     /* This is an initial load in some subframe.  Just append it if we can */
-    nsCOMPtr<nsISHContainer> container(do_QueryInterface(mOSHE, &rv));
-    if (container) {
-      rv = container->AddChild(aNewEntry, aChildOffset);
+    // Chrome docshell subtrees can have no session history. A missing parent
+    // entry is not a failed insertion (notably for document.open()).
+    if (mOSHE) {
+      nsCOMPtr<nsISHContainer> container(do_QueryInterface(mOSHE, &rv));
+      if (container) {
+        rv = container->AddChild(aNewEntry, aChildOffset);
+      }
     }
   } else {
     rv = AddChildSHEntryInternal(aCloneRef, aNewEntry, aChildOffset,
@@ -12192,14 +12196,13 @@ nsDocShell::UpdateURLAndHistory(nsIDocument* aDocument, nsIURI* aNewURI,
   // subtree that disables session history.
   nsCOMPtr<nsISHistory> rootSH;
   GetRootSessionHistory(getter_AddRefs(rootSH));
-  NS_ENSURE_TRUE(rootSH, NS_ERROR_UNEXPECTED);
-
-  nsCOMPtr<nsISHistoryInternal> internalSH = do_QueryInterface(rootSH);
-  NS_ENSURE_TRUE(internalSH, NS_ERROR_UNEXPECTED);
   
   nsresult rv;
   
   if (rootSH) {
+    nsCOMPtr<nsISHistoryInternal> internalSH = do_QueryInterface(rootSH);
+    NS_ENSURE_TRUE(internalSH, NS_ERROR_UNEXPECTED);
+
     if (!aReplace) {
       int32_t curIndex = -1;
       rv = rootSH->GetIndex(&curIndex);
