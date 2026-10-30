@@ -10,6 +10,8 @@ XPIDL_SOURCES += [
 XPIDL_MODULE = 'places'
 
 if CONFIG['MOZ_PLACES']:
+    TESTING_JS_MODULES += ['tests/PlacesTestUtils.jsm']
+
     XPIDL_SOURCES += [
         'mozIAsyncFavicons.idl',
         'mozIAsyncHistory.idl',

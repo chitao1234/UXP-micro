@@ -10,7 +10,6 @@ this.EXPORTED_SYMBOLS = [
   "ensureLegacyIdentityManager",
   "setBasicCredentials",
   "makeIdentityConfig",
-  "configureFxAccountIdentity",
   "configureIdentity",
   "SyncTestingInfrastructure",
   "waitForZeroTimer",
@@ -25,7 +24,6 @@ Cu.import("resource://services-sync/identity.js");
 Cu.import("resource://services-common/utils.js");
 Cu.import("resource://services-crypto/utils.js");
 Cu.import("resource://services-sync/util.js");
-Cu.import("resource://services-sync/browserid_identity.js");
 Cu.import("resource://testing-common/services/common/logging.js");
 Cu.import("resource://testing-common/services/sync/fakeservices.js");
 Cu.import("resource://gre/modules/Promise.jsm");
@@ -170,7 +168,7 @@ this.add_identity_test = function(test, testFunction) {
   let ns = {};
   Cu.import("resource://services-sync/service.js", ns);
   // one task for the "old" identity manager.
-  test.add_task(function() {
+  test.add_task(function*() {
     note("sync");
     let oldIdentity = Status._authManager;
     ensureLegacyIdentityManager();

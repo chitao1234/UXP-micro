@@ -181,7 +181,7 @@ run-tests-deps: $(install_manifest_depends)
 
 .PHONY: install-test-files
 install-test-files:
-	$(call py_action,process_install_manifest,--track install__test_files.track _tests _build_manifests/install/_test_files)
+	$(call py_action,process_install_manifest,--track install__test_files.track _tests _build_manifests/install/_test_files _build_manifests/install/_tests)
 
 include $(topsrcdir)/build/moz-automation.mk
 
