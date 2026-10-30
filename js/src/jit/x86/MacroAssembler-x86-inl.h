@@ -483,6 +483,14 @@ void
 MacroAssembler::rotateLeft64(Register count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(count == ecx, "defineFixed(ecx)");
+    MOZ_ASSERT(temp != src.low && temp != src.high);
+    MOZ_ASSERT(temp != dest.low && temp != dest.high);
+    if (!(src == dest)) {
+        // Save the high half first in case the register pairs overlap.
+        movl(src.high, temp);
+        movl(src.low, dest.low);
+        movl(temp, dest.high);
+    }
 
     Label done;
 
@@ -501,6 +509,14 @@ void
 MacroAssembler::rotateRight64(Register count, Register64 src, Register64 dest, Register temp)
 {
     MOZ_ASSERT(count == ecx, "defineFixed(ecx)");
+    MOZ_ASSERT(temp != src.low && temp != src.high);
+    MOZ_ASSERT(temp != dest.low && temp != dest.high);
+    if (!(src == dest)) {
+        // Save the high half first in case the register pairs overlap.
+        movl(src.high, temp);
+        movl(src.low, dest.low);
+        movl(temp, dest.high);
+    }
 
     Label done;
 
@@ -518,6 +534,14 @@ MacroAssembler::rotateRight64(Register count, Register64 src, Register64 dest, R
 void
 MacroAssembler::rotateLeft64(Imm32 count, Register64 src, Register64 dest, Register temp)
 {
+    MOZ_ASSERT(temp != src.low && temp != src.high);
+    MOZ_ASSERT(temp != dest.low && temp != dest.high);
+    if (!(src == dest)) {
+        // Save the high half first in case the register pairs overlap.
+        movl(src.high, temp);
+        movl(src.low, dest.low);
+        movl(temp, dest.high);
+    }
     int32_t amount = count.value & 0x3f;
     if ((amount & 0x1f) != 0) {
         movl(dest.high, temp);
@@ -532,6 +556,14 @@ MacroAssembler::rotateLeft64(Imm32 count, Register64 src, Register64 dest, Regis
 void
 MacroAssembler::rotateRight64(Imm32 count, Register64 src, Register64 dest, Register temp)
 {
+    MOZ_ASSERT(temp != src.low && temp != src.high);
+    MOZ_ASSERT(temp != dest.low && temp != dest.high);
+    if (!(src == dest)) {
+        // Save the high half first in case the register pairs overlap.
+        movl(src.high, temp);
+        movl(src.low, dest.low);
+        movl(temp, dest.high);
+    }
     int32_t amount = count.value & 0x3f;
     if ((amount & 0x1f) != 0) {
         movl(dest.high, temp);

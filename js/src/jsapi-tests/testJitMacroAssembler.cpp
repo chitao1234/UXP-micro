@@ -472,4 +472,62 @@ BEGIN_TEST(testJitMacroAssembler_rshift64)
 }
 END_TEST(testJitMacroAssembler_rshift64)
 
+#ifdef JS_CODEGEN_X86
+BEGIN_TEST(testJitMacroAssembler_rotate64_source)
+{
+    MacroAssembler masm(cx);
+    CHECK(Prepare(masm));
+    masm.Push(ebx);
+    masm.Push(esi);
+    masm.Push(edi);
+
+    const uint64_t input = UINT64_C(0x0123456789abcdef);
+    uint64_t actual[128] = {};
+    uint64_t expected[128] = {};
+    size_t index = 0;
+    Register64 src(eax, edx);
+    Register64 dst(ebx, esi);
+    for (unsigned shift : {0u, 1u, 17u, 28u, 31u, 32u, 49u, 63u}) {
+        for (bool variable : {false, true}) {
+            for (bool inPlace : {false, true}) {
+                for (bool left : {false, true}) {
+                    masm.move64(Imm64(input), src);
+                    masm.move64(Imm64(UINT64_C(0xfedcba9876543210)), dst);
+                    Register64 out = inPlace ? src : dst;
+                    if (variable) {
+                        masm.move32(Imm32(shift), ecx);
+                        if (left)
+                            masm.rotateLeft64(ecx, src, out, edi);
+                        else
+                            masm.rotateRight64(ecx, src, out, edi);
+                    } else {
+                        if (left)
+                            masm.rotateLeft64(Imm32(shift), src, out, edi);
+                        else
+                            masm.rotateRight64(Imm32(shift), src, out, edi);
+                    }
+                    unsigned other = (64 - shift) & 63;
+                    expected[index] = left ? (input << shift) | (input >> other)
+                                           : (input >> shift) | (input << other);
+                    masm.movePtr(ImmPtr(&actual[index++]), edi);
+                    masm.store64(out, Address(edi, 0));
+                    // A separate destination must preserve the source too.
+                    expected[index] = inPlace ? expected[index - 1] : input;
+                    masm.movePtr(ImmPtr(&actual[index++]), edi);
+                    masm.store64(src, Address(edi, 0));
+                }
+            }
+        }
+    }
+    masm.Pop(edi);
+    masm.Pop(esi);
+    masm.Pop(ebx);
+    CHECK(Execute(cx, masm));
+    for (size_t i = 0; i < index; i++)
+        CHECK_EQUAL(actual[i], expected[i]);
+    return true;
+}
+END_TEST(testJitMacroAssembler_rotate64_source)
+#endif
+
 #endif
