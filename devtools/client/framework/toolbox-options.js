@@ -112,7 +112,7 @@ OptionsPanel.prototype = {
 
   _prefChanged: function (subject, topic, prefName) {
     if (prefName === "devtools.cache.disabled") {
-      let cacheDisabled = data.newValue;
+      let cacheDisabled = GetPref(prefName);
       let cbx = this.panelDoc.getElementById("devtools-disable-cache");
 
       cbx.checked = cacheDisabled;

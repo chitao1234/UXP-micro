@@ -115,40 +115,53 @@ function* testSelect(select) {
       continue;
     }
 
-    let deferred = defer();
-    gDevTools.once("pref-changed", (event, data) => {
-      if (data.pref == pref) {
-        ok(true, "Correct pref was changed");
-        is(GetPref(pref), option.value, "Preference been switched for " + pref);
-      } else {
-        ok(false, "Pref " + pref + " was not changed correctly");
-      }
-      deferred.resolve();
-    });
+    let changed = observePrefChange(pref);
+    let expectedValue = Services.prefs.getPrefType(pref) === Services.prefs.PREF_INT ?
+      Number(option.value) : option.value;
 
     select.selectedIndex = options.indexOf(option);
-    let changeEvent = new Event("change");
+    let changeEvent = new panelWin.Event("change");
     select.dispatchEvent(changeEvent);
 
-    yield deferred.promise;
+    let data = yield changed;
+    is(data.pref, pref, "Correct pref was changed");
+    is(data.newValue, expectedValue, "Preference been switched for " + pref);
+    is(typeof data.newValue, typeof expectedValue,
+       "Preference retains its declared type for " + pref);
   }
 }
 
-function* testMouseClick(node, prefValue) {
-  let deferred = defer();
-
-  let pref = node.getAttribute("data-pref");
-  gDevTools.once("pref-changed", (event, data) => {
-    if (data.pref == pref) {
-      ok(true, "Correct pref was changed");
-      is(data.oldValue, prefValue, "Previous value is correct for " + pref);
-      is(data.newValue, !prefValue, "New value is correct for " + pref);
-    } else {
-      ok(false, "Pref " + pref + " was not changed correctly");
+// Observe the authoritative preference notification, as Firefox78/current do.
+// Snapshot its typed old value before the action; nsPref:changed carries the
+// preference name, not the old gDevTools event's oldValue/newValue object.
+function observePrefChange(pref) {
+  let oldValue = GetPref(pref);
+  let observer;
+  function removeObserver() {
+    if (observer) {
+      Services.prefs.removeObserver(pref, observer);
+      observer = null;
     }
-    deferred.resolve();
+  }
+  registerCleanupFunction(removeObserver);
+  return new Promise(resolve => {
+    observer = (subject, topic, name) => {
+      if (topic !== "nsPref:changed" || name !== pref) {
+        return;
+      }
+      let newValue = GetPref(pref);
+      removeObserver();
+      resolve({ pref: name, oldValue, newValue });
+    };
+    Services.prefs.addObserver(pref, observer, false);
   });
+}
 
+function* testMouseClick(node, prefValue) {
+  let pref = node.getAttribute("data-pref");
+  let changed = observePrefChange(pref);
+
+  yield SimpleTest.promiseFocus(panelWin);
   node.scrollIntoView();
 
   // We use executeSoon here to ensure that the element is in view and
@@ -158,7 +171,11 @@ function* testMouseClick(node, prefValue) {
     EventUtils.synthesizeMouseAtCenter(node, {}, panelWin);
   });
 
-  yield deferred.promise;
+  let data = yield changed;
+  is(data.pref, pref, "Correct pref was changed");
+  is(data.oldValue, prefValue, "Previous value is correct for " + pref);
+  is(data.newValue, !prefValue, "New value is correct for " + pref);
+  is(node.checked, data.newValue, "Checkbox agrees with changed preference " + pref);
 }
 
 function* testToggleTools() {

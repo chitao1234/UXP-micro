@@ -22,6 +22,19 @@ add_task(function* () {
     yield initTab(tab, tab.startToolbox);
   }
 
+  // The options panel observes nsPref:changed, whose data is a preference name.
+  // Changing it outside the panel must update every already-open checkbox.
+  // This exercises the actual observer, not a hand-built callback payload.
+  for (let disabled of [true, false]) {
+    Services.prefs.setBoolPref("devtools.cache.disabled", disabled);
+    for (let tab of tabs.filter(tab => tab.toolbox)) {
+      let checkbox = tab.toolbox.getPanel("options").panelDoc
+        .getElementById("devtools-disable-cache");
+      is(checkbox.checked, disabled,
+         `${tab.title} cache checkbox follows an external pref change to ${disabled}`);
+    }
+  }
+
   // Ensure cache is enabled for all tabs.
   yield checkCacheStateForAllTabs([true, true, true, true]);
 
