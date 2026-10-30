@@ -27,6 +27,13 @@ class IniParserTest(unittest.TestCase):
                          ['', 'test.bool=true', 'test.string=two words'])
         self.assertNotIn('test.bool', values)
 
+    def test_preference_defaults_are_preserved_when_combining_manifests(self):
+        parsed = read_ini(StringIO(
+            '[DEFAULT]\nprefs = default.pref=true\n'
+            '[test.html]\nprefs = local.pref=false\n'))
+        self.assertEqual(parsed[0][1]['prefs'].splitlines(),
+                         ['default.pref=true', 'local.pref=false'])
+
     def test_indented_assignment_at_key_indentation_is_a_new_key(self):
         values = read_ini(StringIO(
             '[test.html]\n  first = one\n    continued=two\n'
