@@ -7935,7 +7935,7 @@ BaseCompiler::emitFunction()
     beginFunction();
 
     UniquePooledLabel functionEnd(newLabel());
-    if (!pushControl(&functionEnd))
+    if (!functionEnd || !pushControl(&functionEnd))
         return false;
 
     if (!emitBody())
