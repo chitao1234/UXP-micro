@@ -10,7 +10,6 @@
 
 var weirdCases =
   [
-   "x-u-foo",
    "en-x-u-foo",
    "en-a-bar-x-u-foo",
    "en-x-u-foo-a-bar",
@@ -19,6 +18,9 @@ var weirdCases =
 
 for (var locale of weirdCases)
   Intl.NumberFormat(locale).format(5);
+
+// A private-use-only tag is not a Unicode locale identifier.
+assertThrowsInstanceOf(() => Intl.NumberFormat("x-u-foo"), RangeError);
 
 if (typeof reportCompare === "function")
   reportCompare(true, true);

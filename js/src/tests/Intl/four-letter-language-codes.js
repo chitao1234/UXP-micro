@@ -3,17 +3,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// So many non-existent four letter language codes to pick from.
-const languageTags = {
-    "Flob": "flob",
-    "ZORK": "zork",
-    "Blah-latn": "blah-Latn",
-    "QuuX-latn-us": "quux-Latn-US",
-    "SPAM-gb-x-Sausages-BACON-eggs": "spam-GB-x-sausages-bacon-eggs",
-};
+// Unicode locale identifiers do not allow a four-letter language subtag.
+// In particular, CLDR's "root" and script-only locale IDs are not language tags.
+const languageTags = [
+    "root", "Latn", "Flob", "ZORK", "Blah-latn", "QuuX-latn-us",
+    "SPAM-gb-x-Sausages-BACON-eggs",
+];
 
-for (let [tag, canonical] of Object.entries(languageTags)) {
-    assertEq(Intl.getCanonicalLocales(tag)[0], canonical);
+for (let tag of languageTags) {
+    assertThrowsInstanceOf(() => Intl.getCanonicalLocales(tag), RangeError);
 }
 
 if (typeof reportCompare === "function")

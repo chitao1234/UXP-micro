@@ -68,11 +68,8 @@ for (const [key, val] of Object.entries(expectedValuesENUS)) {
 }
 
 const invalidHourCycleValues = [
-  "h5",
-  "h0",
   "h28",
   "f28",
-  "23",
 ];
 
 for (const key of invalidHourCycleValues) {
@@ -82,6 +79,18 @@ for (const key of invalidHourCycleValues) {
   const dtf = new Intl.DateTimeFormat(loc, {hour: "numeric"});
   assertEq(dtf.resolvedOptions().hour12, true); // default value for en-US
   assertEq(dtf.resolvedOptions().hourCycle, "h12"); //default value for en-US
+}
+
+// These are malformed Unicode extension keys, rather than unsupported types.
+// Keys require an alphabetic second character; an hc type has 3-8 characters.
+for (const key of ["h5", "h0", "23"]) {
+  assertThrowsInstanceOf(() => new Intl.DateTimeFormat(`en-US-u-hc-${key}`), RangeError);
+}
+
+// Unlike a well-formed unsupported Unicode extension, an unsupported explicit
+// hourCycle option always throws.
+for (const key of ["h5", "h0", "23", ...invalidHourCycleValues]) {
+  assertThrowsInstanceOf(() => new Intl.DateTimeFormat("en-US", {hourCycle: key}), RangeError);
 }
 
 {
