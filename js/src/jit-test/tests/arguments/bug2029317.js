@@ -1,3 +1,7 @@
+// |jit-test| allow-oom; test-also=--no-ion
+// Eager Ion can hit the injected failure while reconstructing a bailout frame,
+// before the inner catch is usable. That is an allowed OOM, not an assertion
+// failure. Always run a no-Ion variant to exercise the post-OOM object checks.
 function test() {
   var f = function() { return arguments; };
   var template = new Array(9000).fill(0);
