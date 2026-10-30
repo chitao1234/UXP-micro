@@ -4085,6 +4085,10 @@ js::AsyncFunctionThrown(JSContext* cx, Handle<PromiseObject*> resultPromise)
 [[nodiscard]] bool
 js::AsyncFunctionReturned(JSContext* cx, Handle<PromiseObject*> resultPromise, HandleValue value)
 {
+    // A debugger/testing hook may have already settled the exposed promise
+    // while the async function was suspended. Resolving it again is a no-op.
+    if (resultPromise->state() != JS::PromiseState::Pending)
+        return true;
     // Steps 3.d-e.
     if (!ResolvePromiseInternal(cx, resultPromise, value))
         return false;
