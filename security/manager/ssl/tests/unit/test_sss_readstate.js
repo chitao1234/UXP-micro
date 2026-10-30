@@ -36,23 +36,24 @@ function checkStateRead(aSubject, aTopic, aData) {
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "sub.includesubdomains2.preloaded.test", 0));
 
-  // Clearing the data should make everything go back to default.
+  // Clearing dynamic data leaves no HSTS entries. UXP 595c8d53df removed the
+  // static preload fallback, including for the historical preload-test names.
   gSSService.clearAll();
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "expired.example.com", 0));
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "notexpired.example.com", 0));
-  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "includesubdomains.preloaded.test", 0));
-  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "sub.includesubdomains.preloaded.test", 0));
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "incsubdomain.example.com", 0));
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "sub.incsubdomain.example.com", 0));
-  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "includesubdomains2.preloaded.test", 0));
-  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "sub.includesubdomains2.preloaded.test", 0));
   do_test_finished();
 }
@@ -68,10 +69,10 @@ function run_test() {
   let now = (new Date()).getTime();
   writeLine("expired.example.com:HSTS\t0\t0\t" + (now - 100000) + ",1,0\n", outputStream);
   writeLine("notexpired.example.com:HSTS\t0\t0\t" + (now + 100000) + ",1,0\n", outputStream);
-  // This overrides an entry on the preload list.
+  // Historical preload-test names have ordinary dynamic state in this build.
   writeLine("includesubdomains.preloaded.test:HSTS\t0\t0\t" + (now + 100000) + ",1,0\n", outputStream);
   writeLine("incsubdomain.example.com:HSTS\t0\t0\t" + (now + 100000) + ",1,1\n", outputStream);
-  // This overrides an entry on the preload list.
+  // A legacy knockout entry grants no dynamic HSTS state.
   writeLine("includesubdomains2.preloaded.test:HSTS\t0\t0\t0,2,0\n", outputStream);
   outputStream.close();
   Services.obs.addObserver(checkStateRead, "data-storage-ready", false);

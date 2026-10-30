@@ -114,8 +114,6 @@ function run_test() {
   // Check miscellaneous module DB methods and attributes.
   notEqual(gModuleDB.getInternal(), null,
            "The internal module should be present");
-  notEqual(gModuleDB.getInternalFIPS(), null,
-           "The internal FIPS module should be present");
-  ok(gModuleDB.canToggleFIPS, "It should be possible to toggle FIPS");
-  ok(!gModuleDB.isFIPSEnabled, "FIPS should not be enabled");
+  // UXP 49aa1346da removed the FIPS interfaces and controls. The supported
+  // module/slot registration and enumeration checks above remain applicable.
 }

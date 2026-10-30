@@ -12,7 +12,9 @@ function checkStateRead(aSubject, aTopic, aData) {
   // nonexistent.example.com should never be an HSTS host
   ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                               "nonexistent.example.com", 0));
-  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+  // UXP 595c8d53df removed static HSTS preloads; an empty file is empty even
+  // for a host that historically appeared in the test preload table.
+  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "includesubdomains.preloaded.test", 0));
   // notexpired.example.com is an HSTS host in a different test - we
   // want to make sure that test hasn't interfered with this one.

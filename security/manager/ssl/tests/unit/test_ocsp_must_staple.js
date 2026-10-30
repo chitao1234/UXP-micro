@@ -27,30 +27,8 @@ function add_tests() {
   add_ocsp_test("ocsp-stapling-must-staple-ee-with-must-staple-int.example.com",
                 PRErrorCodeSuccess, true);
 
-  add_test(() => {
-    Services.prefs.setBoolPref("security.cert_pinning.hpkp.enabled", true);
-    Services.prefs.setIntPref("security.cert_pinning.enforcement_level", 1);
-    Services.prefs.setBoolPref("security.cert_pinning.process_headers_from_non_builtin_roots", true);
-    let uri = Services.io.newURI("https://ocsp-stapling-must-staple-ee-with-must-staple-int.example.com",
-                                 null, null);
-    let keyHash = "VCIlmPM9NkgFQtrs4Oa5TeFcDu6MWRTKSNdePEhOgD8=";
-    let backupKeyHash = "KHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAN=";
-    let header = `max-age=1000; pin-sha256="${keyHash}"; pin-sha256="${backupKeyHash}"`;
-    let ssservice = Cc["@mozilla.org/ssservice;1"]
-                      .getService(Ci.nsISiteSecurityService);
-    let sslStatus = new FakeSSLStatus();
-    sslStatus.serverCert = constructCertFromFile("ocsp_certs/must-staple-ee-with-must-staple-int.pem");
-    ssservice.processHeader(Ci.nsISiteSecurityService.HEADER_HPKP, uri, header, sslStatus, 0);
-    ok(ssservice.isSecureURI(Ci.nsISiteSecurityService.HEADER_HPKP, uri, 0),
-       "ocsp-stapling-must-staple-ee-with-must-staple-int.example.com should have HPKP set");
-
-    // Clear accumulated state.
-    ssservice.removeState(Ci.nsISiteSecurityService.HEADER_HPKP, uri, 0);
-    Services.prefs.clearUserPref("security.cert_pinning.hpkp.enabled");
-    Services.prefs.clearUserPref("security.cert_pinning.process_headers_from_non_builtin_roots");
-    Services.prefs.clearUserPref("security.cert_pinning.enforcement_level");
-    run_next_test();
-  });
+  // UXP 55aa6ce7b3 removed HPKP. Its former setup/check here was independent
+  // of the TLS Feature matrix, which continues to exercise every case below.
 
   // Next, a case where it's present in the intermediate, not the ee
   add_ocsp_test("ocsp-stapling-plain-ee-with-must-staple-int.example.com",

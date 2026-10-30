@@ -6,16 +6,19 @@
 
 // This test attempts to ensure that PSM doesn't deadlock or crash when shutting
 // down NSS while a background thread is attempting to use NSS.
-// Uses test_signed_apps/valid_app_1.zip from test_signed_apps.js.
+// UXP c6c045a7f7 removed signed-app verification. Certificate verification
+// still uses CryptoTask, including its shutdown lock and main-thread callback.
 
-function startAsyncNSSOperation(certdb, appFile) {
-  return new Promise((resolve, reject) => {
-    certdb.openSignedAppFileAsync(Ci.nsIX509CertDB.AppXPCShellRoot, appFile,
-      function(rv, aZipReader, aSignerCert) {
-        // rv will either indicate success (if NSS hasn't been shut down yet) or
-        // it will be some error code that varies depending on when NSS got shut
-        // down. As such, there's nothing really to check here. Just resolve the
-        // promise to continue execution.
+var completedVerifications = 0;
+function startAsyncNSSOperation(certdb, cert) {
+  return new Promise(resolve => {
+    certdb.asyncVerifyCertAtTime(cert, certificateUsageSSLServer,
+      Ci.nsIX509CertDB.FLAG_LOCAL_ONLY, "example.com",
+      Math.floor(Date.now() / 1000), function(errorCode, chain, hasEVPolicy) {
+        // A completed verification or the CryptoTask shutdown error are both
+        // valid: every dispatched task must deliver exactly one callback.
+        equal(typeof errorCode, "number", "pending verification reports a result");
+        completedVerifications++;
         resolve();
       });
   });
@@ -28,17 +31,25 @@ add_task(function* () {
               .QueryInterface(Ci.nsIObserver);
   let certdb = Cc["@mozilla.org/security/x509certdb;1"]
                  .getService(Ci.nsIX509CertDB);
-  let appFile = do_get_file("test_signed_apps/valid_app_1.zip");
+  let cert = constructCertFromFile("bad_certs/default-ee.pem");
 
   let promises = [];
   for (let i = 0; i < 25; i++) {
-    promises.push(startAsyncNSSOperation(certdb, appFile));
+    promises.push(startAsyncNSSOperation(certdb, cert));
   }
   // Trick PSM into thinking it should shut down NSS. If this test doesn't
   // hang or crash, we're good.
   psm.observe(null, "profile-before-change", null);
+  // AsyncVerifyCertAtTime checks isAlreadyShutDown() before dispatch and
+  // rejects new work synchronously. Previously queued CryptoTasks still call
+  // back, even when their calculation was skipped by NSS shutdown.
   for (let i = 0; i < 25; i++) {
-    promises.push(startAsyncNSSOperation(certdb, appFile));
+    throws(() => certdb.asyncVerifyCertAtTime(cert, certificateUsageSSLServer,
+      Ci.nsIX509CertDB.FLAG_LOCAL_ONLY, "example.com",
+      Math.floor(Date.now() / 1000), () => {
+        ok(false, "rejected post-shutdown work must not call back");
+      }), /NS_ERROR_NOT_AVAILABLE/, "new verification is rejected after shutdown");
   }
   yield Promise.all(promises);
+  equal(completedVerifications, 25, "all pending verifications completed without deadlock");
 });

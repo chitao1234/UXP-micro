@@ -125,22 +125,24 @@ const signatures = [
 
 const tests = [
 // Data   Signature  Key   Expected   Throws
-// Pass cases
-  [0,     0,         0,    true,      false], //0
-  [0,     1,         0,    true,      false], //1
+// NSS rejects MD2/MD5 signatures by default (secoid.c, SECOID_Init). Keep
+// their known-good cryptographic vectors as rejection tests; do not enable
+// NSS_ALLOW_WEAK_SIGNATURE_ALG just to recover historical acceptance.
+  [0,     0,         0,    false,     false], //0 MD2
+  [0,     1,         0,    false,     false], //1 MD5
   [0,     2,         0,    true,      false], //2
   [0,     3,         0,    true,      false], //3
   [0,     4,         0,    true,      false], //4
   [0,     5,         0,    true,      false], //5
-  [1,     6,         0,    true,      false], //6
-  [1,     7,         0,    true,      false], //7
+  [1,     6,         0,    false,     false], //6 MD2
+  [1,     7,         0,    false,     false], //7 MD5
   [1,     8,         0,    true,      false], //8
   [1,     9,         0,    true,      false], //9
   [1,     10,        0,    true,      false], //10
   [1,     11,        0,    true,      false], //11
-  [0,     12,        1,    true,      false], //12
+  [0,     12,        1,    false,     false], //12 MD5
   [0,     13,        1,    true,      false], //13
-  [1,     14,        1,    true,      false], //14
+  [1,     14,        1,    false,     false], //14 MD5
   [1,     15,        1,    true,      false], //15
 // Incorrect data cases
   [1,     0,         0,    false,     false], //16
