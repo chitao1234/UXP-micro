@@ -779,18 +779,22 @@ def readSupplementalData(core_file):
         # Language and region subtags are case normalized, variant subtags can
         # be in any case.
 
-        if re_unicode_language_subtag.match(replacement) is not None and replacement.islower():
-            variant_mappings[type] = ("language", replacement)
-
-        elif re_unicode_region_subtag.match(replacement) is not None:
-            assert replacement.isupper() or replacement.isdigit(), (
-                   "{} invalid variant subtag replacement".format(replacement))
+        if re_unicode_region_subtag.match(replacement) is not None and (
+                replacement.isupper() or replacement.isdigit()):
             variant_mappings[type] = ("region", replacement)
 
-        else:
-            assert re_unicode_variant_subtag.match(replacement) is not None, (
-                   "{} invalid variant subtag replacement".format(replacement))
+        elif re_unicode_variant_subtag.match(replacement) is not None:
+            # Alphabetic variants of length 5-8 also match the language syntax.
+            # Prefer the variant interpretation: CLDR 48's polytoni -> polyton
+            # must not replace the primary language. Older CLDR language/region
+            # replacements have short, unambiguous subtags (hy, hyw, AX).
             variant_mappings[type] = ("variant", replacement.lower())
+
+        else:
+            assert (re_unicode_language_subtag.match(replacement) is not None and
+                    replacement.islower()), (
+                   "{} invalid variant subtag replacement".format(replacement))
+            variant_mappings[type] = ("language", replacement)
 
     tree = ET.parse(core_file.open("common/supplemental/likelySubtags.xml"))
 

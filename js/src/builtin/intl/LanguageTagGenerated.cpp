@@ -737,7 +737,9 @@ bool js::intl::LanguageTag::performVariantMappings(JSContext* cx) {
     }
     else if (strcmp(variant.get(), "polytoni") == 0) {
       variants_.erase(variants_.begin() + i);
-      setLanguage("polyton");
+      if (!insertVariantSortedIfNotPresent("polyton")) {
+        return false;
+      }
     }
     else {
       i++;
