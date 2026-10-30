@@ -125,11 +125,12 @@ static const char* const aopNames[] = {
     ">>>=", /* AOP_URSH */
     "|=",   /* AOP_BITOR */
     "^=",   /* AOP_BITXOR */
-    "&="    /* AOP_BITAND */
+    "&=",   /* AOP_BITAND */
     "\?\?=", /* AOP_COALESCE */
     "||=",  /* AOP_OR */
     "&&=",  /* AOP_AND */
 };
+static_assert(ArrayLength(aopNames) == AOP_LIMIT, "Assignment operator names must match the enum");
 
 static const char* const binopNames[] = {
     "==",         /* BINOP_EQ */
