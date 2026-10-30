@@ -27,6 +27,7 @@ function test() {
       .then(() => closeDebuggerAndFinish(gPanel))
       .then(null, aError => {
         ok(false, "Got an error: " + aError.message + "\n" + aError.stack);
+        return closeDebuggerAndFinish(gPanel);
       });
   });
 
@@ -48,9 +49,29 @@ function test() {
   }
 
   function openContextMenu() {
-    let contextMenu = gDebugger.document.getElementById("debuggerSourcesContextMenu");
-    let contextMenuShown = once(contextMenu, "popupshown");
-    EventUtils.synthesizeMouseAtCenter(gSources.selectedItem.prebuiltNode, {type: "contextmenu"}, gDebugger);
-    return contextMenuShown;
+    let debuggerDocument = gDebugger.document;
+    let contextMenu = debuggerDocument.getElementById("debuggerSourcesContextMenu");
+    let sourceNode = gSources.selectedItem.prebuiltNode;
+    // Source selection does not guarantee that the row is in the viewport.
+    // Match the newer debugger's rightClickEl helper before synthesizing input.
+    sourceNode.scrollIntoView();
+    return new Promise(resolve => gDebugger.requestAnimationFrame(resolve)).then(() => {
+      let rect = sourceNode.getBoundingClientRect();
+      let hit = debuggerDocument.elementFromPoint(
+        rect.left + rect.width / 2, rect.top + rect.height / 2);
+      let hitsSource = hit && (hit === sourceNode || sourceNode.contains(hit));
+      let details = JSON.stringify({
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        viewport: { width: gDebugger.innerWidth, height: gDebugger.innerHeight },
+        hit: hit && { name: hit.nodeName, id: hit.id }
+      });
+      ok(hitsSource, "The source entry center receives input: " + details);
+      if (!hitsSource) {
+        throw new Error("The source entry center is not reachable: " + details);
+      }
+      let contextMenuShown = once(contextMenu, "popupshown");
+      EventUtils.synthesizeMouseAtCenter(sourceNode, {type: "contextmenu"}, gDebugger);
+      return contextMenuShown;
+    });
   }
 }
