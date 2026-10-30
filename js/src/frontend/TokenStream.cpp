@@ -1298,16 +1298,20 @@ TokenStream::putIdentInTokenbuf(const char16_t* identStart)
 
 void
 TokenStream::consumeOptionalHashbangComment() {
+  // Only the beginning of the source can contain a hashbang. Nested statement
+  // lists and existing lookahead must not change the scanner or token cursor.
+  if (lookahead || userbuf.offset() != userbuf.startOffset() || !userbuf.hasRawChars())
+      return;
   int c = userbuf.getRawChar();
-  if (c == '#') {
-    if (matchChar('!')) {
-      // Hashbang; ignore rest of line as comment.
-      while ((c = getChar()) != EOF && c != '\n')
-          continue;
-    }
+  if (c != '#' || !matchChar('!')) {
+      // The raw read did not update line state, so use the matching raw undo.
+      userbuf.ungetRawChar();
+      return;
   }
+  // Hashbang; ignore rest of line, leaving its terminator for normal scanning.
+  while ((c = getChar()) != EOF && c != '\n')
+      continue;
   ungetChar(c);
-  cursor = (cursor - 1) & ntokensMask;
 }
   
 
