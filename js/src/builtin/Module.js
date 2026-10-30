@@ -5,7 +5,7 @@
 function CallModuleResolveHook(module, specifier, expectedMinimumStatus)
 {
     let requestedModule = HostResolveImportedModule(module, specifier);
-    if (requestedModule.state < expectedMinimumStatus) {
+    if (requestedModule.status < expectedMinimumStatus) {
         ThrowBadModuleStatus("CallModuleResolveHook", requestedModule,
                              "specifier=" + specifier + " expected>=" + expectedMinimumStatus);
     }
@@ -15,11 +15,8 @@ function CallModuleResolveHook(module, specifier, expectedMinimumStatus)
 
 function ThrowBadModuleStatus(where, module, details = "")
 {
-    let status = module && module.status;
-    let msg = "module record has unexpected status " + status + " at " + where;
-    if (details)
-        msg += " " + details;
-    ThrowInternalError(msg);
+    // ThrowInternalError's first argument is a message number, not text.
+    ThrowInternalError(JSMSG_BAD_MODULE_STATUS);
 }
 
 // 15.2.1.16.2 GetExportedNames(exportStarSet)
@@ -63,7 +60,7 @@ function ModuleGetExportedNames(exportStarSet = [])
     for (let i = 0; i < starExportEntries.length; i++) {
         let e = starExportEntries[i];
         let requestedModule = CallModuleResolveHook(module, e.moduleRequest,
-                                                    MODULE_STATUS_INSTANTIATED);
+                                                    MODULE_STATUS_UNINSTANTIATED);
         let starNames = callFunction(requestedModule.getExportedNames, requestedModule,
                                      exportStarSet);
         for (let j = 0; j < starNames.length; j++) {
@@ -569,9 +566,7 @@ function ModuleEvaluate()
         module.status !== MODULE_STATUS_EVALUATED &&
         module.status !== MODULE_STATUS_EVALUATED_ERROR)
     {
-        // Avoid crashing on unexpected re-entrancy; callers will observe
-        // completion via the existing evaluation flow.
-        return undefined;
+        ThrowBadModuleStatus("ModuleEvaluate", module);
     }
 
     // Step 3
@@ -666,14 +661,18 @@ function InnerModuleEvaluation(module, stack, index)
                requiredModule.status === MODULE_STATUS_EVALUATED,
               "Bad module status after InnerModuleEvaluation");
 
-        assert((requiredModule.status === MODULE_STATUS_EVALUATING) ===
-               ArrayContains(stack, requiredModule),
-               "Required module should be in the stack iff it is currently being evaluated");
+        // An async dependency can still be evaluating after its DFS component
+        // has been popped. Only a dependency in this traversal's stack is a
+        // back-edge; a pending promise does not make it part of our cycle.
+        let inStack = ArrayContains(stack, requiredModule);
+        assert(inStack || requiredModule.status === MODULE_STATUS_EVALUATED ||
+               GetModuleEvaluationPromise(requiredModule) !== undefined,
+               "Evaluating dependency outside the DFS stack needs a promise");
 
         assert(typeof requiredModule.dfsIndex === "number", "Bad dfsIndex");
         assert(typeof requiredModule.dfsAncestorIndex === "number", "Bad dfsAncestorIndex");
 
-        if (requiredModule.status === MODULE_STATUS_EVALUATING) {
+        if (inStack) {
             UnsafeSetReservedSlot(module, MODULE_OBJECT_DFS_ANCESTOR_INDEX_SLOT,
                                   std_Math_min(module.dfsAncestorIndex,
                                                requiredModule.dfsAncestorIndex));
