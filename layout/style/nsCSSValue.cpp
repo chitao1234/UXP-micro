@@ -1938,7 +1938,12 @@ nsCSSValue::AppendToString(nsCSSPropertyID aProperty, nsAString& aResult,
     }
   }
   else if (IsNumericColorUnit(unit)) {
-    if (aSerialization == eNormalized ||
+    // Modern color functions must retain their color space in specified
+    // values. Mapping them to 8-bit sRGB here changes color-mix() endpoints
+    // before interpolation when a serialized declaration is reparsed.
+    bool isModernColor = unit == eCSSUnit_OklabColor ||
+                         unit == eCSSUnit_OklchColor;
+    if ((aSerialization == eNormalized && !isModernColor) ||
         unit == eCSSUnit_RGBColor ||
         unit == eCSSUnit_RGBAColor) {
       nscolor color = GetColorValue();
@@ -2034,11 +2039,26 @@ nsCSSValue::AppendToString(nsCSSPropertyID aProperty, nsAString& aResult,
         break;
     }
     
+    // Omit percentages only for the default 50%/50% pair. Preserve the raw
+    // weights otherwise: their sum affects the result's alpha below 100%.
+    bool serializeWeights = colorMix->mWeight1 != 0.5f ||
+                            colorMix->mWeight2 != 0.5f;
+
     // append color1 and color2
     aResult.AppendLiteral(", ");
     colorMix->mColor1.AppendToString(aProperty, aResult, aSerialization);
+    if (serializeWeights) {
+      aResult.Append(' ');
+      AppendSerializedCSSFloat(colorMix->mWeight1 * 100.0f, aResult);
+      aResult.Append('%');
+    }
     aResult.AppendLiteral(", ");
     colorMix->mColor2.AppendToString(aProperty, aResult, aSerialization);
+    if (serializeWeights) {
+      aResult.Append(' ');
+      AppendSerializedCSSFloat(colorMix->mWeight2 * 100.0f, aResult);
+      aResult.Append('%');
+    }
     
     aResult.Append(')');
   }
