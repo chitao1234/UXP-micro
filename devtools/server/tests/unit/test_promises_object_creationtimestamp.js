@@ -63,7 +63,8 @@ function* testPromiseCreationTimestamp(client, form, makePromise) {
   let creationTimestamp = grip.promiseState.creationTimestamp;
 
   ok(start - 1 <= creationTimestamp && creationTimestamp <= end + 1,
-    "Expect promise creation timestamp to be within elapsed time range.");
+    "Expect promise creation timestamp to be within elapsed time range: " +
+    start + " <= " + creationTimestamp + " <= " + end);
 
   yield front.detach();
   // Appease eslint

@@ -67,18 +67,15 @@ function test_simple_breakpoint()
           do_check_eq(aPacket.why.frameFinished.return.type, "undefined");
         },
         function (aPacket) {
-          // The foo function call frame was just popped from the stack.
+          // The foo frame was popped. Post-call cleanup is not a source entry
+          // point, so step to the following debugger statement without another
+          // pause at the call site or a debuggerStatement reason.
           do_check_eq(gDebuggee.a, 1);
           do_check_eq(gDebuggee.b, undefined);
-          do_check_eq(aPacket.frame.where.line, gDebuggee.line0 + 5);
-          do_check_eq(aPacket.why.type, "resumeLimit");
-          do_check_eq(aPacket.poppedFrames.length, 1);
-        },
-        function (aPacket) {
-          // Check that the debugger statement wasn't the reason for this pause.
           do_check_eq(aPacket.frame.where.line, gDebuggee.line0 + 6);
           do_check_neq(aPacket.why.type, "debuggerStatement");
           do_check_eq(aPacket.why.type, "resumeLimit");
+          do_check_eq(aPacket.poppedFrames.length, 1);
         },
         function (aPacket) {
           // Check that the debugger statement wasn't the reason for this pause.

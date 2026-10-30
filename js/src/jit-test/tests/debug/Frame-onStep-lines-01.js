@@ -13,6 +13,11 @@ var offsets;
 dbg.onDebuggerStatement = function (frame) {
     var script = frame.script;
     offsets = script.getAllOffsets();
+    if (frame.callee && frame.callee.name == "t") {
+        // Function setup belongs in the prologue; the declaration header is
+        // not an executable line of this function.
+        assertEq(Object.prototype.hasOwnProperty.call(offsets, 1), false);
+    }
     print("debugger line: " + script.getOffsetLocation(frame.offset).lineNumber);
     print("original lines: " + uneval(Object.keys(offsets)));
     if (doSingleStep) {
@@ -34,22 +39,21 @@ g.eval(
        '}                                    \n'
        );
 
-// The handler starts after the debugger opcode; function-entry and debugger
-// lines are therefore not visited by onStep. Check exact remaining lines.
+// The handler starts after the debugger opcode on line 2. That line remains
+// unvisited; the function header was never an executable offset.
 g.eval('t(1,2,3)');
-assertEq(JSON.stringify(Object.keys(offsets)), '["1","2"]');
+assertEq(JSON.stringify(Object.keys(offsets)), '["2"]');
 
-// This should stop at every line but the first of the function, and the
-// body of the 'if'.
+// This also leaves the unexecuted body of the 'if' on line 6 unvisited.
 g.eval('t(10,20,30)');
-assertEq(JSON.stringify(Object.keys(offsets)), '["1","2","6"]');
+assertEq(JSON.stringify(Object.keys(offsets)), '["2","6"]');
 
 // This shouldn't stop at all. It's the frame that's in single-step mode,
 // not the script, so the prior execution of t in single-step mode should
 // have no effect on this one.
 doSingleStep = false;
 g.eval('t(0, 0, 0)');
-assertEq(JSON.stringify(Object.keys(offsets)), '["1","2","3","4","5","6","7","8"]');
+assertEq(JSON.stringify(Object.keys(offsets)), '["2","3","4","5","6","7","8"]');
 doSingleStep = true;
 
 // Single-step in an eval frame. This should reach every line but the

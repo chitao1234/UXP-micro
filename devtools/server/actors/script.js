@@ -747,16 +747,22 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     return this._tabClosed ? null : undefined;
   },
 
-  _makeOnEnterFrame: function ({ pauseAndRespond }) {
+  _makeOnEnterFrame: function (steppingHookState) {
     return aFrame => {
       const generatedLocation = this.sources.getFrameLocation(aFrame);
       let { originalSourceActor } = this.unsafeSynchronize(this.sources.getOriginalLocation(
         generatedLocation));
-      let url = originalSourceActor.url;
+      if (originalSourceActor && this.sources.isBlackBoxed(originalSourceActor.url)) {
+        return undefined;
+      }
 
-      return this.sources.isBlackBoxed(url)
-        ? undefined
-        : pauseAndRespond(aFrame);
+      // Entry can precede the first executable source position (for example,
+      // function environment setup on the declaration line). Continue until a
+      // valid step target, as for stepping within an existing frame. Retain
+      // the caller's start frame/location so a same-line call can step in.
+      aFrame.onStep = this._makeOnStep(steppingHookState);
+      aFrame.onPop = this._makeOnPop(steppingHookState);
+      return undefined;
     };
   },
 
@@ -806,14 +812,10 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     return function () {
       // onStep is called with 'this' set to the current frame.
 
-      // Only allow stepping stops at entry points for the line, when
-      // the stepping occurs in a single frame.  The "same frame"
-      // check makes it so a sequence of steps can step out of a frame
-      // and into subsequent calls in the outer frame.  E.g., if there
-      // is a call "a(b())" and the user steps into b, then this
-      // condition makes it possible to step out of b and into a.
-      if (this === startFrame &&
-          !this.script.getOffsetLocation(this.offset).isEntryPoint) {
+      // Frame changes do not make internal setup bytecode a valid target.
+      // The old Debugger API's entry points are the breakpoint/source-note
+      // positions exposed by getAllColumnOffsets, including same-line calls.
+      if (!this.script.getOffsetLocation(this.offset).isEntryPoint) {
         return undefined;
       }
 
