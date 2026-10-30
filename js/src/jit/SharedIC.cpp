@@ -2484,6 +2484,11 @@ TryAttachNativeGetAccessorPropStub(JSContext* cx, SharedStubInfo* info,
         return false;
     }
 
+    // TypedObject fields and dense elements have no native Shape. They are
+    // handled by other IC paths, not by the native accessor stub.
+    if (prop.isNonNativeProperty())
+        return true;
+
     RootedShape shape(cx, prop.maybeShape());
     ICStub* monitorStub = stub->fallbackMonitorStub()->firstMonitorStub();
 
