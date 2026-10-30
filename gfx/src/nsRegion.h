@@ -277,6 +277,11 @@ public:
   bool IsComplex () const { return GetNumRects() > 1; }
   bool IsEqual (const nsRegion& aRegion) const
   {
+    // Pixman may retain different extents origins after subtracting the last
+    // rectangle. Empty regions cover the same area regardless of that origin.
+    if (IsEmpty() || aRegion.IsEmpty()) {
+      return IsEmpty() && aRegion.IsEmpty();
+    }
     return pixman_region32_equal(Impl(), aRegion.Impl());
   }
   uint32_t GetNumRects () const

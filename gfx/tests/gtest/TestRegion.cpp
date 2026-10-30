@@ -569,6 +569,18 @@ TEST(Gfx, RegionVisitEdges) {
   }
 }
 
+TEST(Gfx, EmptyRegionEquality) {
+  nsRegion origin;
+  nsRegion translated(nsRect(5, 7, 20, 30));
+  translated.SubOut(nsRect(5, 7, 20, 30));
+  ASSERT_TRUE(translated.IsEmpty());
+  EXPECT_TRUE(origin.IsEqual(translated));
+  EXPECT_TRUE(translated.IsEqual(origin));
+  nsRegion nonempty(nsRect(5, 7, 20, 30));
+  EXPECT_FALSE(nonempty.IsEqual(translated));
+  EXPECT_FALSE(translated.IsEqual(nonempty));
+}
+
 TEST(Gfx, PingPongRegion) {
   nsRect rects[] = {
     nsRect(4, 1, 61, 49),
@@ -595,7 +607,9 @@ TEST(Gfx, PingPongRegion) {
     for (size_t i = 0; i < size; i++) {
       ar.SubOut(rects[i]);
       r.SubOut(rects[i]);
-      EXPECT_TRUE(ar.Region().IsEqual(r));
+      EXPECT_TRUE(ar.Region().IsEqual(r))
+        << "size=" << size << " subtraction=" << i
+        << " empty=" << ar.Region().IsEmpty() << "," << r.IsEmpty();
     }
   }
 }
