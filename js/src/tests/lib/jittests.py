@@ -396,14 +396,8 @@ def check_output(out, err, rc, timed_out, test, options):
 
     if test.expect_error:
         # The shell exits with code 3 on uncaught exceptions.
-        # Sometimes 0 is returned on Windows for unknown reasons.
-        # See bug 899697.
-        if sys.platform in ['win32', 'cygwin']:
-            if rc != 3 and rc != 0:
-                return False
-        else:
-            if rc != 3:
-                return False
+        if rc != 3:
+            return False
 
         return test.expect_error in err
 
@@ -416,7 +410,7 @@ def check_output(out, err, rc, timed_out, test, options):
             return False
 
     if test.expect_crash:
-        if sys.platform == 'win32' and rc == 3 - 2 ** 31:
+        if sys.platform == 'win32' and (rc & 0xffffffff) in (0x80000003, 0xc0000005):
             return True
 
         if sys.platform != 'win32' and rc == -11:
@@ -427,14 +421,9 @@ def check_output(out, err, rc, timed_out, test, options):
         # includes the crash reason.
         if rc == 1 and ("Hit MOZ_CRASH" in err or "Assertion failure:" in err):
             return True
+        return False
 
     if rc != test.expect_status:
-        # Tests which expect a timeout check for exit code 6.
-        # Sometimes 0 is returned on Windows for unknown reasons.
-        # See bug 899697.
-        if sys.platform in ['win32', 'cygwin'] and rc == 0:
-            return True
-
         # Allow a non-zero exit code if we want to allow OOM, but only if we
         # actually got OOM.
         if test.allow_oom and 'out of memory' in err \

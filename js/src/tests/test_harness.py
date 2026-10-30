@@ -12,6 +12,7 @@ import jstests
 from lib.manifest import NullXULInfoTester, _parse_one
 from lib.results import TestOutput, TestResult
 from lib.tests import RefTestCase
+from lib import jittests
 
 
 class NegativeTestResults(unittest.TestCase):
@@ -68,6 +69,35 @@ class NegativeTestResults(unittest.TestCase):
             test.terms = directive
             with self.assertRaises(ValueError):
                 _parse_one(test, NullXULInfoTester())
+
+
+class JitExitStatusResults(unittest.TestCase):
+    def result(self, rc, err='', crash=False, error='', status=0):
+        test = SimpleNamespace(skip_if_cond=None, expect_crash=crash,
+                               expect_error=error, expect_status=status,
+                               allow_oom=False, allow_unhandlable_oom=False,
+                               allow_overrecursed=False)
+        with mock.patch.object(jittests.sys, 'platform', 'win32'):
+            return jittests.check_output('', err, rc, False, test, SimpleNamespace())
+
+    def test_windows_crash_statuses(self):
+        self.assertTrue(self.result(0xc0000005, crash=True))
+        self.assertTrue(self.result(-1073741819, crash=True))
+        self.assertTrue(self.result(0x80000003, crash=True))
+
+    def test_crash_required(self):
+        self.assertFalse(self.result(0, crash=True))
+        self.assertFalse(self.result(3, err='Error: unrelated', crash=True))
+        self.assertFalse(self.result(0xc0000005))
+
+    def test_expected_status_required(self):
+        self.assertTrue(self.result(6, status=6))
+        self.assertFalse(self.result(0, status=6))
+
+    def test_expected_error_requires_exception_exit(self):
+        self.assertTrue(self.result(3, err='TypeError: expected', error='TypeError'))
+        self.assertFalse(self.result(0, err='TypeError: expected', error='TypeError'))
+        self.assertFalse(self.result(3, err='Error: different', error='TypeError'))
 
 
 class TestFileSelection(unittest.TestCase):
