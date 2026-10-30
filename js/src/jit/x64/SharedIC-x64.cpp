@@ -217,11 +217,15 @@ ICUnaryArith_Int32::Compiler::generateStubCode(MacroAssembler& masm)
         masm.negl(R0.valueReg());
         break;
       case JSOP_INC: {
+        // Overflow must fall back before modifying the original operand.
+        masm.branch32(Assembler::Equal, R0.valueReg(), Imm32(INT32_MAX), &failure);
         RegisterOrInt32Constant rval = RegisterOrInt32Constant(R0.valueReg());
         masm.inc32(&rval);
         break;
       }
       case JSOP_DEC: {
+        // Overflow must fall back before modifying the original operand.
+        masm.branch32(Assembler::Equal, R0.valueReg(), Imm32(INT32_MIN), &failure);
         RegisterOrInt32Constant rval = RegisterOrInt32Constant(R0.valueReg());
         masm.dec32(&rval);
         break;
