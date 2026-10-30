@@ -14453,12 +14453,9 @@ IonBuilder::jsop_importmeta()
 bool
 IonBuilder::jsop_dynamic_import()
 {
-    Value referencingPrivate = FindScriptOrModulePrivateForScript(script());
-    MConstant* ref = constant(referencingPrivate);
-
     MDefinition* specifier = current->pop();
 
-    MDynamicImport* ins = MDynamicImport::New(alloc(), ref, specifier);
+    MDynamicImport* ins = MDynamicImport::New(alloc(), specifier);
     current->add(ins);
     current->push(ins);
     return resumeAfter(ins);

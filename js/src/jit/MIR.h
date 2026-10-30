@@ -7446,11 +7446,11 @@ class MModuleMetadata : public MNullaryInstruction
     }
 };
 
-class MDynamicImport : public MBinaryInstruction,
-                       public BoxInputsPolicy::Data
+class MDynamicImport : public MUnaryInstruction,
+                       public BoxPolicy<0>::Data
 {
-    explicit MDynamicImport(MDefinition* referencingPrivate, MDefinition* specifier)
-      : MBinaryInstruction(referencingPrivate, specifier)
+    explicit MDynamicImport(MDefinition* specifier)
+      : MUnaryInstruction(specifier)
     {
         setResultType(MIRType::Object);
     }
@@ -7458,8 +7458,7 @@ class MDynamicImport : public MBinaryInstruction,
   public:
     INSTRUCTION_HEADER(DynamicImport)
     TRIVIAL_NEW_WRAPPERS
-    NAMED_OPERANDS((0, referencingPrivate))
-    NAMED_OPERANDS((1, specifier))
+    NAMED_OPERANDS((0, specifier))
 };
 
 struct LambdaFunctionInfo

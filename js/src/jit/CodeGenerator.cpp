@@ -22,6 +22,7 @@
 #include "jsstr.h"
 
 #include "builtin/Eval.h"
+#include "builtin/ModuleObject.h"
 #include "builtin/TypedObject.h"
 #include "gc/Nursery.h"
 #include "irregexp/NativeRegExpMacroAssembler.h"
@@ -2471,16 +2472,26 @@ CodeGenerator::visitModuleMetadata(LModuleMetadata* lir)
     callVM(GetOrCreateModuleMetaObjectInfo, lir);
 }
 
-typedef JSObject* (*StartDynamicModuleImportFn)(JSContext*, HandleValue, HandleValue);
+// Read embedding-private data at execution time, as current Firefox does.
+// It can contain a non-atomized (and potentially nursery-allocated) string and
+// must not become an off-thread compiler constant.
+static JSObject*
+StartDynamicModuleImportFromScript(JSContext* cx, HandleScript script, HandleValue specifier)
+{
+    RootedValue referencingPrivate(cx, FindScriptOrModulePrivateForScript(script));
+    return js::StartDynamicModuleImport(cx, referencingPrivate, specifier);
+}
+
+typedef JSObject* (*StartDynamicModuleImportFn)(JSContext*, HandleScript, HandleValue);
 static const VMFunction StartDynamicModuleImportInfo =
-    FunctionInfo<StartDynamicModuleImportFn>(js::StartDynamicModuleImport,
+    FunctionInfo<StartDynamicModuleImportFn>(StartDynamicModuleImportFromScript,
                                                 "StartDynamicModuleImport");
 
 void
 CodeGenerator::visitDynamicImport(LDynamicImport* lir)
 {
     pushArg(ToValue(lir, LDynamicImport::SpecifierIndex));
-    pushArg(ToValue(lir, LDynamicImport::ReferencingPrivateIndex));
+    pushArg(ImmGCPtr(current->mir()->info().script()));
     callVM(StartDynamicModuleImportInfo, lir);
 }
 
