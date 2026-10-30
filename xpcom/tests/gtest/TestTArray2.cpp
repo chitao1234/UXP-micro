@@ -615,7 +615,7 @@ static bool is_heap(const Array& ary, size_t len) {
 
 #define IS_USING_AUTO(arr) \
   ((uintptr_t) &(arr) < (uintptr_t) arr.Elements() && \
-   ((ptrdiff_t)arr.Elements() - (ptrdiff_t)&arr) <= 16)
+   ((uintptr_t)arr.Elements() - (uintptr_t)&arr) <= 16)
 
 #define CHECK_IS_USING_AUTO(arr) \
   do {                                                    \
@@ -897,9 +897,14 @@ TEST(TArray, test_fallible)
     // that allocations will always be 128MB.
     bool success = arrays[i].SetCapacity(128 * 1024 * 1024 - 1024, fallible);
     if (!success) {
-      // We got our OOM.  Check that it didn't come too early.
+      // The available address space depends on the rest of the gtest
+      // process, including mapped libraries. Require both a successful
+      // allocation and a fallible failure, not an arbitrary number of MiB.
       oomed = true;
-      ASSERT_GE(i, size_t(8)) << "Got OOM on iteration " << i << ". Too early!";
+      ASSERT_GT(i, size_t(0)) << "No address space for even one test allocation";
+      ASSERT_EQ(arrays[i].Length(), size_t(0));
+      ASSERT_EQ(arrays[i].Capacity(), size_t(0));
+      break;
     }
   }
 
