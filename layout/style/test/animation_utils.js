@@ -258,12 +258,12 @@ function runOMTATest(aTestFunction, aOnSkip, specialPowersForPrefs) {
     return waitForDocumentLoad()
       .then(loadPaintListener)
       .then(function() {
-        // Put refresh driver under test control and trigger animation
+        // Flush pending style, layout and paint before starting the animation,
+        // so their MozAfterPaint events cannot satisfy the animation's wait.
         utils.advanceTimeAndRefresh(0);
+        return waitForPaints();
+      }).then(function() {
         div.style.animation = animationName + " 10s";
-
-        // Trigger style flush
-        div.clientTop;
         return waitForPaints();
       }).then(function() {
         var opacity = utils.getOMTAStyle(div, "opacity");
