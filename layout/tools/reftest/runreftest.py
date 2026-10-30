@@ -639,6 +639,8 @@ class RefTest(object):
         runner.cleanup()
         if not status and crashed:
             status = 1
+        if not interactive:
+            status = outputHandler.get_exit_status(status)
         return status
 
     def runSerialTests(self, manifests, options, cmdargs=None):

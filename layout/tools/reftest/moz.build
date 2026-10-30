@@ -28,3 +28,7 @@ TEST_HARNESS_FILES.reftest += [
     'runreftestb2g.py',
     'runreftestmulet.py',
 ]
+
+PYTHON_UNIT_TESTS += [
+    'selftest/test_output.py',
+]

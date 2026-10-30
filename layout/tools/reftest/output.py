@@ -105,8 +105,10 @@ class OutputHandler(object):
     def __init__(self, log, utilityPath, symbolsPath=None):
         self.stack_fixer_function = get_stack_fixer_function(utilityPath, symbolsPath)
         self.log = log
+        self.suite_started = False
         # needed for b2gautomation.py
         self.suite_finished = False
+        self.harness_error = False
 
     def __call__(self, line):
         # need to return processed messages to appease remoteautomation.py
@@ -120,14 +122,38 @@ class OutputHandler(object):
             return [line]
 
         if isinstance(data, dict) and 'action' in data:
-            if data['action'] == 'suite_end':
+            if data['action'] == 'suite_start':
+                self.suite_started = True
+                self.suite_finished = False
+            elif data['action'] == 'suite_end':
                 self.suite_finished = True
+                results = data.get('extra', {}).get('results', {})
+                if not self.suite_started or results.get('Exception', 0):
+                    self.harness_error = True
+            elif data['action'] == 'log' and data.get('level') in ('ERROR', 'CRITICAL'):
+                self.harness_error = True
 
             self.log.log_raw(data)
         else:
             self.verbatim(json.dumps(data))
 
         return [data]
+
+    def get_exit_status(self, status):
+        """Do not mistake a normally exiting broken harness for a test run.
+
+        Comparison failures remain structured test results, as in the
+        historical harness; infrastructure errors and incomplete runs do not.
+        """
+        if status:
+            return status
+        if not self.suite_started or not self.suite_finished:
+            self.log.error("Reftest harness exited without a complete test suite")
+            return 1
+        if self.harness_error:
+            self.log.error("Reftest harness reported an error")
+            return 1
+        return status
 
     def verbatim(self, line):
         if self.stack_fixer_function:

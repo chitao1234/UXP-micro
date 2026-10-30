@@ -439,11 +439,15 @@ function StartTests()
         gURLFilterRegex = manifests[null];
     } catch(e) {
         logger.error("Unable to find reftest.manifests pref.  Please ensure your profile is setup properly");
+        ++gTestResults.Exception;
         DoneTests();
+        return;
     }
 
     try {
         var globalFilter = manifests.hasOwnProperty("") ? new RegExp(manifests[""]) : null;
+        // The empty key stores --filter metadata, not a manifest URL.
+        delete manifests[""];
         var manifestURLs = Object.keys(manifests);
 
         // Ensure we read manifests from higher up the directory tree first so that we
