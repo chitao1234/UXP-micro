@@ -13,6 +13,7 @@ from lib.manifest import NullXULInfoTester, _parse_one
 from lib.results import TestOutput, TestResult
 from lib.tests import RefTestCase
 from lib import jittests
+from lib.resume import completed_invocations, invocation_key, remaining_invocations
 
 
 class NegativeTestResults(unittest.TestCase):
@@ -98,6 +99,37 @@ class JitExitStatusResults(unittest.TestCase):
         self.assertTrue(self.result(3, err='TypeError: expected', error='TypeError'))
         self.assertFalse(self.result(0, err='TypeError: expected', error='TypeError'))
         self.assertFalse(self.result(3, err='Error: different', error='TypeError'))
+
+
+class ResumeResults(unittest.TestCase):
+    def completed(self, suite, text):
+        with mock.patch('io.open', mock.mock_open(read_data=text)):
+            return completed_invocations(['prior.log'], suite)
+
+    def test_jstests_reuses_only_complete_success_records(self):
+        result = self.completed('jstests', '\n'.join([
+            'TEST-PASS | a.js | (args: "--no-ion") | assertion',
+            'TEST-PASS | b.js | (args: "--no-ion")',
+            'TEST-UNEXPECTED-FAIL | c.js | (args: "--no-ion")',
+            'TEST-PASS | d.js | (args: "--no-ion") | (TIMEOUT)',
+            'TEST-KNOWN-FAIL | e.js | (args: "") | (SKIP)']))
+        self.assertEqual(result, {invocation_key('b.js', ['--no-ion']),
+                                  invocation_key('e.js', [])})
+
+    def test_jit_failed_and_unidentified_skip_variants_are_rerun(self):
+        result = self.completed('jit', '\n'.join([
+            'TEST-PASS | a.js | Success (code 0, args "--no-ion --no-baseline")',
+            'TEST-UNEXPECTED-FAIL | b.js | Timeout (code 1, args "")',
+            'TEST-SKIP | c.js | JIT-TEST-UNSUPPORTED: gczeal']))
+        self.assertEqual(result, {invocation_key('a.js', ['--no-baseline', '--no-ion'])})
+
+    def test_configuration_must_match(self):
+        tests = [SimpleNamespace(path='a.js', jitflags=['--no-ion']),
+                 SimpleNamespace(path='a.js', jitflags=['--baseline-eager']),
+                 SimpleNamespace(path='b.js', jitflags=['--no-ion'])]
+        with mock.patch('io.open', mock.mock_open(
+                read_data='TEST-PASS | a.js | (args: "--no-ion")\n')):
+            self.assertEqual(remaining_invocations(tests, ['prior.log'], 'jstests'), tests[1:])
 
 
 class TestFileSelection(unittest.TestCase):

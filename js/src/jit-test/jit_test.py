@@ -83,6 +83,9 @@ def main(argv):
                   help='set test timeout in seconds')
     op.add_option('--no-progress', dest='hide_progress', action='store_true',
                   help='hide progress bar')
+    op.add_option('--resume-log', action='append', default=[],
+                  help='Retain successful invocations from this automation log; '
+                       'requires the same binary, environment and test sources.')
     op.add_option('--cache-dir', default=jittests.JS_CACHE_DIR,
                   help='Parent directory for this run\'s private script cache.')
     op.add_option('--tinderbox', dest='format', action='store_const',
@@ -273,6 +276,9 @@ def main(argv):
 
     # The full test list is ready. Now create copies for each JIT configuration.
     test_list = [_ for test in test_list for _ in test.copy_variants(test_flags)]
+    if options.resume_log:
+        from lib.resume import remaining_invocations
+        test_list = remaining_invocations(test_list, options.resume_log, 'jit')
 
     job_list = (test for test in test_list)
     job_count = len(test_list)

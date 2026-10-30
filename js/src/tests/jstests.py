@@ -114,6 +114,9 @@ def parse_args():
                         help='Run only tests marked as "skip."')
     input_og.add_option('--run-slow-tests', action='store_true',
                         help='Do not skip tests marked as "slow."')
+    input_og.add_option('--resume-log', action='append', default=[],
+                        help='Retain successful invocations from this automation log; '
+                             'requires the same binary, environment and test sources.')
     input_og.add_option('--no-extensions', action='store_true',
                         help='Run only tests conforming to the ECMAScript 5'
                         ' standard.')
@@ -344,6 +347,11 @@ def main():
            return 1
 
     test_count, test_gen = load_tests(options, requested_paths, excluded_paths)
+    if options.resume_log:
+        from lib.resume import remaining_invocations
+        test_gen = remaining_invocations(test_gen, options.resume_log, 'jstests',
+                                        options.shell_args)
+        test_count = len(test_gen)
     test_environment = get_environment_overlay(options.js_shell)
 
     if test_count == 0:
