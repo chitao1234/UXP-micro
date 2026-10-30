@@ -10,8 +10,24 @@
 
 var format = new Intl.NumberFormat("it-IT", {minimumFractionDigits: 1});
 
-assertEq(format.format(1123123123123123123123.1), "1.123.123.123.123.120.000.000,0");
-assertEq(format.format(12123123123123123123123.1), "12.123.123.123.123.100.000.000,0");
-assertEq(format.format(123123123123123123123123.1), "123.123.123.123.123.000.000.000,0");
+const cases = [
+    [1123123123123123123123.1, "1.123.123.123.123.123.100.000,0"],
+    [12123123123123123123123.1, "12.123.123.123.123.122.000.000,0"],
+    [123123123123123123123123.1, "123.123.123.123.123.120.000.000,0"],
+];
+
+for (let [number, expected] of cases) {
+    assertEq(format.format(number), expected);
+
+    // Independently reconstruct these large values from Number.toFixed's
+    // exponential form. Keep exercising the buffer boundary without retaining
+    // old ICU's loss of precision as the expected result.
+    let parts = number.toFixed(format.resolvedOptions().maximumFractionDigits)
+                      .match(/^(\d)\.(\d+)e\+(\d+)$/);
+    assertEq(parts !== null, true);
+    let digits = parts[1] + parts[2].padEnd(Number(parts[3]), "0");
+    let groups = digits.match(/\d{1,3}(?=(?:\d{3})*$)/g);
+    assertEq(groups.join(".") + ",0", expected);
+}
 
 reportCompare(0, 0, "ok");
