@@ -17330,6 +17330,23 @@ CSSParserImpl::ParseOverflow()
 
   // Try to parse a second value (optional)
   bool haveSecond = ParseSingleTokenVariant(overflowY, VARIANT_HK, nsCSSProps::kOverflowKTable);
+  if (haveSecond) {
+    auto isCSSWideKeyword = [](const nsCSSValue& aValue) {
+      switch (aValue.GetUnit()) {
+        case eCSSUnit_Inherit:
+        case eCSSUnit_Initial:
+        case eCSSUnit_Unset:
+        case eCSSUnit_Revert:
+        case eCSSUnit_RevertLayer:
+          return true;
+        default:
+          return false;
+      }
+    };
+    if (isCSSWideKeyword(overflowX) || isCSSWideKeyword(overflowY)) {
+      return false;
+    }
+  }
   if (!haveSecond) {
     overflowY = overflowX;
   }

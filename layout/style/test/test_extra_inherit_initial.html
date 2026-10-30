@@ -88,6 +88,25 @@ function test_property(property)
   }
 }
 
+function test_overflow_revert_keywords()
+{
+  for (let keyword of ["revert", "revert-layer"]) {
+    gElement.setAttribute("style", "overflow: " + keyword);
+    is(gDeclaration.getPropertyValue("overflow-x"), keyword,
+       "overflow accepts standalone " + keyword);
+    is(gDeclaration.getPropertyValue("overflow-y"), keyword,
+       "overflow applies standalone " + keyword + " to both axes");
+
+    for (let value of [keyword + " visible", "visible " + keyword]) {
+      gElement.setAttribute("style", "overflow: " + value);
+      is(gDeclaration.getPropertyValue("overflow-x"), "",
+         "overflow rejects mixed CSS-wide keyword: " + value);
+      is(gDeclaration.getPropertyValue("overflow-y"), "",
+         "overflow rejects mixed CSS-wide keyword: " + value);
+    }
+  }
+}
+
 SimpleTest.waitForExplicitFinish();
 SimpleTest.requestLongerTimeout(4);
 
@@ -95,6 +114,7 @@ function start_test() {
   for (let prop in gCSSProperties) {
     test_property(prop);
   }
+  test_overflow_revert_keywords();
   SimpleTest.finish();
 }
 
