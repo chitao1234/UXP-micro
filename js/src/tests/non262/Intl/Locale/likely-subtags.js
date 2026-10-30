@@ -1,8 +1,8 @@
 // |reftest| skip-if(!this.hasOwnProperty('Intl'))
 
 var testDataMaximal = {
-    // Keeps "und" primary language.
-    "und-AQ": "und-Latn-AQ",
+    // CLDR 48 has no Antarctic language; the default language is filled in.
+    "und-AQ": "en-Latn-AQ",
 
     // Modifies primary language.
     "und-Cyrl-RO": "bg-Cyrl-RO",
@@ -13,16 +13,16 @@ var testDataMinimal = {
     "und": "en",
     "und-Thai": "th",
     "und-419": "es-419",
-    "und-150": "ru",
+    "und-150": "en-150",
     "und-AT": "de-AT",
 
-    // https://ssl.icu-project.org/trac/ticket/13786
-    "aae-Latn-IT": "aae-Latn-IT",
+    // ICU now minimizes the defaults for Arbëreshë Albanian.
+    "aae-Latn-IT": "aae",
     "aae-Thai-CO": "aae-Thai-CO",
 
     // https://ssl.icu-project.org/trac/ticket/10220
     // https://ssl.icu-project.org/trac/ticket/12345
-    "und-CW": "pap-CW",
+    "und-CW": "pap",
     "und-US": "en",
     "zh-Hant": "zh-TW",
     "zh-Hani": "zh-Hani",

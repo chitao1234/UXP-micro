@@ -31,9 +31,8 @@ assertEq(Intl.getCanonicalLocales("cmn")[0], "zh");
 assertEq(Intl.getCanonicalLocales("dut")[0], "nl");
 assertEq(Intl.getCanonicalLocales("nld")[0], "nl");
 
-// CLDR has additional mappings for legacy language codes.
-//   <languageAlias type="no" replacement="nb" reason="legacy"/>
-assertEq(Intl.getCanonicalLocales("no")[0], "nb");
+// CLDR 48 preserves Norwegian as a macrolanguage instead of aliasing it to nb.
+assertEq(Intl.getCanonicalLocales("no")[0], "no");
 
 if (typeof reportCompare === "function")
     reportCompare(true, true);

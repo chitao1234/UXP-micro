@@ -14354,7 +14354,7 @@ var minLikelySubtags = {
     "umr-Latn-AU": "umr",
     "ums-Latn-ID": "ums",
     "una-Latn-PG": "una",
-    "und-Cpmn-CY": "el-Cpmn-CY",
+    "und-Cpmn-CY": "und-Cpmn",
     "une-Latn-NG": "une",
     "ung-Latn-AU": "ung",
     "uni-Latn-PG": "uni",
