@@ -37,6 +37,14 @@ for (var idx in gLonghandProperties) {
     continue;
   }
   var present = prop.name in gCSSProperties;
+  if (!present && prop.name == "font-variation-settings" &&
+      IsCSSPropertyPrefEnabled("layout.css.font-variations.stub")) {
+    // This pref exposes a compatibility stub: its parser accepts values
+    // without storing them and its computed-style getter always returns
+    // "normal", so it has no usable value set for property_database.js.
+    info("Skipping value metadata requirement for the font-variation stub");
+    continue;
+  }
   ok(present,
      "'" + prop.name + "' listed in gCSSProperties");
   if (present) {

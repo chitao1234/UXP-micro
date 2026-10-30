@@ -5231,11 +5231,11 @@ var gCSSProperties = {
     /* FIXME: test zero, and test calc clamping */
     initial_values: [
       " auto",
-      // these four keywords compute to the initial value when the
+      // These three intrinsic sizing keywords compute to the initial value when the
       // writing mode is horizontal, and that's the context we're testing in
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
     ],
     /* computed value tests for height test more with display:block */
@@ -5280,7 +5280,7 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: [],
+    invalid_values: ["-moz-max-content", "-moz-min-content", "-moz-fit-content"],
     quirks_values: { 5: "5px" },
   },
   "letter-spacing": {
@@ -5657,11 +5657,11 @@ var gCSSProperties = {
     prerequisites: { display: "block" },
     initial_values: [
       "none",
-      // these four keywords compute to the initial value when the
+      // These three intrinsic sizing keywords compute to the initial value when the
       // writing mode is horizontal, and that's the context we're testing in
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
     ],
     other_values: [
@@ -5676,7 +5676,8 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: ["auto"],
+    invalid_values: ["auto", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
     quirks_values: { 5: "5px" },
   },
   "max-width": {
@@ -5689,12 +5690,12 @@ var gCSSProperties = {
       "30px",
       "50%",
       "0",
-      // these four keywords compute to the initial value only when the
+      // These three intrinsic sizing keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
       "calc(2px)",
       "calc(-2px)",
@@ -5704,7 +5705,8 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: ["auto"],
+    invalid_values: ["auto", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
     quirks_values: { 5: "5px" },
   },
   "min-height": {
@@ -5717,11 +5719,11 @@ var gCSSProperties = {
       "0",
       "calc(0em)",
       "calc(-2px)",
-      // these four keywords compute to the initial value when the
+      // These three intrinsic sizing keywords compute to the initial value when the
       // writing mode is horizontal, and that's the context we're testing in
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
     ],
     other_values: [
@@ -5734,7 +5736,8 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: ["none"],
+    invalid_values: ["none", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
     quirks_values: { 5: "5px" },
   },
   "min-width": {
@@ -5746,12 +5749,12 @@ var gCSSProperties = {
     other_values: [
       "30px",
       "50%",
-      // these four keywords compute to the initial value only when the
+      // These three intrinsic sizing keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
       "calc(-1%)",
       "calc(2px)",
@@ -5760,7 +5763,8 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: ["none"],
+    invalid_values: ["none", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
     quirks_values: { 5: "5px" },
   },
 
@@ -6807,12 +6811,12 @@ var gCSSProperties = {
       "15px",
       "3em",
       "15%",
-      // these three keywords compute to the initial value only when the
+      // These intrinsic sizing keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       // whether -moz-available computes to the initial value depends on
       // the container size, and for the container size we're testing
       // with, it does
@@ -6901,6 +6905,9 @@ var gCSSProperties = {
     invalid_values: [
       "none",
       "-2px",
+      "-moz-max-content",
+      "-moz-min-content",
+      "-moz-fit-content",
       /* invalid for width but not flex-basis */
       "content",
       /* invalid -moz-calc() values */
@@ -7705,11 +7712,13 @@ var gCSSProperties = {
       "2 auto",
       "auto 4",
       "auto 5.6 7.8",
-      "-moz-max-content",
-      "1 -moz-max-content",
-      "1 2 -moz-max-content",
-      "-moz-max-content 1",
-      "-moz-max-content 1 2",
+      "max-content",
+      "1 max-content",
+      "1 2 max-content",
+      "max-content 1",
+      "max-content 1 2",
+      "min-content",
+      "fit-content",
       "-0",
     ],
     invalid_values: [
@@ -7719,6 +7728,13 @@ var gCSSProperties = {
       "1px 2 3 4px",
       "-1",
       "1 -1",
+      "-moz-max-content",
+      "1 -moz-max-content",
+      "1 2 -moz-max-content",
+      "-moz-max-content 1",
+      "-moz-max-content 1 2",
+      "-moz-min-content",
+      "-moz-fit-content",
       "0 1 calc(0px + rubbish)",
     ],
   },
@@ -7734,9 +7750,9 @@ var gCSSProperties = {
       "15px",
       "3em",
       "15%",
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
       "content",
       // valid calc() values
@@ -7773,6 +7789,9 @@ var gCSSProperties = {
     invalid_values: [
       "none",
       "-2px",
+      "-moz-max-content",
+      "-moz-min-content",
+      "-moz-fit-content",
       // invalid calc() values
       "calc(50%+ 2px)",
       "calc(50% +2px)",
@@ -8276,13 +8295,9 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: [
-      "none",
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
-      "-moz-available",
-    ],
+    invalid_values: ["none", "max-content", "min-content", "fit-content",
+                     "-moz-available", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
   },
   "border-block-end-color": {
     domProp: "borderBlockEndColor",
@@ -8503,12 +8518,12 @@ var gCSSProperties = {
       "15px",
       "3em",
       "15%",
-      // these three keywords compute to the initial value only when the
+      // These intrinsic sizing keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       // whether -moz-available computes to the initial value depends on
       // the container size, and for the container size we're testing
       // with, it does
@@ -8519,7 +8534,8 @@ var gCSSProperties = {
       "calc(25px*3)",
       "calc(3*25px + 50%)",
     ],
-    invalid_values: ["none"],
+    invalid_values: ["none", "-moz-max-content", "-moz-min-content",
+                     "-moz-fit-content"],
   },
   "margin-block": {
     domProp: "marginBlock",
@@ -8659,10 +8675,13 @@ var gCSSProperties = {
     invalid_values: [
       "auto",
       "5",
+      "max-content",
+      "min-content",
+      "fit-content",
+      "-moz-available",
       "-moz-max-content",
       "-moz-min-content",
       "-moz-fit-content",
-      "-moz-available",
     ],
   },
   "max-inline-size": {
@@ -8680,9 +8699,9 @@ var gCSSProperties = {
       // these four keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
       "calc(2px)",
       "calc(50%)",
@@ -8714,10 +8733,13 @@ var gCSSProperties = {
     invalid_values: [
       "none",
       "5",
+      "max-content",
+      "min-content",
+      "fit-content",
+      "-moz-available",
       "-moz-max-content",
       "-moz-min-content",
       "-moz-fit-content",
-      "-moz-available",
     ],
   },
   "min-inline-size": {
@@ -8735,9 +8757,9 @@ var gCSSProperties = {
       // these four keywords compute to the initial value only when the
       // writing mode is vertical, and we're testing with a horizontal
       // writing mode
-      "-moz-max-content",
-      "-moz-min-content",
-      "-moz-fit-content",
+      "max-content",
+      "min-content",
+      "fit-content",
       "-moz-available",
       "calc(-1%)",
       "calc(2px)",
@@ -8764,6 +8786,64 @@ var gCSSProperties = {
     ],
     invalid_values: ["1px calc(nonsense)", "1px red", "3"],
     unbalanced_values: ["1px calc("],
+  },
+  "inset-block": {
+    domProp: "insetBlock",
+    inherited: false,
+    type: CSS_TYPE_TRUE_SHORTHAND,
+    subproperties: ["inset-block-start", "inset-block-end"],
+    prerequisites: { position: "relative" },
+    initial_values: ["auto", "auto auto"],
+    other_values: [
+      "32px",
+      "-3em",
+      "12%",
+      "32px auto",
+      "auto -3em",
+      "12% auto",
+      "calc(2px)",
+      "calc(2px) auto",
+      "calc(-2px)",
+      "auto calc(-2px)",
+      "calc(50%)",
+      "auto calc(50%)",
+      "calc(3*25px)",
+      "calc(3*25px) auto",
+      "calc(25px*3)",
+      "auto calc(25px*3)",
+      "calc(3*25px + 50%)",
+      "auto calc(3*25px + 50%)",
+    ],
+    invalid_values: ["none"],
+  },
+  "inset-inline": {
+    domProp: "insetInline",
+    inherited: false,
+    type: CSS_TYPE_TRUE_SHORTHAND,
+    subproperties: ["inset-inline-start", "inset-inline-end"],
+    prerequisites: { position: "relative" },
+    initial_values: ["auto", "auto auto"],
+    other_values: [
+      "32px",
+      "-3em",
+      "12%",
+      "32px auto",
+      "auto -3em",
+      "12% auto",
+      "calc(2px)",
+      "calc(2px) auto",
+      "calc(-2px)",
+      "auto calc(-2px)",
+      "calc(50%)",
+      "auto calc(50%)",
+      "calc(3*25px)",
+      "calc(3*25px) auto",
+      "calc(25px*3)",
+      "auto calc(25px*3)",
+      "calc(3*25px + 50%)",
+      "auto calc(3*25px + 50%)",
+    ],
+    invalid_values: ["none"],
   },
   "inset-block-end": {
     domProp: "insetBlockEnd",
@@ -10112,8 +10192,6 @@ gCSSProperties["grid"] = {
     "grid-auto-flow",
     "grid-auto-rows",
     "grid-auto-columns",
-    "grid-column-gap",
-    "grid-row-gap",
   ],
   initial_values: ["none", "none / none"],
   other_values: [

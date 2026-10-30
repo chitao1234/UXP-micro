@@ -31,12 +31,13 @@ SimpleTest.waitForExplicitFinish();
 var cs1 = getComputedStyle(document.getElementById("one"), "");
 var cs2 = getComputedStyle(document.getElementById("two"), "");
 
-SpecialPowers.pushPrefEnv({'set': [['variable.x-western', 25], ['fixed.x-western', 20]]}, part1);
+SpecialPowers.pushPrefEnv({'set': [['font.size.variable.x-western', 25],
+                                   ['font.size.fixed.x-western', 20]]}, part1);
 
 function part1()
 {
-    var fs1 = cs1.fontSize.match(/(.*)px/)[1];
-    var fs2 = cs2.fontSize.match(/(.*)px/)[1];
+    var fs1 = parseFloat(cs1.fontSize);
+    var fs2 = parseFloat(cs2.fontSize);
     ok(fs1 < fs2, "<font size=-1> shrinks relative to font-family: -moz-fixed");
 
     SimpleTest.finish();

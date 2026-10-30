@@ -59,6 +59,7 @@ var FUNC_NEGATIVE = "cubic-bezier(0.25, -2, 0.75, 1)";
 var FUNC_OVERONE = "cubic-bezier(0.25, 0, 0.75, 3)";
 
 var supported_properties = {
+    "aspect-ratio": [ test_aspect_ratio_transition ],
     "border-bottom-left-radius": [ test_radius_transition ],
     "border-bottom-right-radius": [ test_radius_transition ],
     "border-top-left-radius": [ test_radius_transition ],
@@ -82,6 +83,9 @@ var supported_properties = {
     "-moz-outline-radius-topright": [ test_radius_transition ],
     "background-color": [ test_color_transition,
                           test_currentcolor_transition ],
+    "caret-color": [ test_color_transition,
+                     test_true_currentcolor_transition,
+                     test_auto_color_transition ],
     "background-position": [ test_background_position_transition,
                              // FIXME: We don't currently test clamping,
                              // since background-position uses calc() as
@@ -1388,6 +1392,28 @@ function test_auto_color_transition(prop, get_color=(x => x), is_shorthand=false
      msg_prefix + "not interpolatable between auto and rgb color");
 }
 
+function test_aspect_ratio_transition(prop) {
+  [
+    { start: "auto", end: "1 / 1", expected: "1 / 1" },
+    { start: "auto 1 / 1", end: "1 / 1", expected: "1 / 1" },
+    { start: "auto 1 / 1", end: "auto", expected: "auto" },
+    { start: "1 / 2", end: "8 / 1", expected: "1 / 1" },
+    { start: "auto 1 / 2", end: "auto 8 / 1", expected: "auto 1 / 1" },
+  ].forEach(test => {
+    div.style.setProperty("transition-property", "none", "");
+    div.style.setProperty(prop, test.start, "");
+    is(cs.getPropertyValue(prop), test.start,
+       "aspect-ratio: computed value before transition");
+    div.style.setProperty("transition-property", prop, "");
+    div.style.setProperty(prop, test.end, "");
+    is(cs.getPropertyValue(prop), test.expected,
+       "aspect-ratio: interpolation of aspect-ratio");
+    if (test.end != test.expected) {
+      check_distance(prop, test.start, test.expected, test.end);
+    }
+  });
+}
+
 function get_color_from_shorthand_value(value) {
   var m = value.match(/rgba?\([^, ]*, [^, ]*, [^, ]*(?:, [^, ]*)?\)/);
   isnot(m, null, "shorthand property value should contain color");
@@ -1406,12 +1432,15 @@ function test_true_currentcolor_shorthand_transition(prop) {
   test_true_currentcolor_transition(prop, get_color_from_shorthand_value, true);
 }
 
-function test_clip_path_equals(computedValStr, expectedList)
+function test_clip_path_equals(computedValStr, expected)
 {
   // Check simple case "none"
-  if (computedValStr == "none" && computedValStr == expectedList[0]) {
+  if (computedValStr == "none" && computedValStr == expected[0]) {
     return true;
   }
+  // Checking the reference box removes it from this local list. Preserve the
+  // fixture so failure diagnostics and any later use retain the expected value.
+  var expectedList = expected.slice();
   var start = String(computedValStr);
 
   var regBox = /\s*(content\-box|padding\-box|border\-box|margin\-box|view\-box|stroke\-box|fill\-box)/
