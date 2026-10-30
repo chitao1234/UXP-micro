@@ -52,7 +52,7 @@ function HistoryStore(name, engine) {
   // Explicitly nullify our references to our cached services so we don't leak
   Svc.Obs.add("places-shutdown", function() {
     for (let query in this._stmts) {
-      let stmt = this._stmts;
+      let stmt = this._stmts[query];
       stmt.finalize();
     }
     this._stmts = {};

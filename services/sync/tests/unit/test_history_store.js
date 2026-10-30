@@ -289,13 +289,16 @@ add_test(function test_remove() {
   do_check_eq(queryres.length, 0);
 
   _("Make sure wipe works.");
+  Svc.Obs.add(PlacesUtils.TOPIC_EXPIRATION_FINISHED, function onWipeFinished() {
+    Svc.Obs.remove(PlacesUtils.TOPIC_EXPIRATION_FINISHED, onWipeFinished);
+    do_check_empty(store.getAllIDs());
+    let queryres = queryHistoryVisits(fxuri);
+    do_check_eq(queryres.length, 0);
+    queryres = queryHistoryVisits(tburi);
+    do_check_eq(queryres.length, 0);
+    run_next_test();
+  });
   store.wipe();
-  do_check_empty(store.getAllIDs());
-  queryres = queryHistoryVisits(fxuri);
-  do_check_eq(queryres.length, 0);
-  queryres = queryHistoryVisits(tburi);
-  do_check_eq(queryres.length, 0);
-  run_next_test();
 });
 
 add_test(function cleanup() {
