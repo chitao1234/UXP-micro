@@ -134,6 +134,10 @@ function parse2dMatrix(transformValue) {
     ["calc(1 * clamp(0, NaN, 10))", "calc(NaN)"],
     ["calc(1 * clamp(-Infinity, 0, infinity))", "calc(0)"],
     ["calc(1 * clamp(-inFinity, infinity, 10))", "calc(10)"],
+    ["calc(min(1, NaN))", "calc(NaN)"],
+    ["calc(max(1, NaN))", "calc(NaN)"],
+    ["calc(clamp(0, NaN, 1))", "calc(NaN)"],
+    ["calc(clamp(0, 1, NaN))", "calc(NaN)"],
   ];
 
   for (const [input, expected] of cases) {

@@ -7,11 +7,44 @@
 #include "nsCSSValue.h"
 #include "nsStyleCoord.h"
 #include <algorithm>
+#include <cmath>
 #include <math.h>
 
 namespace mozilla {
 
 namespace css {
+
+// CSS comparison functions propagate NaN and order -0 below +0. std::min
+// and std::max do neither consistently; fmin/fmax discard a single NaN.
+inline float
+CalcMin(float aValue1, float aValue2)
+{
+  if (std::isnan(aValue1)) {
+    return aValue1;
+  }
+  if (std::isnan(aValue2)) {
+    return aValue2;
+  }
+  if (std::signbit(aValue1) != std::signbit(aValue2)) {
+    return std::signbit(aValue1) ? aValue1 : aValue2;
+  }
+  return std::min(aValue1, aValue2);
+}
+
+inline float
+CalcMax(float aValue1, float aValue2)
+{
+  if (std::isnan(aValue1)) {
+    return aValue1;
+  }
+  if (std::isnan(aValue2)) {
+    return aValue2;
+  }
+  if (std::signbit(aValue1) != std::signbit(aValue2)) {
+    return std::signbit(aValue1) ? aValue2 : aValue1;
+  }
+  return std::max(aValue1, aValue2);
+}
 
 /**
  * ComputeCalc computes the result of a calc() expression tree.
@@ -258,16 +291,16 @@ struct BasicFloatCalcOps
               result_type aValue1, result_type aValue2)
   {
     if (aCalcFunction == eCSSUnit_Calc_Min) {
-      return std::min(aValue1, aValue2);
+      return CalcMin(aValue1, aValue2);
     }
     MOZ_ASSERT(aCalcFunction == eCSSUnit_Calc_Max, "unexpected unit");
-    return std::max(aValue1, aValue2);
+    return CalcMax(aValue1, aValue2);
   }
 
   result_type
   MergeClamp(result_type aMin, result_type aCenter, result_type aMax)
   {
-    return std::max(aMin, std::min(aCenter, aMax));
+    return CalcMax(aMin, CalcMin(aCenter, aMax));
   }
 };
 

@@ -15734,12 +15734,8 @@ CSSParserImpl::ParseCalcNumberFunction(nsCSSValue& aValue,
       return false;
     }
 
-    if (std::isnan(minValue) || std::isnan(centerValue) ||
-        std::isnan(maxValue)) {
-      result = std::numeric_limits<float>::quiet_NaN();
-    } else {
-      result = std::max(minValue, std::min(centerValue, maxValue));
-    }
+    result = mozilla::css::CalcMax(
+      minValue, mozilla::css::CalcMin(centerValue, maxValue));
   } else {
     const bool isMax = mToken.mIdent.LowerCaseEqualsLiteral("max");
     bool sawComma = false;
@@ -15754,12 +15750,8 @@ CSSParserImpl::ParseCalcNumberFunction(nsCSSValue& aValue,
       if (!ParseCalcNumberExpressionValue(candidate)) {
         return false;
       }
-      if (std::isnan(result) || std::isnan(candidate)) {
-        result = std::numeric_limits<float>::quiet_NaN();
-      } else {
-        result = isMax ? std::max(result, candidate)
-                       : std::min(result, candidate);
-      }
+      result = isMax ? mozilla::css::CalcMax(result, candidate)
+                     : mozilla::css::CalcMin(result, candidate);
     }
 
     if (!sawComma || !ExpectSymbol(')', true)) {
