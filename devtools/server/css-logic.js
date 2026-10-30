@@ -780,12 +780,14 @@ CssLogic.findCssSelector = function (ele) {
     }
   }
 
-  // Not unique enough yet.  As long as it's not a child of the document,
-  // continue recursing up until it is unique enough.
+  // Always give a document element a selector too. A standalone SVG/XML root
+  // has no HTML/head/body shortcut and may have neither an id nor a class.
+  index = positionInNodeList(ele, ele.parentNode.children) + 1;
+  selector = CSS.escape(tagName) + ":nth-child(" + index + ")";
+  // As long as it's not a child of the document, continue recursing up until
+  // it is unique enough (the same construction used by newer Firefox).
   if (ele.parentNode !== document) {
-    index = positionInNodeList(ele, ele.parentNode.children) + 1;
-    selector = CssLogic.findCssSelector(ele.parentNode) + " > " +
-      tagName + ":nth-child(" + index + ")";
+    selector = CssLogic.findCssSelector(ele.parentNode) + " > " + selector;
   }
 
   return selector;

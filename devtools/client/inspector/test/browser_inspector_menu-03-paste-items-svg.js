@@ -16,6 +16,17 @@ add_task(function* () {
   let refSelector = "svg";
   let oldHTML = yield testActor.getProperty(refSelector, "innerHTML");
   yield selectNode(refSelector, inspector);
+  // An id/class-less standalone SVG root must have a serializable selector.
+  // This also exercises the protocol request used to restore the selection;
+  // returning undefined here used to leave that request unanswered.
+  let selector = yield inspector.selection.nodeFront.getUniqueSelector();
+  is(typeof selector, "string", "The root selector crosses the protocol as a string");
+  is(selector, "svg:nth-child(1)", "The standalone SVG root has a complete selector");
+  let matchesRoot = yield testActor.eval(`
+    document.querySelector(${JSON.stringify(selector)}) === document.documentElement &&
+    document.querySelectorAll(${JSON.stringify(selector)}).length === 1
+  `);
+  ok(matchesRoot, "The selector uniquely resolves back to the SVG root");
   let markupTagLine = getContainerForSelector(refSelector, inspector).tagLine;
 
   yield pasteContent("node-menu-pastefirstchild", PASTE_AS_FIRST_CHILD);
