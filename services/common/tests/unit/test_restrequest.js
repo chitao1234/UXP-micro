@@ -587,7 +587,8 @@ add_test(function test_get_no_headers() {
   let ignore_headers = ["host", "user-agent", "accept", "accept-language",
                         "accept-encoding", "accept-charset", "keep-alive",
                         "connection", "pragma", "cache-control",
-                        "content-length"];
+                        "content-length", "sec-fetch-dest", "sec-fetch-mode",
+                        "sec-fetch-site", "sec-fetch-user"];
 
   new RESTRequest(server.baseURI + "/resource").get(function (error) {
     do_check_eq(error, null);
@@ -598,8 +599,10 @@ add_test(function test_get_no_headers() {
     let server_headers = handler.request.headers;
     while (server_headers.hasMoreElements()) {
       let header = server_headers.getNext().toString();
+      let value = handler.request.getHeader(header);
+      do_print("Default REST header: " + JSON.stringify([header, value]));
       if (ignore_headers.indexOf(header) == -1) {
-        do_throw("Got unexpected header!");
+        do_throw("Got unexpected header: " + header + "=" + value);
       }
     }
 

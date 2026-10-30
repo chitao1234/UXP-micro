@@ -17,12 +17,22 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Log.jsm");
 Cu.import("resource://services-common/rest.js");
 Cu.import("resource://services-common/utils.js");
-Cu.import("resource://gre/modules/Credentials.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "CryptoUtils",
                                   "resource://services-crypto/utils.js");
 
 const Prefs = new Preferences("services.common.rest.");
+
+// Keep the protocol's HKDF namespace from Credentials.keyWord(), independently
+// of the removed Firefox Accounts password-stretching service. Changing these
+// bytes would change the derived Hawk ID and request signing key.
+function hawkKeyWord(context) {
+  return CommonUtils.stringToBytes("identity.mozilla.com/picl/v1/" + context);
+}
+
+// RFC 5869 specifies HashLen zero bytes when no salt is supplied. Pass that
+// value explicitly rather than depending on optional argument coercion.
+const HAWK_HKDF_SALT = "\0".repeat(32);
 
 /**
  * Single-use HAWK-authenticated HTTP requests to RESTish resources.
@@ -111,7 +121,7 @@ HAWKAuthenticatedRESTRequest.prototype = {
   *        The current session token encoded in hex
   * @param context
   *        A context for the credentials. A protocol version will be prepended
-  *        to the context, see Credentials.keyWord for more information.
+  *        to the UTF-8 context by hawkKeyWord().
   * @param size
   *        The size in bytes of the expected derived buffer,
   *        defaults to 3 * 32.
@@ -129,7 +139,7 @@ this.deriveHawkCredentials = function deriveHawkCredentials(tokenHex,
                                                             size = 96,
                                                             hexKey = false) {
   let token = CommonUtils.hexToBytes(tokenHex);
-  let out = CryptoUtils.hkdf(token, undefined, Credentials.keyWord(context), size);
+  let out = CryptoUtils.hkdf(token, HAWK_HKDF_SALT, hawkKeyWord(context), size);
 
   let result = {
     algorithm: "sha256",
