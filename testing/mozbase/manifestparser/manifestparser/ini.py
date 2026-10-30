@@ -25,7 +25,7 @@ def read_ini(fp, variables=None, default='DEFAULT', defaults_only=False,
     # variables
     variables = variables or {}
     sections = []
-    key = value = None
+    key = value = key_indent = None
     section_names = set()
     if isinstance(fp, str):
         fp = open(fp, 'r', encoding='utf-8', errors='replace')
@@ -39,7 +39,7 @@ def read_ini(fp, variables=None, default='DEFAULT', defaults_only=False,
         # ignore blank lines
         if not stripped:
             # reset key and value to avoid continuation lines
-            key = value = None
+            key = value = key_indent = None
             continue
 
         # ignore comment lines
@@ -49,7 +49,7 @@ def read_ini(fp, variables=None, default='DEFAULT', defaults_only=False,
         # check for a new section
         if len(stripped) > 2 and stripped[0] == '[' and stripped[-1] == ']':
             section = stripped[1:-1].strip()
-            key = value = None
+            key = value = key_indent = None
 
             # deal with DEFAULT section
             if section.lower() == default.lower():
@@ -73,12 +73,22 @@ def read_ini(fp, variables=None, default='DEFAULT', defaults_only=False,
         if not section_names:
             raise Exception('No sections found')
 
+        # Indented values may themselves contain '=' (for example prefs).
+        # Match Firefox's parser: resolve continuation before assignments,
+        # using indentation relative to the key rather than any whitespace.
+        line_indent = len(line) - len(line.lstrip())
+        if key and line_indent > key_indent:
+            value = '%s%s%s' % (value, os.linesep, stripped)
+            current_section[key] = value
+            continue
+
         # (key, value) pair
         for separator in separators:
             if separator in stripped:
                 key, value = stripped.split(separator, 1)
                 key = key.strip()
                 value = value.strip()
+                key_indent = line_indent
 
                 if strict:
                     # make sure this key isn't already in the section or empty

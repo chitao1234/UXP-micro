@@ -423,7 +423,7 @@ class ManifestParser(object):
         # open file if `fp` given as string
         close = False
         if isinstance(fp, string):
-            fp = file(fp, 'w')
+            fp = open(fp, 'w')
             close = True
 
         # root directory
@@ -668,7 +668,7 @@ class ManifestParser(object):
 
             manifest_path = os.path.join(dirpath, filename)
             if (dirnames or filenames) and not (os.path.exists(manifest_path) and overwrite):
-                with file(manifest_path, 'w') as manifest:
+                with open(manifest_path, 'w') as manifest:
                     for dirname in dirnames:
                         print('[include:%s]' % os.path.join(dirname, filename), file=manifest)
                     for _filename in filenames:
@@ -701,9 +701,13 @@ class ManifestParser(object):
         # determine output
         opened_manifest_file = None  # name of opened manifest file
         absolute = not relative_to  # whether to output absolute path names as names
+        if relative_to:
+            # Directory traversal resolves symlinks. Resolve its base as well,
+            # since Windows getcwd() can preserve the spelling of a symlink.
+            relative_to = os.path.realpath(relative_to)
         if isinstance(write, string):
             opened_manifest_file = write
-            write = file(write, 'w')
+            write = open(write, 'w')
         if write is None:
             write = StringIO()
 

@@ -93,6 +93,10 @@ class InstanceFilter(object):
     """
     unique = True
 
+    # Defining __eq__ disables the inherited hash in Python 3. Non-unique
+    # filters compare instance identity, as in current Firefox's parser.
+    __hash__ = object.__hash__
+
     def __init__(self, *args, **kwargs):
         self.fmt_args = ', '.join(itertools.chain(
             [str(a) for a in args],
@@ -294,10 +298,11 @@ class chunk_by_runtime(InstanceFilter):
                        if 'disabled' not in t)
 
         tests_by_manifest = []
-        for manifest in manifests:
+        for manifest in sorted(manifests):
             mtests = [t for t in tests if t['manifest'] == manifest]
             tests_by_manifest.append((total_runtime(mtests), mtests))
-        tests_by_manifest.sort(reverse=True)
+        # Stable ties preserve manifest order without comparing test dicts.
+        tests_by_manifest.sort(key=lambda item: item[0], reverse=True)
 
         tests_by_chunk = [[0, []] for i in range(self.total_chunks)]
         for runtime, batch in tests_by_manifest:

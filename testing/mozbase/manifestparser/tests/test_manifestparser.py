@@ -29,11 +29,13 @@ class TestManifestParser(unittest.TestCase):
         mozmill_example = os.path.join(here, 'mozmill-example.ini')
         parser.read(mozmill_example)
         tests = parser.tests
-        self.assertEqual(len(tests), len(file(mozmill_example).read().strip().splitlines()))
+        with open(mozmill_example) as stream:
+            expected_lines = stream.read().strip().splitlines()
+        self.assertEqual(len(tests), len(expected_lines))
 
         # Ensure that capitalization and order aren't an issue:
         lines = ['[%s]' % test['name'] for test in tests]
-        self.assertEqual(lines, file(mozmill_example).read().strip().splitlines())
+        self.assertEqual(lines, expected_lines)
 
         # Show how you select subsets of tests:
         mozmill_restart_example = os.path.join(here, 'mozmill-restart-example.ini')

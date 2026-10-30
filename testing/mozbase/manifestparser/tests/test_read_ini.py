@@ -11,12 +11,28 @@ http://docs.python.org/2/library/configparser.html
 """
 
 import unittest
+import os
 from manifestparser import read_ini
 from configparser import ConfigParser
 from io import StringIO
 
 
 class IniParserTest(unittest.TestCase):
+    def test_multiline_preferences_contain_assignments(self):
+        parsed = read_ini(StringIO(
+            '[DEFAULT]\nprefs =\n  test.bool=true\n'
+            '  test.string=two words\n[test.html]\n'))
+        values = parsed[0][1]
+        self.assertEqual(values['prefs'].splitlines(),
+                         ['', 'test.bool=true', 'test.string=two words'])
+        self.assertNotIn('test.bool', values)
+
+    def test_indented_assignment_at_key_indentation_is_a_new_key(self):
+        values = read_ini(StringIO(
+            '[test.html]\n  first = one\n    continued=two\n'
+            '  second = three\n'))[0][1]
+        self.assertEqual(values['first'], 'one' + os.linesep + 'continued=two')
+        self.assertEqual(values['second'], 'three')
 
     def test_inline_comments(self):
         """
@@ -40,7 +56,7 @@ kittens = true # This test requires kittens
         # http://docs.python.org/2/library/configparser.html
         buffer.seek(0)
         parser = ConfigParser()
-        parser.readfp(buffer)
+        parser.read_file(buffer)
         control = parser.get('test_felinicity.py', 'kittens')
         self.assertEqual(result, control)
 
@@ -60,8 +76,8 @@ kittens = true # This test requires kittens
         # though they are weakly discouraged:
         # http://docs.python.org/dev/library/configparser.html
         buffer.seek(0)
-        parser = ConfigParser()
-        parser.readfp(buffer)
+        parser = ConfigParser(inline_comment_prefixes=(';',))
+        parser.read_file(buffer)
         control = parser.get('test_felinicity.py', 'kittens')
         self.assertNotEqual(result, control)
 

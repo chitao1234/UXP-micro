@@ -191,24 +191,24 @@ class ChunkByRuntime(TestCase):
             runtimes[test['relpath']] = random.randint(0, 100)
         return runtimes
 
-    def chunk_by_round_robin(self, tests, runtimes):
+    def chunk_by_round_robin(self, tests, runtimes, total_chunks):
         manifests = set(t['manifest'] for t in tests)
         tests_by_manifest = []
-        for manifest in manifests:
+        for manifest in sorted(manifests):
             mtests = [t for t in tests if t['manifest'] == manifest]
             total = sum(runtimes[t['relpath']] for t in mtests
                         if 'disabled' not in t)
             tests_by_manifest.append((total, mtests))
-        tests_by_manifest.sort()
+        tests_by_manifest.sort(key=lambda item: item[0])
 
-        chunks = [[] for i in range(total)]
+        chunks = [[] for i in range(total_chunks)]
         d = 1  # direction
         i = 0
         for runtime, batch in tests_by_manifest:
             chunks[i].extend(batch)
 
             # "draft" style (last pick goes first in the next round)
-            if (i == 0 and d == -1) or (i == total - 1 and d == 1):
+            if (i == 0 and d == -1) or (i == total_chunks - 1 and d == 1):
                 d = -d
             else:
                 i += d
@@ -251,7 +251,7 @@ class ChunkByRuntime(TestCase):
 
             # redo the chunking a second time using a round robin style
             # algorithm
-            chunks = self.chunk_by_round_robin(tests, runtimes)
+            chunks = self.chunk_by_round_robin(tests, runtimes, total)
 
             # since chunks will never have exactly equal runtimes, it's hard
             # to tell if they were chunked optimally. Make sure it at least

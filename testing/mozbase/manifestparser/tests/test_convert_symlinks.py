@@ -24,10 +24,12 @@ class TestSymlinkConversion(unittest.TestCase):
         if directory is None:
             directory = tempfile.mkdtemp()
         for i in files:
-            file(os.path.join(directory, i), 'w').write(i)
+            with open(os.path.join(directory, i), 'w') as stream:
+                stream.write(i)
         subdir = os.path.join(directory, 'subdir')
         os.mkdir(subdir)
-        file(os.path.join(subdir, 'subfile'), 'w').write('baz')
+        with open(os.path.join(subdir, 'subfile'), 'w') as stream:
+            stream.write('baz')
         return directory
 
     def test_relpath(self):
@@ -46,8 +48,8 @@ class TestSymlinkConversion(unittest.TestCase):
         except:
             raise
         finally:
-            shutil.rmtree(stub)
             os.chdir(oldcwd)
+            shutil.rmtree(stub)
 
     @unittest.skipIf(not hasattr(os, 'symlink'),
                      "symlinks unavailable on this platform")
@@ -63,7 +65,7 @@ class TestSymlinkConversion(unittest.TestCase):
             tmpdir = os.path.join(workspace, 'directory')
             os.makedirs(tmpdir)
             linkdir = os.path.join(workspace, 'link')
-            os.symlink(tmpdir, linkdir)
+            os.symlink(tmpdir, linkdir, target_is_directory=True)
             self.create_stub(tmpdir)
 
             # subdir with in-memory manifest
@@ -75,8 +77,8 @@ class TestSymlinkConversion(unittest.TestCase):
                 self.assertEqual([i['name'] for i in parser.tests],
                                  files)
         finally:
-            shutil.rmtree(workspace)
             os.chdir(oldcwd)
+            shutil.rmtree(workspace)
 
         # a more complicated example
         oldcwd = os.getcwd()
@@ -85,7 +87,7 @@ class TestSymlinkConversion(unittest.TestCase):
             tmpdir = os.path.join(workspace, 'directory')
             os.makedirs(tmpdir)
             linkdir = os.path.join(workspace, 'link')
-            os.symlink(tmpdir, linkdir)
+            os.symlink(tmpdir, linkdir, target_is_directory=True)
             self.create_stub(tmpdir)
             files = ['../bar', '../fleem', '../foo', 'subfile']
             subdir = os.path.join(linkdir, 'subdir')
@@ -93,8 +95,8 @@ class TestSymlinkConversion(unittest.TestCase):
             os.makedirs(subsubdir)
             linksubdir = os.path.join(linkdir, 'linky')
             linksubsubdir = os.path.join(subsubdir, 'linky')
-            os.symlink(subdir, linksubdir)
-            os.symlink(subdir, linksubsubdir)
+            os.symlink(subdir, linksubdir, target_is_directory=True)
+            os.symlink(subdir, linksubsubdir, target_is_directory=True)
             for dest in (subdir,):
                 os.chdir(dest)
                 for directory in (tmpdir, linkdir):
@@ -102,8 +104,8 @@ class TestSymlinkConversion(unittest.TestCase):
                     self.assertEqual([i['name'] for i in parser.tests],
                                      files)
         finally:
-            shutil.rmtree(workspace)
             os.chdir(oldcwd)
+            shutil.rmtree(workspace)
 
     @unittest.skipIf(not hasattr(os, 'symlink'),
                      "symlinks unavailable on this platform")
