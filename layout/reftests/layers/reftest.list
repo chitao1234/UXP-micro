@@ -23,6 +23,6 @@ skip-if(!asyncPan) != pull-background-displayport-5.html about:blank
 skip-if(!asyncPan) != pull-background-displayport-6.html about:blank # fails with non-overlay scrollbars and event regions due to bug 1148515
 fuzzy(2,30150) == opacity-blending.html opacity-blending-ref.html
 fuzzy(16,5) == mask-layer-transform.html mask-layer-transform-ref.html
-# Windows Basic also differs at the six scrollbar end-cap pixels at tier 3.
-fuzzy-if(gtkWidget,1,17) fuzzy-if(winWidget&&!layersGPUAccelerated,107,6) == forced-bg-color-outside-visible-region.html forced-bg-color-outside-visible-region-ref.html
+# Windows Basic differs only at the native scrollbar thumb end-cap pixels.
+fuzzy-if(gtkWidget,1,17) fuzzy-if(winWidget&&!layersGPUAccelerated,107,16) == forced-bg-color-outside-visible-region.html forced-bg-color-outside-visible-region-ref.html
 != layerize-over-fixed-bg-1.html about:blank
