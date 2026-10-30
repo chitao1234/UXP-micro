@@ -64,6 +64,9 @@ let isRounded = (x, expectedPrecision) => {
 add_task(function* () {
   let tab = yield BrowserTestUtils.openNewForegroundTab(
     gBrowser, TEST_PATH + "dummy.html");
+  registerCleanupFunction(() => {
+    if (tab.parentNode) gBrowser.removeTab(tab);
+  });
 
   yield ContentTask.spawn(tab.linkedBrowser, {
       list: PERFORMANCE_TIMINGS,
@@ -88,8 +91,9 @@ add_task(function* () {
     content.performance.measure("Test-Measure", "Test", "Test-End");
 
     // Check the entries for performance.getEntries/getEntriesByType/getEntriesByName.
-    is(content.performance.getEntries().length, 3, "For reduceTimerPrecision, there should be 3 entries for performance.getEntries()");
-    for (var i = 0; i < 3; i++) {
+    // Navigation timing, two marks, and one measure.
+    is(content.performance.getEntries().length, 4, "For reduceTimerPrecision, there should be 4 entries for performance.getEntries()");
+    for (var i = 0; i < 4; i++) {
       let startTime = content.performance.getEntries()[i].startTime;
       let duration = content.performance.getEntries()[i].duration;
       ok(isRounded(startTime, expectedPrecision), "For reduceTimerPrecision(" + expectedPrecision + "), performance.getEntries(" + i + ").startTime is not rounded: " + startTime);
@@ -109,6 +113,9 @@ add_task(function* () {
 add_task(function*() {
   let tab = yield BrowserTestUtils.openNewForegroundTab(
     gBrowser, TEST_PATH + "dummy.html");
+  registerCleanupFunction(() => {
+    if (tab.parentNode) gBrowser.removeTab(tab);
+  });
 
   yield ContentTask.spawn(tab.linkedBrowser, {
     list: PERFORMANCE_TIMINGS,
@@ -116,9 +123,14 @@ add_task(function*() {
     isRoundedFunc: isRounded.toString()
   }, (data) => {
     let expectedPrecision = data.precision;
-    let workerCall = data.workerCall;
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       let worker = new content.Worker("file_workerPerformance.js");
+      worker.onerror = function(event) {
+        event.preventDefault();
+        worker.terminate();
+        reject(new Error("Worker failed at " + event.filename + ":" +
+                         event.lineno + ": " + event.message));
+      };
       worker.onmessage = function(e) {
         if (e.data.type == "status") {
           ok(e.data.status, e.data.msg);
@@ -126,14 +138,73 @@ add_task(function*() {
           worker.terminate();
           resolve();
         } else {
-          ok(false, "Unknown message type");
           worker.terminate();
-          resolve();
+          reject(new Error("Unknown worker message type: " + e.data.type));
         }
       };
-    worker.postMessage({precision: expectedPrecision});
+      worker.postMessage({precision: expectedPrecision});
     });
   });
 
+  gBrowser.removeTab(tab);
+});
+
+// User Timing L3 entries retain their cloned JS detail while only the native
+// performance timeline owns the entry, without a JS wrapper keeping it alive.
+add_task(function* test_measure_detail_after_gc() {
+  let tab = yield BrowserTestUtils.openNewForegroundTab(
+    gBrowser, TEST_PATH + "dummy.html");
+  registerCleanupFunction(() => {
+    if (tab.parentNode) gBrowser.removeTab(tab);
+  });
+  yield ContentTask.spawn(tab.linkedBrowser, null, function() {
+    content.performance.measure("retained-detail", {
+      start: 2,
+      end: 8,
+      detail: { nested: { value: "retained" }, bytes: new Uint8Array([3, 5, 7]) }
+    });
+    Components.utils.forceGC();
+    Components.utils.forceCC();
+    Components.utils.forceGC();
+    let entry = content.performance.getEntriesByName("retained-detail")[0];
+    is(entry.detail.nested.value, "retained", "Measure detail survives GC without its wrapper");
+    is(entry.detail.bytes[2], 7, "Typed-array measure detail survives GC");
+    content.performance.clearMeasures();
+  });
+  gBrowser.removeTab(tab);
+});
+
+add_task(function* test_worker_user_timing_l3() {
+  let tab = yield BrowserTestUtils.openNewForegroundTab(
+    gBrowser, TEST_PATH + "dummy.html");
+  registerCleanupFunction(() => {
+    if (tab.parentNode) gBrowser.removeTab(tab);
+  });
+  // Exercise both ordinary completion and closing with a notification queued.
+  for (let test of ["user-timing-l3", "shutdown"]) {
+    yield ContentTask.spawn(tab.linkedBrowser, test, function(test) {
+      return new Promise((resolve, reject) => {
+        let worker = new content.Worker("file_workerPerformance.js");
+        worker.onerror = function(event) {
+          event.preventDefault();
+          worker.terminate();
+          reject(new Error("Worker failed at " + event.filename + ":" +
+                           event.lineno + ": " + event.message));
+        };
+        worker.onmessage = function(event) {
+          if (event.data.type == "status") {
+            ok(event.data.status, event.data.msg);
+          } else if (event.data.type == "finish") {
+            worker.terminate();
+            resolve();
+          } else {
+            worker.terminate();
+            reject(new Error("Unknown worker message type: " + event.data.type));
+          }
+        };
+        worker.postMessage({test});
+      });
+    });
+  }
   gBrowser.removeTab(tab);
 });

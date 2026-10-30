@@ -5,6 +5,7 @@
 
 #include "PerformanceWorker.h"
 #include "WorkerPrivate.h"
+#include "WorkerScope.h"
 
 namespace mozilla {
 namespace dom {
@@ -12,7 +13,8 @@ namespace dom {
 using namespace workers;
 
 PerformanceWorker::PerformanceWorker(WorkerPrivate* aWorkerPrivate)
-  : mWorkerPrivate(aWorkerPrivate)
+  : Performance(aWorkerPrivate->GlobalScope())
+  , mWorkerPrivate(aWorkerPrivate)
 {
   mWorkerPrivate->AssertIsOnWorkerThread();
 }

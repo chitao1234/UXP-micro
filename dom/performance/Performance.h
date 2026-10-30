@@ -127,7 +127,7 @@ public:
   virtual void QueueNavigationTimingEntry() = 0;
 
 protected:
-  Performance();
+  explicit Performance(nsIGlobalObject* aGlobal);
   explicit Performance(nsPIDOMWindowInner* aWindow);
 
   virtual ~Performance();

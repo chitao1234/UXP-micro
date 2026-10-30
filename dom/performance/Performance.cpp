@@ -127,11 +127,13 @@ already_AddRefed<Performance> Performance::Get(JSContext* aCx,
   return performance.forget();
 }
 
-Performance::Performance()
-  : mResourceTimingBufferSize(kDefaultResourceTimingBufferSize)
+Performance::Performance(nsIGlobalObject* aGlobal)
+  : DOMEventTargetHelper(aGlobal)
+  , mResourceTimingBufferSize(kDefaultResourceTimingBufferSize)
   , mPendingNotificationObserversTask(false)
 {
   MOZ_ASSERT(!NS_IsMainThread());
+  MOZ_ASSERT(aGlobal);
 }
 
 Performance::Performance(nsPIDOMWindowInner* aWindow)
@@ -706,12 +708,9 @@ Performance::RunNotificationObserversTask()
 {
   mPendingNotificationObserversTask = true;
   nsCOMPtr<nsIRunnable> task = new NotifyObserversTask(this);
-  nsresult rv;
-  if (NS_IsMainThread()) {
-      rv = NS_DispatchToCurrentThread(task);
-  } else {
-      rv = NS_DispatchToMainThread(task);
-  }
+  // Performance and its observer callbacks belong to the creating global's
+  // thread. WorkerThread wraps this cancelable task for worker shutdown.
+  nsresult rv = NS_DispatchToCurrentThread(task);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     mPendingNotificationObserversTask = false;
   }
