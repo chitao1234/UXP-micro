@@ -527,8 +527,8 @@ this.BrowserTestUtils = {
    *
    * @return {Promise}
    *         Resolves when the provided window has been closed. For browser
-   *         windows, the Promise will also wait until all final SessionStore
-   *         messages have been sent up from all browser tabs.
+   *         windows, also waits for the tabs' message managers to disconnect
+   *         after docshell destruction and delivery of final unload messages.
    */
   closeWindow(win) {
     let closedPromise = BrowserTestUtils.windowClosed(win);
@@ -544,8 +544,8 @@ this.BrowserTestUtils = {
    *
    * @return {Promise}
    *        Resolves when the provided window has been fully closed. For
-   *        browser windows, the Promise will also wait until all final
-   *        SessionStore messages have been sent up from all browser tabs.
+   *        browser windows, also waits for the existing tabs' message managers
+   *        to disconnect, whether or not SessionStore is running.
    */
   windowClosed(win)  {
     let domWinClosedPromise = BrowserTestUtils.domWindowClosed(win);
@@ -553,25 +553,32 @@ this.BrowserTestUtils = {
     let winType = win.document.documentElement.getAttribute("windowtype");
 
     if (winType == "navigator:browser") {
-      let finalMsgsPromise = new Promise((resolve) => {
-        let browserSet = new Set(win.gBrowser.browsers);
-        let mm = win.getGroupMessageManager("browsers");
-
-        mm.addMessageListener("SessionStore:update", function onMessage(msg) {
-          if (browserSet.has(msg.target) && msg.data.isFinal) {
-            browserSet.delete(msg.target);
-            if (!browserSet.size) {
-              mm.removeMessageListener("SessionStore:update", onMessage);
-              // Give the TabStateFlusher a chance to react to this final
-              // update and for the TabStateFlusher.flushWindow promise
-              // to resolve before we resolve.
-              TestUtils.executeSoon(resolve);
-            }
+      let destroyedPromise = new Promise(resolve => {
+        let managers = new Set();
+        for (let browser of win.gBrowser.browsers) {
+          let mm = browser.messageManager;
+          if (mm) {
+            managers.add(mm);
           }
-        }, true);
+        }
+        if (!managers.size) {
+          TestUtils.executeSoon(resolve);
+          return;
+        }
+
+        let topic = "message-manager-disconnect";
+        function onDisconnect(subject) {
+          if (managers.delete(subject) && !managers.size) {
+            Services.obs.removeObserver(onDisconnect, topic);
+            // All unload messages have been dispatched. Let remaining
+            // disconnect observers and frame-loader teardown finish as well.
+            TestUtils.executeSoon(resolve);
+          }
+        }
+        Services.obs.addObserver(onDisconnect, topic, false);
       });
 
-      promises.push(finalMsgsPromise);
+      promises.push(destroyedPromise);
     }
 
     return Promise.all(promises);
@@ -813,22 +820,51 @@ this.BrowserTestUtils = {
 
   /**
    * Removes the given tab from its parent tabbrowser and
-   * waits until its final message has reached the parent.
+   * waits for its message manager to disconnect. This happens after the
+   * docshell is destroyed and all final unload messages have been dispatched,
+   * even when SessionStore is not running.
+   *
+   * If options.dontRemove is true, only waits for another caller to remove
+   * the tab. A cancelled removal or an exception rejects the promise.
    */
   removeTab(tab, options = {}) {
     let dontRemove = options && options.dontRemove;
 
-    return new Promise(resolve => {
-      let {messageManager: mm, frameLoader} = tab.linkedBrowser;
-      mm.addMessageListener("SessionStore:update", function onMessage(msg) {
-        if (msg.targetFrameLoader == frameLoader && msg.data.isFinal) {
-          mm.removeMessageListener("SessionStore:update", onMessage);
-          resolve();
+    return new Promise((resolve, reject) => {
+      let mm = tab.linkedBrowser.messageManager;
+      if (!mm) {
+        throw new Error("The tab has no message manager to wait for.");
+      }
+      let topic = "message-manager-disconnect";
+      let observing = false;
+      function cleanup() {
+        if (observing) {
+          Services.obs.removeObserver(onDisconnect, topic);
+          observing = false;
         }
-      }, true);
+      }
+      function onDisconnect(subject) {
+        if (subject == mm) {
+          cleanup();
+          // Let the remaining disconnect observers and frame-loader teardown
+          // finish before the caller starts another test operation.
+          TestUtils.executeSoon(resolve);
+        }
+      }
+      Services.obs.addObserver(onDisconnect, topic, false);
+      observing = true;
 
-      if (!dontRemove && !tab.closing) {
-        tab.ownerDocument.defaultView.gBrowser.removeTab(tab);
+      try {
+        if (!dontRemove && !tab.closing) {
+          let tabbrowser = tab.ownerDocument.defaultView.gBrowser;
+          tabbrowser.removeTab(tab);
+          if (tab.linkedBrowser && !tab.closing && !tabbrowser._windowIsClosing) {
+            throw new Error("Tab removal was cancelled.");
+          }
+        }
+      } catch (ex) {
+        cleanup();
+        reject(ex);
       }
     });
   },
