@@ -130,7 +130,10 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
         masm.reserveStack(ABIStackAlignment);
         masm.loadPtr(Address(FramePointer, offsetof(Frame, callerFP)), scratch);
         masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
-        masm.call(ImmPtr(JS_FUNC_TO_DATA_PTR(void*, LookupFrameTLS)));
+        // This process-wide thunk is never serialized as module code. Embed
+        // the native address explicitly, without ImmPtr's module-code checks.
+        masm.movePtr(ImmWord(uintptr_t(JS_FUNC_TO_DATA_PTR(void*, LookupFrameTLS))), scratch);
+        masm.call(scratch);
         masm.freeStack(ABIStackAlignment);
         masm.movePtr(ReturnReg, WasmTlsReg);
     }
@@ -150,7 +153,8 @@ GenerateThunk(MacroAssembler& masm, SymbolicAddress address, ThunkRange* range)
         masm.load32(Address(FramePointer, sizeof(Frame) + offset), scratch);
         masm.store32(scratch, Address(masm.getStackPointer(), offset));
     }
-    masm.call(ImmPtr(AddressOf(address)));
+    masm.movePtr(ImmWord(uintptr_t(AddressOf(address))), scratch);
+    masm.call(scratch);
 
     // Do not consume the x87 result or clobber EAX:EDX. Existing Baseline,
     // Ion and MacroAssembler call sites still perform their one conversion.
@@ -203,6 +207,7 @@ wasm::EnsureBuiltinThunksInitialized()
         return false;
     LifoAlloc lifo(64 * 1024);
     TempAllocator allocator(&lifo);
+    JitContext jitContext(&allocator);
     MacroAssembler masm(MacroAssembler::WasmToken(), allocator);
     for (auto address : mozilla::MakeEnumeratedRange(SymbolicAddress::Limit)) {
         thunks->offsets[address] = UINT32_MAX;
