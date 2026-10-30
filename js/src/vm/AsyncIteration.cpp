@@ -309,7 +309,7 @@ AsyncGeneratorObject::create(JSContext* cx, HandleFunction asyncGen, HandleValue
     asyncGenObj->setSuspendedStart();
 
     // Step 8.
-    asyncGenObj->clearSingleQueueRequest();
+    asyncGenObj->clearQueue();
 
     asyncGenObj->clearCachedRequest();
 
@@ -329,111 +329,41 @@ AsyncGeneratorObject::createRequest(JSContext* cx, Handle<AsyncGeneratorObject*>
     return request;
 }
 
-[[nodiscard]] static bool
-InternalEnqueue(JSContext* cx, HandleArrayObject queue, HandleValue val)
-{
-    uint32_t length;
-    if (!GetLengthProperty(cx, queue, &length))
-        return false;
-
-    if (length >= MAX_ARRAY_INDEX) {
-        ReportOutOfMemory(cx);
-        return false;
-    }
-
-    if (!DefineElement(cx, queue, length, val))
-        return false;
-    return SetLengthProperty(cx, queue, length + 1);
-}
-
-[[nodiscard]] static bool
-InternalDequeue(JSContext* cx, HandleArrayObject queue, MutableHandleValue val)
-{
-    uint32_t length;
-    if (!GetLengthProperty(cx, queue, &length))
-        return false;
-
-    MOZ_ASSERT(length != 0, "Queue should not be empty here");
-
-    if (!GetElement(cx, queue, queue, 0, val))
-        return false;
-
-    uint32_t newlength = length - 1;
-    RootedValue tmp(cx);
-    for (uint32_t i = 0; i < newlength; i++) {
-        if (!GetElement(cx, queue, queue, i + 1, &tmp))
-            return false;
-        if (!DefineElement(cx, queue, i, tmp))
-            return false;
-    }
-    ObjectOpResult result;
-    if (!DeleteElement(cx, queue, newlength, result))
-        return false;
-    if (!result) {
-        RootedId id(cx, INT_TO_JSID(newlength));
-        return result.reportError(cx, queue, id);
-    }
-    return SetLengthProperty(cx, queue, newlength);
-}
-
-[[nodiscard]] /* static */ bool
+/* static */ bool
 AsyncGeneratorObject::enqueueRequest(JSContext* cx, Handle<AsyncGeneratorObject*> asyncGenObj,
                                      Handle<AsyncGeneratorRequest*> request)
 {
-    if (asyncGenObj->isSingleQueue()) {
-        if (asyncGenObj->isSingleQueueEmpty()) {
-            asyncGenObj->setSingleQueueRequest(request);
-            return true;
-        }
-
-        RootedArrayObject queue(cx, NewDenseEmptyArray(cx));
-        if (!queue)
-            return false;
-
-        if (!NewbornArrayPush(cx, queue, ObjectValue(*asyncGenObj->singleQueueRequest())))
-            return false;
-        if (!NewbornArrayPush(cx, queue, ObjectValue(*request)))
-            return false;
-
-        asyncGenObj->setQueue(queue);
-        return true;
+    MOZ_ASSERT(request->getFixedSlot(AsyncGeneratorRequest::Slot_Next).isNull());
+    if (asyncGenObj->isQueueEmpty()) {
+        asyncGenObj->setFixedSlot(Slot_QueueHead, ObjectValue(*request));
+    } else {
+        auto& tail = asyncGenObj->getFixedSlot(Slot_QueueTail).toObject()
+                        .as<AsyncGeneratorRequest>();
+        tail.setFixedSlot(AsyncGeneratorRequest::Slot_Next, ObjectValue(*request));
     }
-
-    RootedArrayObject queue(cx, asyncGenObj->queue());
-    RootedValue requestVal(cx, ObjectValue(*request));
-    return InternalEnqueue(cx, queue, requestVal);
+    asyncGenObj->setFixedSlot(Slot_QueueTail, ObjectValue(*request));
+    return true;
 }
 
 /* static */ AsyncGeneratorRequest*
 AsyncGeneratorObject::dequeueRequest(JSContext* cx, Handle<AsyncGeneratorObject*> asyncGenObj)
 {
-    if (asyncGenObj->isSingleQueue()) {
-        AsyncGeneratorRequest* request = asyncGenObj->singleQueueRequest();
-        asyncGenObj->clearSingleQueueRequest();
-        return request;
-    }
-
-    RootedArrayObject queue(cx, asyncGenObj->queue());
-    RootedValue requestVal(cx);
-    if (!InternalDequeue(cx, queue, &requestVal))
-        return nullptr;
-
-    return &requestVal.toObject().as<AsyncGeneratorRequest>();
+    AsyncGeneratorRequest* request = asyncGenObj->queueHead();
+    MOZ_ASSERT(request);
+    Value next = request->getFixedSlot(AsyncGeneratorRequest::Slot_Next);
+    asyncGenObj->setFixedSlot(Slot_QueueHead, next);
+    if (next.isNull())
+        asyncGenObj->setFixedSlot(Slot_QueueTail, NullValue());
+    request->setFixedSlot(AsyncGeneratorRequest::Slot_Next, NullValue());
+    return request;
 }
 
 /* static */ AsyncGeneratorRequest*
 AsyncGeneratorObject::peekRequest(JSContext* cx, Handle<AsyncGeneratorObject*> asyncGenObj)
 {
-    if (asyncGenObj->isSingleQueue())
-        return asyncGenObj->singleQueueRequest();
-
-    RootedArrayObject queue(cx, asyncGenObj->queue());
-
-    RootedValue requestVal(cx);
-    if (!GetElement(cx, queue, queue, 0, &requestVal))
-        return nullptr;
-
-    return &requestVal.toObject().as<AsyncGeneratorRequest>();
+    AsyncGeneratorRequest* request = asyncGenObj->queueHead();
+    MOZ_ASSERT(request);
+    return request;
 }
 
 const Class AsyncGeneratorRequest::class_ = {

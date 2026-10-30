@@ -59,6 +59,7 @@ class AsyncGeneratorRequest : public NativeObject
         Slot_CompletionKind = 0,
         Slot_CompletionValue,
         Slot_Promise,
+        Slot_Next,
         Slots,
     };
 
@@ -67,11 +68,13 @@ class AsyncGeneratorRequest : public NativeObject
                      Int32Value(static_cast<int32_t>(completionKind)));
         setFixedSlot(Slot_CompletionValue, completionValue);
         setFixedSlot(Slot_Promise, ObjectValue(*promise));
+        setFixedSlot(Slot_Next, NullValue());
     }
 
     void clearData() {
         setFixedSlot(Slot_CompletionValue, NullValue());
         setFixedSlot(Slot_Promise, NullValue());
+        MOZ_ASSERT(getFixedSlot(Slot_Next).isNull());
     }
 
     friend AsyncGeneratorObject;
@@ -100,7 +103,8 @@ class AsyncGeneratorObject : public NativeObject
     enum AsyncGeneratorObjectSlots {
         Slot_State = 0,
         Slot_Generator,
-        Slot_QueueOrRequest,
+        Slot_QueueHead,
+        Slot_QueueTail,
         Slot_CachedRequest,
         Slots
     };
@@ -129,33 +133,16 @@ class AsyncGeneratorObject : public NativeObject
         setFixedSlot(Slot_Generator, value);
     }
 
-    // Queue is implemented in 2 ways.  If only one request is queued ever,
-    // request is stored directly to the slot.  Once 2 requests are queued, an
-    // array is created and requests are pushed into it, and the array is
-    // stored to the slot.
-
-    bool isSingleQueue() const {
-        return getFixedSlot(Slot_QueueOrRequest).isNull() ||
-               getFixedSlot(Slot_QueueOrRequest).toObject().is<AsyncGeneratorRequest>();
-    }
-    bool isSingleQueueEmpty() const {
-        return getFixedSlot(Slot_QueueOrRequest).isNull();
-    }
-    void setSingleQueueRequest(AsyncGeneratorRequest* request) {
-        setFixedSlot(Slot_QueueOrRequest, ObjectValue(*request));
-    }
-    void clearSingleQueueRequest() {
-        setFixedSlot(Slot_QueueOrRequest, NullValue());
-    }
-    AsyncGeneratorRequest* singleQueueRequest() const {
-        return &getFixedSlot(Slot_QueueOrRequest).toObject().as<AsyncGeneratorRequest>();
+    // Private FIFO links live in GC-traced request slots. No user array or
+    // prototype operations, extra queue allocation, or shifting on dequeue.
+    AsyncGeneratorRequest* queueHead() const {
+        const Value& head = getFixedSlot(Slot_QueueHead);
+        return head.isNull() ? nullptr : &head.toObject().as<AsyncGeneratorRequest>();
     }
 
-    ArrayObject* queue() const {
-        return &getFixedSlot(Slot_QueueOrRequest).toObject().as<ArrayObject>();
-    }
-    void setQueue(JSObject* queue_) {
-        setFixedSlot(Slot_QueueOrRequest, ObjectValue(*queue_));
+    void clearQueue() {
+        setFixedSlot(Slot_QueueHead, NullValue());
+        setFixedSlot(Slot_QueueTail, NullValue());
     }
 
   public:
@@ -220,9 +207,7 @@ class AsyncGeneratorObject : public NativeObject
     peekRequest(JSContext* cx, Handle<AsyncGeneratorObject*> asyncGenObj);
 
     bool isQueueEmpty() const {
-        if (isSingleQueue())
-            return isSingleQueueEmpty();
-        return queue()->length() == 0;
+        return getFixedSlot(Slot_QueueHead).isNull();
     }
 
     // This function does either of the following:
