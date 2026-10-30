@@ -5988,8 +5988,11 @@ DebuggerScript_getOffsetLocation(JSContext* cx, unsigned argc, Value* vp)
     while (!r.empty() && r.frontOffset() < offset)
         r.popFront();
 
+    // The range begins at main(), skipping unobservable prologue bytecode.
+    // A prologue offset can borrow the main position for its coordinates,
+    // but must not borrow that instruction's entry-point status.
+    bool isEntryPoint = r.frontOffset() == offset && r.frontIsEntryPoint();
     offset = r.frontOffset();
-    bool isEntryPoint = r.frontIsEntryPoint();
 
     // Line numbers are only correctly defined on entry points. Thus looks
     // either for the next valid offset in the flowData, being the last entry

@@ -445,6 +445,8 @@ bool FunctionScriptEmitter::prepareForParameters()
         // call object, setting '.this', etc) need to go in the prologue, else it
         // messes up breakpoint tests.
         bce_->switchToMain();
+    } else {
+        bce_->switchToPrologue();
     }
 
     if (!functionEmitterScope_->enterFunction(bce_, funbox_))
