@@ -4,6 +4,9 @@
 
 'use strict';
 
+ok(!Services.appinfo.accessibilityEnabled,
+   'Service lifetime tests start without a native accessibility consumer');
+
 /* exported initPromise, shutdownPromise,
             setE10sPrefs, unsetE10sPrefs, forceGC */
 

@@ -13,6 +13,16 @@ function* testImageMap(browser, accDoc) {
   const acc = findAccessibleChildByID(accDoc, id);
 
   /* ================= Initial tree test ==================================== */
+  // Layout creates image maps lazily during paint or hit-testing. Wait for
+  // their accessible children before asserting the initial tree.
+  if (!acc.firstChild) {
+    let onInitialReorder = waitForEvent(EVENT_REORDER, id);
+    yield BrowserTestUtils.synthesizeMouse('#imgmap', 10, 10,
+      { type: 'mousemove' }, browser);
+    if (!acc.firstChild) {
+      yield onInitialReorder;
+    }
+  }
   let tree = {
     IMAGE_MAP: [
       { role: ROLE_LINK, name: 'b', children: [ ] }
