@@ -24,14 +24,20 @@ add_task(function* () {
   RequestsMenu.selectedItem = requestItem;
 
   let { method, httpVersion, status, statusText } = requestItem.attachment;
+  is(method, "GET", "The fixture was requested with GET.");
+  is(httpVersion, "HTTP/1.1", "The fixture uses HTTP/1.1.");
+  is(status, 200, "The fixture response succeeded.");
+  is(statusText, "OK", "The fixture response has the expected status text.");
 
+  // These headers follow the configured network feature set, independently
+  // of the actor's raw-header blob that the copy command consumes.
   const EXPECTED_REQUEST_HEADERS = [
     `${method} ${SIMPLE_URL} ${httpVersion}`,
     "Host: example.com",
     "User-Agent: " + navigator.userAgent + "",
-    "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept: " + Services.prefs.getCharPref("network.http.accept.navigation"),
     "Accept-Language: " + navigator.languages.join(",") + ";q=0.5",
-    "Accept-Encoding: gzip, deflate",
+    "Accept-Encoding: " + Services.prefs.getCharPref("network.http.accept-encoding"),
     "Connection: keep-alive",
     "Upgrade-Insecure-Requests: 1",
     "Pragma: no-cache",
@@ -56,6 +62,8 @@ add_task(function* () {
     "server: httpd.js",
     "date: Sun, 3 May 2015 11:11:11 GMT"
   ].join("\n");
+  // text/unicode reads convert native CRLF to DOM LF on Windows. Keep exact
+  // comparisons so missing/extra fields and incorrect line breaks still fail.
 
   yield waitForClipboardPromise(function setup() {
     RequestsMenu.contextMenu.copyResponseHeaders();
