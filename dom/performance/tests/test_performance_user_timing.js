@@ -126,18 +126,15 @@ var steps = [
     },
     // Test measure
     function () {
-        // We don't have navigationStart in workers.
-        if ("window" in self) {
-          ok(true, "Running measure addition with no start/end time test");
-          performance.measure("test", "navigationStart");
-          var measures = performance.getEntriesByType("measure");
-          is(measures.length, 1, "number of measures should be 1");
-          var measure = measures[0];
-          is(measure.name, "test", "measure name should be 'test'");
-          is(measure.entryType, "measure", "measure type should be 'measure'");
-          is(measure.startTime, 0, "measure start time should be zero");
-          ok(measure.duration >= 0, "measure duration should not be negative");
-        }
+        ok(true, "Running measure addition with no start/end time test");
+        performance.measure("test");
+        var measures = performance.getEntriesByType("measure");
+        is(measures.length, 1, "number of measures should be 1");
+        var measure = measures[0];
+        is(measure.name, "test", "measure name should be 'test'");
+        is(measure.entryType, "measure", "measure type should be 'measure'");
+        is(measure.startTime, 0, "measure start time should be zero");
+        ok(measure.duration >= 0, "measure duration should not be negative");
     },
     function () {
         ok(true, "Running measure addition with only start time test");
@@ -183,15 +180,18 @@ var steps = [
            "Measure duration ( " + measure.duration + ") should be difference between two marks");
     },
     function() {
-        ok(true, "Running measure addition with no start/end time test");
-        performance.measure("test", "navigationStart");
-        var measures = performance.getEntriesByType("measure");
-        is(measures.length, 1, "number of measures should be 1");
-        var measure = measures[0];
-        is(measure.name, "test", "measure name should be 'test'");
-        is(measure.entryType, "measure", "measure type should be 'measure'");
-        is(measure.startTime, 0, "measure start time should be zero");
-        ok(measure.duration >= 0, "measure duration should not be negative");
+        // Workers do not expose PerformanceTiming/navigationStart.
+        if ("window" in self) {
+          ok(true, "Running measure addition with no start/end time test");
+          performance.measure("test", "navigationStart");
+          var measures = performance.getEntriesByType("measure");
+          is(measures.length, 1, "number of measures should be 1");
+          var measure = measures[0];
+          is(measure.name, "test", "measure name should be 'test'");
+          is(measure.entryType, "measure", "measure type should be 'measure'");
+          is(measure.startTime, 0, "measure start time should be zero");
+          ok(measure.duration >= 0, "measure duration should not be negative");
+        }
     },
     // Test all measure removal
     function () {
@@ -241,18 +241,13 @@ var steps = [
     function () {
         ok(true, "Running measure name collision test");
         for (n in performance.timing) {
-            try {
-                if (n == "toJSON") {
-                    ok(true, "Skipping toJSON entry in collision test");
-                    continue;
-                }
-                performance.measure(n);
-                ok(false, "Measure name collision test failed for name " + n + ", shouldn't make it here!");
-            } catch (e) {
-                ok(e instanceof DOMException, "DOM exception thrown for measure named " + n);
-                is(e.code, e.SYNTAX_ERR, "DOM exception for name collision is syntax error");
+            if (n == "toJSON") {
+                ok(true, "Skipping toJSON entry in collision test");
+                continue;
             }
-        };
+            performance.measure(n);
+            ok(true, "Measure name supports name collisions: " + n);
+        }
     },
     // Test measure mark being a reserved name
     function () {

@@ -4,7 +4,6 @@
     <title>Test for performance.timeOrigin</title>
     <meta http-equiv="content-type" content="text/html; charset=UTF-8">
     <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
-    <script type="text/javascript" src="test_performance_user_timing.js"></script>
   </head>
   <body>
     <script type="text/js-worker" id="worker-src">
@@ -25,28 +24,61 @@ function testBasic() {
   next();
 }
 
+// Each context floors performance.now() to 2 ms, relative to its own origin.
+// Converting back to absolute time can therefore differ by less than 2 ms.
+function checkTimestamp(data, before, label) {
+  let after = performance.timeOrigin + performance.now();
+  let absolute = data.timeOrigin + data.now;
+  ok(Number.isFinite(data.timeOrigin) && data.timeOrigin > 0,
+     label + " has a positive finite time origin");
+  ok(Number.isFinite(data.now) && data.now >= 0,
+     label + " has a nonnegative finite monotonic timestamp");
+  ok(absolute >= before - 2, label + " timestamp follows worker creation");
+  ok(absolute <= after + 2, label + " timestamp precedes message delivery");
+}
+
 function testWorker() {
-  var now = performance.now();
+  var now = performance.timeOrigin + performance.now();
 
   var blob = new Blob([ document.getElementById("worker-src").textContent ],
                       { type: "text/javascript" });
-  var w = new Worker(URL.createObjectURL(blob));
+  var url = URL.createObjectURL(blob);
+  var w = new Worker(url);
   w.onmessage = function(e) {
-    ok (e.now + e.timeOrigin > now + performance.now, "Comparing worker.now and window.now");
+    checkTimestamp(e.data, now, "Worker");
+    w.terminate();
+    URL.revokeObjectURL(url);
     next();
-  }
+  };
+  w.onerror = function(e) {
+    e.preventDefault();
+    ok(false, "Worker time-origin test failed: " + e.message);
+    w.terminate();
+    URL.revokeObjectURL(url);
+    next();
+  };
 }
 
 function testSharedWorker() {
-  var now = performance.now();
+  var now = performance.timeOrigin + performance.now();
 
   var blob = new Blob([ document.getElementById("shared-worker-src").textContent ],
                       { type: "text/javascript" });
-  var w = new SharedWorker(URL.createObjectURL(blob));
+  var url = URL.createObjectURL(blob);
+  var w = new SharedWorker(url);
   w.port.onmessage = function(e) {
-    ok (e.now + e.timeOrigin > now + performance.now, "Comparing worker.now and window.now");
+    checkTimestamp(e.data, now, "Shared worker");
+    w.port.close();
+    URL.revokeObjectURL(url);
     next();
-  }
+  };
+  w.onerror = function(e) {
+    e.preventDefault();
+    ok(false, "Shared worker time-origin test failed: " + e.message);
+    w.port.close();
+    URL.revokeObjectURL(url);
+    next();
+  };
 }
 
 var tests = [ testBasic, testWorker, testSharedWorker ];

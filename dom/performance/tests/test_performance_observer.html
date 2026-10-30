@@ -7,51 +7,98 @@
 <head>
 <meta charset=utf-8>
 <title>Test for performance observer</title>
-<script src="/resources/testharness.js"></script>
-<script src="/resources/testharnessreport.js"></script>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
 <body>
 <div id="log"></div>
+<script>
+SimpleTest.requestFlakyTimeout("For testing when observer callbacks should not be called.");
+SimpleTest.waitForExplicitFinish();
+let _tests = [];
+let test = promise_test = fn => {
+  let cleanups = [];
+  _tests.push(async () => {
+    try {
+      await fn({
+        add_cleanup: f => cleanups.push(f),
+        step_timeout(f, timeout) { return setTimeout(f, timeout); }
+      });
+    } catch (e) {
+      ok(false, "got unexpected exception " + e);
+    }
+    try {
+      for (const cleanup of cleanups) cleanup();
+    } catch (e) {
+      ok(false, "got unexpected cleanup exception " + e);
+    }
+    runNextTest();
+  });
+};
+function runNextTest() {
+  if (_tests.length) _tests.shift()();
+  else SimpleTest.finish();
+}
+function assert_equals(actual, expected, description) {
+  is(typeof actual, typeof expected, description + " has the expected result type");
+  is(actual, expected, description);
+}
+function assert_array_equals(actual, expected, description) {
+  is(actual.length, expected.length, description + " has the expected length");
+  for (let i = 0; i < actual.length; ++i) is(actual[i], expected[i], description + " entry " + i);
+}
+function assert_throws(expected, func, description) {
+  try { func(); } catch (e) {
+    is(e.name || e.type, expected.name || expected.type, description + " throws the expected exception");
+    return;
+  }
+  ok(false, description + " should throw");
+}
+function assert_unreached(description) { ok(false, description + " reached unreachable code"); }
+</script>
 <script src="test_performance_observer.js"></script>
 <script>
 function makeXHR(aUrl) {
-  var xmlhttp = new XMLHttpRequest();
-  xmlhttp.open("get", aUrl, true);
-  xmlhttp.send();
+  return new Promise((resolve, reject) => {
+    let xmlhttp = new XMLHttpRequest();
+    xmlhttp.open("get", aUrl, true);
+    xmlhttp.onload = () => {
+      is(xmlhttp.status, 200, "The performance resource fixture loads successfully");
+      resolve();
+    };
+    xmlhttp.onerror = () => reject(new Error("Resource fixture failed to load"));
+    xmlhttp.send();
+  });
 }
-
 promise_test(t => {
-  var promise = new Promise(resolve => {
+  let promise = new Promise(resolve => {
     performance.clearResourceTimings();
-
-    var observer = new PerformanceObserver(list => resolve(list));
-    observer.observe({entryTypes: ['resource']});
+    let observer = new PerformanceObserver(list => resolve(list));
+    observer.observe({entryTypes: ["resource"]});
     t.add_cleanup(() => observer.disconnect());
   });
-
-  makeXHR("test-data.json");
-
-  return promise.then(list => {
-    assert_equals(list.getEntries().length, 1);
-    assert_array_equals(list.getEntries(),
-                        performance.getEntriesByType("resource"),
-                        "Observed 'resource' entries should equal to entries obtained by getEntriesByType.");
-
-    // getEntries filtering tests
-    assert_array_equals(list.getEntries({name: "http://mochi.test:8888/tests/dom/base/test/test-data.json"}),
-                        performance.getEntriesByName("http://mochi.test:8888/tests/dom/base/test/test-data.json"),
-                        "getEntries with name filter should return correct results.");
+  return Promise.all([promise, makeXHR("test-data.json")]).then(results => {
+    let list = results[0];
+    assert_equals(list.getEntries().length, 1, "Resource observer receives the fixture");
+    assert_array_equals(list.getEntries(), performance.getEntriesByType("resource"),
+                        "Observed resource entries match the performance timeline");
+    let resourceName = new URL("test-data.json", location.href).href;
+    assert_equals(list.getEntriesByName(resourceName).length, 1,
+                  "Resource name filter finds the packaged fixture");
+    assert_array_equals(list.getEntries({name: resourceName}),
+                        performance.getEntriesByName(resourceName),
+                        "Resource name filtering matches the timeline");
     assert_array_equals(list.getEntries({entryType: "resource"}),
                         performance.getEntriesByType("resource"),
-                        "getEntries with entryType filter should return correct results.");
+                        "Resource type filtering matches the timeline");
     assert_array_equals(list.getEntries({initiatorType: "xmlhttprequest"}),
                         performance.getEntriesByType("resource"),
-                        "getEntries with initiatorType filter should return correct results.");
-    assert_array_equals(list.getEntries({initiatorType: "link"}),
-                        [],
-                        "getEntries with non-existent initiatorType filter should return an empty array.");
+                        "Initiator filtering matches the timeline");
+    assert_array_equals(list.getEntries({initiatorType: "link"}), [],
+                        "Unknown initiator filtering is empty");
   });
 }, "resource-timing test");
-
+runNextTest();
 </script>
 </body>
+</html>
