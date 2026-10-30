@@ -1436,6 +1436,30 @@ nsCSSValue::AppendBasicShapePositionToString(nsAString& aResult,
   }
 }
 
+// Calc serialization can canonicalize distinct stored expressions to the same
+// value (for example, calc(0em) and calc(0pt) both become calc(0px)). Compare
+// that canonical form only when deciding whether shorthand components may be
+// omitted. Keep structural equality and the stored expressions unchanged.
+static bool
+ValuesEqualForSerialization(const nsCSSValue& aValue1,
+                            nsCSSPropertyID aProperty1,
+                            const nsCSSValue& aValue2,
+                            nsCSSPropertyID aProperty2,
+                            nsCSSValue::Serialization aSerialization)
+{
+  if (aValue1 == aValue2) {
+    return true;
+  }
+  if (!aValue1.IsCalcUnit() || !aValue2.IsCalcUnit()) {
+    return false;
+  }
+
+  nsAutoString value1, value2;
+  aValue1.AppendToString(aProperty1, value1, aSerialization);
+  aValue2.AppendToString(aProperty2, value2, aSerialization);
+  return value1 == value2;
+}
+
 // Helper to append |aString| with the shorthand sides notation used in e.g.
 // 'padding'. |aProperties| and |aValues| are expected to have 4 elements.
 /*static*/ void
@@ -1452,15 +1476,21 @@ nsCSSValue::AppendSidesShorthandToString(const nsCSSPropertyID aProperties[],
 
   MOZ_ASSERT(value1.GetUnit() != eCSSUnit_Null, "null value 1");
   value1.AppendToString(aProperties[0], aString, aSerialization);
-  if (value1 != value2 || value1 != value3 || value1 != value4) {
+  bool sameVertical = ValuesEqualForSerialization(
+    value1, aProperties[0], value3, aProperties[2], aSerialization);
+  bool sameHorizontal = ValuesEqualForSerialization(
+    value2, aProperties[1], value4, aProperties[3], aSerialization);
+  if (!sameVertical || !sameHorizontal ||
+      !ValuesEqualForSerialization(value1, aProperties[0],
+                                    value2, aProperties[1], aSerialization)) {
     aString.Append(char16_t(' '));
     MOZ_ASSERT(value2.GetUnit() != eCSSUnit_Null, "null value 2");
     value2.AppendToString(aProperties[1], aString, aSerialization);
-    if (value1 != value3 || value2 != value4) {
+    if (!sameVertical || !sameHorizontal) {
       aString.Append(char16_t(' '));
       MOZ_ASSERT(value3.GetUnit() != eCSSUnit_Null, "null value 3");
       value3.AppendToString(aProperties[2], aString, aSerialization);
-      if (value2 != value4) {
+      if (!sameHorizontal) {
         aString.Append(char16_t(' '));
         MOZ_ASSERT(value4.GetUnit() != eCSSUnit_Null, "null value 4");
         value4.AppendToString(aProperties[3], aString, aSerialization);
@@ -1480,9 +1510,10 @@ nsCSSValue::AppendBasicShapeRadiusToString(const nsCSSPropertyID aProperties[],
   const nsCSSValue* yVals[4];
   for (int i = 0; i < 4; i++) {
     if (aValues[i]->GetUnit() == eCSSUnit_Pair) {
-      needY = true;
       xVals[i] = &aValues[i]->GetPairValue().mXValue;
       yVals[i] = &aValues[i]->GetPairValue().mYValue;
+      needY = needY || !ValuesEqualForSerialization(
+        *xVals[i], aProperties[i], *yVals[i], aProperties[i], aSerialization);
     } else {
       xVals[i] = yVals[i] = aValues[i];
     }
@@ -3007,7 +3038,32 @@ nsCSSValuePair::AppendToString(nsCSSPropertyID aProperty,
   }
 
   mXValue.AppendToString(aProperty, aResult, aSerialization);
-  if (mYValue.GetUnit() != eCSSUnit_Null) {
+  // Only these grammars duplicate a lone value into the second component.
+  // Equal background-size or object-position components cannot be omitted.
+  bool canOmitRepeatedValue = false;
+  switch (aProperty) {
+    case eCSSProperty_border_spacing:
+    case eCSSProperty_border_top_left_radius:
+    case eCSSProperty_border_top_right_radius:
+    case eCSSProperty_border_bottom_right_radius:
+    case eCSSProperty_border_bottom_left_radius:
+    case eCSSProperty_border_start_start_radius:
+    case eCSSProperty_border_start_end_radius:
+    case eCSSProperty_border_end_start_radius:
+    case eCSSProperty_border_end_end_radius:
+    case eCSSProperty__moz_outline_radius_topLeft:
+    case eCSSProperty__moz_outline_radius_topRight:
+    case eCSSProperty__moz_outline_radius_bottomRight:
+    case eCSSProperty__moz_outline_radius_bottomLeft:
+      canOmitRepeatedValue = true;
+      break;
+    default:
+      break;
+  }
+  if (mYValue.GetUnit() != eCSSUnit_Null &&
+      !(canOmitRepeatedValue &&
+        ValuesEqualForSerialization(mXValue, aProperty,
+                                     mYValue, aProperty, aSerialization))) {
     aResult.Append(char16_t(' '));
     mYValue.AppendToString(aProperty, aResult, aSerialization);
   }

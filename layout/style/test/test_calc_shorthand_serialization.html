@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Canonical calc values at shorthand omission points</title>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<style>
+  #display > div { width: 200px; height: 100px; font-size: 16px; }
+</style>
+<div id="display"></div>
+<script>
+"use strict";
+
+const original = document.createElement("div");
+const copy = document.createElement("div");
+document.getElementById("display").appendChild(original);
+document.getElementById("display").appendChild(copy);
+
+const borderCorners = [
+  "border-top-left-radius", "border-top-right-radius",
+  "border-bottom-right-radius", "border-bottom-left-radius",
+];
+const outlineCorners = [
+  "-moz-outline-radius-topleft", "-moz-outline-radius-topright",
+  "-moz-outline-radius-bottomright", "-moz-outline-radius-bottomleft",
+];
+
+function check(property, input, expected, computedProperties = [property]) {
+  const description = property + ": " + input;
+  original.style.cssText = "";
+  copy.style.cssText = "";
+  original.style.setProperty(property, input);
+  const serialized = original.style.getPropertyValue(property);
+  ok(serialized, description + " parses");
+  is(serialized, expected, description + " serializes canonically");
+
+  const computed = computedProperties.map(name =>
+    getComputedStyle(original).getPropertyValue(name));
+  for (let i = 0; i < computed.length; ++i) {
+    ok(computed[i], description + " has a computed " + computedProperties[i]);
+  }
+
+  copy.style.setProperty(property, serialized);
+  is(copy.style.getPropertyValue(property), serialized,
+     description + " getPropertyValue serialization is idempotent");
+  for (let i = 0; i < computed.length; ++i) {
+    is(getComputedStyle(copy).getPropertyValue(computedProperties[i]), computed[i],
+       description + " getPropertyValue roundtrip preserves " + computedProperties[i]);
+  }
+
+  const cssText = original.style.cssText;
+  copy.style.cssText = cssText;
+  is(copy.style.cssText, cssText, description + " cssText is idempotent");
+  for (let i = 0; i < computed.length; ++i) {
+    is(getComputedStyle(copy).getPropertyValue(computedProperties[i]), computed[i],
+       description + " cssText roundtrip preserves " + computedProperties[i]);
+  }
+}
+
+// Distinct zero units and expression trees can have the same canonical text.
+// The four-side and x/y omission decisions must use that text consistently.
+const radiusCases = [
+  ["calc(0px) calc(0pt)", "calc(0px)"],
+  ["calc(0em) calc(0rem) calc(0cm) calc(0px)", "calc(0px)"],
+  ["calc(1px + 1px) calc(2px)", "calc(2px)"],
+  ["calc(0em) calc(5px) calc(0pt) calc(5px + 0em)", "calc(0px) calc(5px)"],
+  ["calc(0em) calc(5px) calc(10px) calc(5px + 0em)",
+   "calc(0px) calc(5px) calc(10px)"],
+  ["calc(0em) calc(5px) calc(10px) calc(15px)",
+   "calc(0px) calc(5px) calc(10px) calc(15px)"],
+  ["calc(0em) calc(0pt) / calc(0cm) calc(0rem)", "calc(0px)"],
+  ["calc(0em) calc(4px) / calc(0pt) calc(4px + 0em)",
+   "calc(0px) calc(4px)"],
+  // A zero percentage remains distinct from a zero length in specified values.
+  ["calc(0px) calc(0%)", "calc(0px) calc(0%)"],
+  ["calc(0px) / calc(0%)", "calc(0px) / calc(0%)"],
+  ["calc(0px + 0%) calc(0em)", "calc(0%) calc(0px)"],
+  ["calc(0px) calc(5px) / calc(0pt) calc(6px)",
+   "calc(0px) calc(5px) / calc(0px) calc(6px)"],
+];
+for (const property of ["border-radius"]) {
+  for (const [input, expected] of radiusCases) {
+    check(property, input, expected, borderCorners);
+  }
+}
+for (const [input, expected] of radiusCases) {
+  check("-moz-outline-radius", input, expected, outlineCorners);
+}
+
+const logicalCorners = [
+  "border-start-start-radius", "border-start-end-radius",
+  "border-end-start-radius", "border-end-end-radius",
+];
+for (const property of borderCorners.concat(logicalCorners, outlineCorners)) {
+  const computedProperties = property.indexOf("-moz-outline") == 0 ?
+                             outlineCorners : borderCorners;
+  check(property, "calc(0em) calc(0pt)", "calc(0px)", computedProperties);
+  check(property, "calc(1px + 1px) calc(2px)", "calc(2px)", computedProperties);
+  check(property, "calc(0px) calc(0%)", "calc(0px) calc(0%)", computedProperties);
+  check(property, "calc(0em) calc(4px)", "calc(0px) calc(4px)", computedProperties);
+}
+
+check("border-spacing", "calc(0em) calc(0pt)", "calc(0px)");
+check("border-spacing", "calc(2px + 0em) calc(2px)", "calc(2px)");
+check("border-spacing", "calc(0em) calc(4px)", "calc(0px) calc(4px)");
+
+// Inset radii share the four-side serializer, including slash omission.
+check("clip-path", "inset(0px round calc(0em) calc(0pt))",
+      "inset(0px round calc(0px))");
+check("clip-path", "inset(0px round calc(0em) calc(0pt) / calc(0cm) calc(0rem))",
+      "inset(0px round calc(0px))");
+check("clip-path", "inset(0px round calc(0px) / calc(0%))",
+      "inset(0px round calc(0px) / calc(0%))");
+check("clip-path", "inset(0px round calc(0em) calc(5px) / calc(0pt) calc(6px))",
+      "inset(0px round calc(0px) calc(5px) / calc(0px) calc(6px))");
+
+// These pair grammars do NOT duplicate a lone value. Keeping both components
+// matters: a lone background-size uses auto for Y; a lone position uses 50%.
+for (const property of ["background-size", "object-position"]) {
+  check(property, "calc(0em) calc(0pt)", "calc(0px) calc(0px)");
+  check(property, "calc(20px) calc(20px)", "calc(20px) calc(20px)");
+  original.style.setProperty(property, "calc(20px) calc(20px)");
+  copy.style.setProperty(property, "calc(20px)");
+  isnot(getComputedStyle(original).getPropertyValue(property),
+        getComputedStyle(copy).getPropertyValue(property),
+        property + " single and repeated values have different computed values");
+}
+
+original.remove();
+copy.remove();
+</script>
