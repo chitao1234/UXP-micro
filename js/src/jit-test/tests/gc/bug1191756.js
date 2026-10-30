@@ -1,4 +1,5 @@
-if (typeof 'oomAtAllocation' === 'undefined')
+// |jit-test| skip-if: !this.oomTest
+if (typeof oomAtAllocation === 'undefined')
     quit();
 
 function fn(i) {
@@ -7,13 +8,11 @@ function fn(i) {
     return [];
 }
 
-try {
+// Exercise every allocation failure with the native harness, which resets
+// failure injection before reporting or running the next iteration.
+oomTest(function() {
     fn(0);
     fn(1);
     fn(2);
-    oomAtAllocation(50);
     fn(3);
-} catch(e) {
-    // Ignore oom
-}
-
+});

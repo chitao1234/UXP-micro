@@ -34,21 +34,22 @@ g.eval(
        '}                                    \n'
        );
 
-// This should stop at every line but the first of the function.
+// The handler starts after the debugger opcode; function-entry and debugger
+// lines are therefore not visited by onStep. Check exact remaining lines.
 g.eval('t(1,2,3)');
-assertEq(Object.keys(offsets).length, 1);
+assertEq(JSON.stringify(Object.keys(offsets)), '["1","2"]');
 
 // This should stop at every line but the first of the function, and the
 // body of the 'if'.
 g.eval('t(10,20,30)');
-assertEq(Object.keys(offsets).length, 2);
+assertEq(JSON.stringify(Object.keys(offsets)), '["1","2","6"]');
 
 // This shouldn't stop at all. It's the frame that's in single-step mode,
 // not the script, so the prior execution of t in single-step mode should
 // have no effect on this one.
 doSingleStep = false;
 g.eval('t(0, 0, 0)');
-assertEq(Object.keys(offsets).length, 7);
+assertEq(JSON.stringify(Object.keys(offsets)), '["1","2","3","4","5","6","7","8"]');
 doSingleStep = true;
 
 // Single-step in an eval frame. This should reach every line but the

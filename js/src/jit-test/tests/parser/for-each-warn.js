@@ -1,4 +1,4 @@
-// for-each should be warned once and only once.
+// UXP intentionally retains for-each without deprecation warning spew (d9604196864).
 
 function testWarn(code) {
   enableLastWarning();
@@ -6,8 +6,7 @@ function testWarn(code) {
   g.code = code;
   g.eval('eval(code)');
   var warning = getLastWarning();
-  assertEq(warning !== null, true, "warning should be caught for " + code);
-  assertEq(warning.name, "Warning");
+  assertEq(warning, null, "for-each should not produce a deprecation warning for " + code);
 
   clearLastWarning();
   g.eval('eval(code)');
@@ -19,8 +18,7 @@ function testWarn(code) {
   g.code = code;
   g.eval('Reflect.parse(code);');
   warning = getLastWarning();
-  assertEq(warning !== null, true, "warning should be caught for " + code);
-  assertEq(warning.name, "Warning");
+  assertEq(warning, null, "for-each should not produce a deprecation warning for " + code);
 
   clearLastWarning();
   g.eval('Reflect.parse(code);');

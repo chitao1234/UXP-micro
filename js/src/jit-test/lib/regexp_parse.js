@@ -56,7 +56,7 @@ function Quantifier(min, max, type, body) {
 
 function Lookahead(body) {
   return {
-    type: "Lookahead",
+    type: "Lookaround",
     is_positive: true,
     body: body
   };
@@ -64,7 +64,7 @@ function Lookahead(body) {
 
 function NegativeLookahead(body) {
   return {
-    type: "Lookahead",
+    type: "Lookaround",
     is_positive: false,
     body: body
   };

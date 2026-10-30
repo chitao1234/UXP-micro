@@ -1,3 +1,4 @@
+// |jit-test| skip-if: !this.gczeal || !!this.jitTestMissingCapabilities.gczeal
 // |jit-test| allow-oom
 if (!('oomAfterAllocations' in this))
     quit();
