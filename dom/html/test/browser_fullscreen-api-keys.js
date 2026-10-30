@@ -82,9 +82,14 @@ function* temporaryRemoveUnexpectedKeyEventCapture(callback) {
     "Test:KeyReceived", captureUnexpectedKeyEvent);
 }
 
-function receiveExpectedKeyEvents(keyCode) {
+function receiveExpectedKeyEvents(keyCode, trusted) {
   return new Promise(resolve => {
-    let events = ["keydown", "keypress", "keyup"];
+    // Native non-printable keypress events are restricted to the system
+    // group by default. Script-created events still reach content listeners.
+    let strictKeypress = !Services.prefs.getBoolPref(
+      "dom.keyboardevent.keypress.dispatch_non_printable_in_content");
+    let events = trusted && strictKeypress ?
+      ["keydown", "keyup"] : ["keydown", "keypress", "keyup"];
     function listener({ data }) {
       let expected = events.shift();
       is(data.type, expected, `Should receive a ${expected} event`);
@@ -139,8 +144,9 @@ add_task(function* () {
 
     info("Enter fullscreen");
     yield* temporaryRemoveUnexpectedFullscreenChangeCapture(function* () {
+      let changed = promiseOneMessage("Test:FullscreenChanged");
       gMessageManager.sendAsyncMessage("Test:RequestFullscreen");
-      let state = yield promiseOneMessage("Test:FullscreenChanged");
+      let state = yield changed;
       ok(state, "The content should have entered fullscreen");
       ok(document.fullscreenElement,
          "The chrome should also be in fullscreen");
@@ -148,7 +154,7 @@ add_task(function* () {
 
     info("Dispatch untrusted key events from content");
     yield* temporaryRemoveUnexpectedKeyEventCapture(function* () {
-      let promiseExpectedKeyEvents = receiveExpectedKeyEvents(keyCode);
+      let promiseExpectedKeyEvents = receiveExpectedKeyEvents(keyCode, false);
       gMessageManager.sendAsyncMessage("Test:DispatchUntrustedKeyEvents", code);
       yield promiseExpectedKeyEvents;
     });
@@ -157,10 +163,11 @@ add_task(function* () {
     yield* temporaryRemoveUnexpectedFullscreenChangeCapture(function* () {
       yield* temporaryRemoveUnexpectedKeyEventCapture(function* () {
         let promiseExpectedKeyEvents = suppressed ?
-          Promise.resolve() : receiveExpectedKeyEvents(keyCode);
+          Promise.resolve() : receiveExpectedKeyEvents(keyCode, true);
+        let changed = promiseOneMessage("Test:FullscreenChanged");
         EventUtils.synthesizeKey(code, {});
         yield promiseExpectedKeyEvents;
-        let state = yield promiseOneMessage("Test:FullscreenChanged");
+        let state = yield changed;
         ok(!state, "The content should have exited fullscreen");
         ok(!document.fullscreenElement,
            "The chrome should also have exited fullscreen");

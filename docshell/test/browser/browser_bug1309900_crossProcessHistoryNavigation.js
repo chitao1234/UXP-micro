@@ -12,23 +12,30 @@ add_task(function* runTests() {
 
   let browser = tab.linkedBrowser;
 
-  browser.loadURI("about:accounts");
-  let href = yield BrowserTestUtils.browserLoaded(browser);
-  is(href, "about:accounts", "Check about:accounts loaded");
+  // Use a supported privileged about page. Firefox Accounts is not part of
+  // this application, while about:config exercises the same history path.
+  let loaded = BrowserTestUtils.browserLoaded(browser, false, "about:config");
+  browser.loadURI("about:config");
+  let href = yield loaded;
+  is(href, "about:config", "Check about:config loaded");
 
   // Using a dummy onunload listener to disable the bfcache as that can prevent
   // the test browser load detection mechanism from working.
-  browser.loadURI("data:text/html,<body%20onunload=''><iframe></iframe></body>");
-  href = yield BrowserTestUtils.browserLoaded(browser);
-  is(href, "data:text/html,<body%20onunload=''><iframe></iframe></body>",
+  let dataURI = "data:text/html,<body%20onunload=''><iframe></iframe></body>";
+  loaded = BrowserTestUtils.browserLoaded(browser, false, dataURI);
+  browser.loadURI(dataURI);
+  href = yield loaded;
+  is(href, dataURI,
     "Check data URL loaded");
 
+  loaded = BrowserTestUtils.browserLoaded(browser, false, "about:config");
   browser.goBack();
-  href = yield BrowserTestUtils.browserLoaded(browser);
-  is(href, "about:accounts", "Check we've gone back to about:accounts");
+  href = yield loaded;
+  is(href, "about:config", "Check we've gone back to about:config");
 
+  loaded = BrowserTestUtils.browserLoaded(browser, false, dataURI);
   browser.goForward();
-  href = yield BrowserTestUtils.browserLoaded(browser);
-  is(href, "data:text/html,<body%20onunload=''><iframe></iframe></body>",
+  href = yield loaded;
+  is(href, dataURI,
      "Check we've gone forward to data URL");
 });

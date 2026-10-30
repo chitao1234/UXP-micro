@@ -122,7 +122,7 @@ var gSteps = [
       doc2.addEventListener("visibilitychange", function onVisibilityChange(e) {
         if (!doc2.hidden) {
           doc2.removeEventListener("visibilitychange", onVisibilityChange);
-          executeSoon(runNextStep);
+          waitForIdle(browser).then(() => executeSoon(runNextStep));
         }
       });
       gBrowser.selectedTab = gTab2;
@@ -153,7 +153,8 @@ var gSteps = [
     is(gWin1.navigator.mozPower.getWakeLockState("test"), "locked-foreground",
        "wake lock should auto-reacquire when page is available again");
     gBrowser.selectedTab = gTab1;
-    executeSoon(runNextStep);
+    waitForIdle(gBrowser.getBrowserForTab(gTab2))
+      .then(() => executeSoon(runNextStep));
   },
   function crossTabWakeLock5() {
     // Test again in background tab
@@ -216,6 +217,14 @@ var gSteps = [
     executeSoon(runNextStep);
   },
 ];
+
+function waitForIdle(browser) {
+  // Scrollbar/theme image requests can outlive load/pageshow. The wake lock
+  // must be tested in an eligible cached document, not an unfinished load.
+  let group = browser.docShell.QueryInterface(Ci.nsIDocumentLoader).loadGroup;
+  return BrowserTestUtils.waitForCondition(() => !group.requests.hasMoreElements(),
+    "The wake-lock page is idle before testing its BFCache lifecycle");
+}
 
 function runNextStep() {
   gCurStepIndex++;

@@ -1,11 +1,13 @@
-<html>
+<!doctype html>
+<meta charset="utf-8">
+<title>No-store document.write fixture</title>
+<p id="original">Original no-store response</p>
+<button id="write" type="button">Write generated document</button>
 <script>
-function test() {
-  document.open();
-  document.write('<html><body>WYCIWYG DOCUMENT</body></html>');
-  document.close();
-}
+  document.getElementById("write").addEventListener("click", function() {
+    let marker = this.getAttribute("data-marker");
+    document.open();
+    document.write("<!doctype html><body><p id='generated'>" + marker + "</p></body>");
+    document.close();
+  });
 </script>
-<body onload="setTimeout(test, 0);">
-</body>
-</html>

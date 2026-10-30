@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Editor image security fixture</title>
+<button id="load-image" type="button">Load privileged image</button>
+<script>
+  document.getElementById("load-image").addEventListener("click", function() {
+    let image = document.createElement("img");
+    image.id = "privileged-image";
+    function finish(event) {
+      document.documentElement.setAttribute("data-image-result", event.type);
+      window.dispatchEvent(new CustomEvent("Test:PrivilegedImageResult"));
+    }
+    image.onload = finish;
+    image.onerror = finish;
+    document.body.appendChild(image);
+    image.src = this.getAttribute("data-image-url");
+  });
+</script>

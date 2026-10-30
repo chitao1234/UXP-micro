@@ -5,6 +5,15 @@ const ROOT = "http://www.example.com/browser/dom/tests/browser/";
 const CONTENT_PAGE = ROOT + "test_new_window_from_content_child.html";
 const TARGET_PAGE = ROOT + "dummy.html";
 
+add_task(function* configure_popup_windows() {
+  // The application normally opens feature-requesting popups in tabs. This
+  // fixture exercises window chrome, so select the policy that opens those
+  // popups as windows; browser_test_new_window_from_content covers all policies.
+  yield SpecialPowers.pushPrefEnv({
+    set: [["browser.link.open_newwindow.restriction", 2]]
+  });
+});
+
 /**
  * This function retrieves the visibility state of the toolbars of a
  * window within the content context.
@@ -138,13 +147,13 @@ add_task(function*() {
     yield BrowserTestUtils.removeTab(tab);
 
     // Now let's open a window with toolbars hidden
-    let winPromise = BrowserTestUtils.waitForNewWindow();
+    // Arm the initial content load before opening the window. Delayed browser
+    // startup can finish after that load, so a later browserLoaded misses it.
+    let winPromise = BrowserTestUtils.waitForNewWindow(true, TARGET_PAGE);
     yield BrowserTestUtils.synthesizeMouseAtCenter("#winOpenNonDefault", {}, browser);
     let popupWindow = yield winPromise;
 
     let popupBrowser = popupWindow.gBrowser.selectedBrowser;
-    yield BrowserTestUtils.browserLoaded(popupBrowser);
-
     // Test toolbars visibility
     let popupToolbars = yield getToolbarsFromBrowserContent(popupBrowser);
     testNonDefaultContentToolbars(popupToolbars);

@@ -2,91 +2,79 @@
 "use strict";
 
 const Ci = Components.interfaces;
-const SIMPLE_HTML = "data:text/html,<html><head></head><body></body></html>";
+const IMAGE_TEST_PAGE = TESTROOT + "file_docshell_type_editor.html";
+const PRIVILEGED_IMAGE = "chrome://devtools/content/debugger/new/images/angle-brackets.svg";
 
 // The following URI is *not* accessible to content, hence loading that URI
 // from an unprivileged site should be blocked. If docshell is of appType
 // APP_TYPE_EDITOR however the load should be allowed.
-// >> chrome://devtools/content/framework/dev-edition-promo/dev-edition-logo.png
+// Use an existing resource in the non-content-accessible DevTools package.
 
 add_task(function* () {
-  info("docshell of appType APP_TYPE_EDITOR can access privileged images.");
+  let image = new Image();
+  yield new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("The privileged image fixture is missing"));
+    image.src = PRIVILEGED_IMAGE;
+  });
+  ok(image.naturalWidth > 0, "The privileged fixture loads in chrome");
+});
 
+function* checkPrivilegedImage(appType, shouldLoad) {
   yield BrowserTestUtils.withNewTab({
     gBrowser,
-    url: SIMPLE_HTML
+    url: IMAGE_TEST_PAGE
   }, function* (browser) {
-    yield ContentTask.spawn(browser, null, function* () {
-      let rootDocShell = docShell.QueryInterface(Ci.nsIDocShellTreeItem)
-                                 .rootTreeItem
-                                 .QueryInterface(Ci.nsIInterfaceRequestor)
-                                 .getInterface(Ci.nsIDocShell);
-      let defaultAppType = rootDocShell.appType;
+    let defaultAppType = null;
+    try {
+      let result = BrowserTestUtils.waitForContentEvent(browser,
+        "Test:PrivilegedImageResult", true, null, true);
+      // This second task is also a message-ordering barrier: the preceding
+      // per-browser event listener is installed before we synthesize a click.
+      defaultAppType = yield ContentTask.spawn(browser,
+        {appType, imageURI: PRIVILEGED_IMAGE}, function(options) {
+          let rootDocShell = docShell.QueryInterface(Ci.nsIDocShellTreeItem)
+                                    .rootTreeItem.QueryInterface(Ci.nsIDocShell);
+          content.document.getElementById("load-image")
+            .setAttribute("data-image-url", options.imageURI);
+          let previous = rootDocShell.appType;
+          rootDocShell.appType = options.appType;
+          is(rootDocShell.appType, options.appType, "The requested appType is active");
+          return previous;
+        });
 
-      rootDocShell.appType = Ci.nsIDocShell.APP_TYPE_EDITOR;
-
-      is(rootDocShell.appType, Ci.nsIDocShell.APP_TYPE_EDITOR,
-        "sanity check: appType after update should be type editor");
-
-      return new Promise(resolve => {
-        let doc = content.document;
-        let image = doc.createElement("img");
-        image.onload = function() {
-          ok(true, "APP_TYPE_EDITOR is allowed to load privileged image");
-          // restore appType of rootDocShell before moving on to the next test
-          rootDocShell.appType = defaultAppType;
-          resolve();
-        }
-        image.onerror = function() {
-          ok(false, "APP_TYPE_EDITOR is allowed to load privileged image");
-          // restore appType of rootDocShell before moving on to the next test
-          rootDocShell.appType = defaultAppType;
-          resolve();
-        }
-        doc.body.appendChild(image);
-        image.src = "chrome://devtools/content/framework/dev-edition-promo/dev-edition-logo.png";
+      // Setting img.src in ContentTask would use its system triggering
+      // principal and make the negative case pass the security check. The
+      // fixture's own handler must initiate the image request.
+      yield BrowserTestUtils.synthesizeMouseAtCenter("#load-image", {}, browser);
+      yield result;
+      let actual = yield ContentTask.spawn(browser, null, function() {
+        return {
+          status: content.document.documentElement.getAttribute("data-image-result"),
+          width: content.document.getElementById("privileged-image").naturalWidth
+        };
       });
-    });
+      is(actual.status, shouldLoad ? "load" : "error",
+         shouldLoad ? "APP_TYPE_EDITOR is allowed to load the privileged image" :
+                      "APP_TYPE_UNKNOWN cannot load the privileged image");
+      is(actual.width > 0, shouldLoad, "Decoded image state matches the access policy");
+    } finally {
+      if (defaultAppType !== null) {
+        yield ContentTask.spawn(browser, defaultAppType, function(previous) {
+          let rootDocShell = docShell.QueryInterface(Ci.nsIDocShellTreeItem)
+                                    .rootTreeItem.QueryInterface(Ci.nsIDocShell);
+          rootDocShell.appType = previous;
+          is(rootDocShell.appType, previous, "The original appType is restored");
+        });
+      }
+    }
   });
+}
+
+add_task(function* () {
+  yield* checkPrivilegedImage(Ci.nsIDocShell.APP_TYPE_EDITOR, true);
 });
 
 add_task(function* () {
-  info("docshell of appType APP_TYPE_UNKNOWN can *not* access privileged images.");
-
-  yield BrowserTestUtils.withNewTab({
-    gBrowser,
-    url: SIMPLE_HTML
-  }, function* (browser) {
-    yield ContentTask.spawn(browser, null, function* () {
-      let rootDocShell = docShell.QueryInterface(Ci.nsIDocShellTreeItem)
-                                 .rootTreeItem
-                                 .QueryInterface(Ci.nsIInterfaceRequestor)
-                                 .getInterface(Ci.nsIDocShell);
-      let defaultAppType = rootDocShell.appType;
-
-      rootDocShell.appType = Ci.nsIDocShell.APP_TYPE_UNKNOWN;
-
-      is(rootDocShell.appType, Ci.nsIDocShell.APP_TYPE_UNKNOWN,
-        "sanity check: appType of docshell should be unknown");
-
-      return new Promise(resolve => {
-        let doc = content.document;
-        let image = doc.createElement("img");
-        image.onload = function() {
-          ok(false, "APP_TYPE_UNKNOWN is *not* allowed to acces privileged image");
-          // restore appType of rootDocShell before moving on to the next test
-          rootDocShell.appType = defaultAppType;
-          resolve();
-        }
-        image.onerror = function() {
-          ok(true, "APP_TYPE_UNKNOWN is *not* allowed to acces privileged image");
-          // restore appType of rootDocShell before moving on to the next test
-          rootDocShell.appType = defaultAppType;
-          resolve();
-        }
-        doc.body.appendChild(image);
-        image.src = "chrome://devtools/content/framework/dev-edition-promo/dev-edition-logo.png";
-      });
-    });
-  });
+  yield* checkPrivilegedImage(Ci.nsIDocShell.APP_TYPE_UNKNOWN, false);
 });

@@ -26,7 +26,14 @@ add_task(function* () {
         if (expectedURI && browser.currentURI.spec != expectedURI) return;
         clearTimeout(timer);
         browser.removeEventListener("pageshow", listener, true);
-        setTimeout(() => resolve(event.persisted), 0);
+        let persisted = event.persisted;
+        // pageshow precedes completion of some scrollbar/theme image loads.
+        // Pending requests make a document ineligible for BFCache regardless
+        // of its budget, so drain them before testing retention policy.
+        let group = browser.docShell.QueryInterface(Ci.nsIDocumentLoader).loadGroup;
+        BrowserTestUtils.waitForCondition(() => !group.requests.hasMoreElements(),
+          "The loaded fixture has no pending requests before testing BFCache")
+          .then(() => resolve(persisted), reject);
       }
       browser.addEventListener("pageshow", listener, true);
       action();
@@ -79,7 +86,15 @@ add_task(function* () {
     token = browser.contentWindow.wrappedJSObject.pageToken;
     browser.contentWindow.history.pushState({number: 1}, "", "#one");
     browser.contentWindow.history.pushState({number: 2}, "", "#two");
+    let aliasEntries = [];
+    for (let i = history().index - 2; i <= history().index; ++i) {
+      let entry = history().getEntryAtIndex(i, false).QueryInterface(Ci.nsISHEntry);
+      aliasEntries.push(entry.BFCacheEntry.ID);
+    }
+    ok(aliasEntries.every(id => id == aliasEntries[0]),
+       "pushState entries share the original presentation identity");
     yield load("?after-alias");
+    ok(cached("?alias#two"), "The aliased page is cached before traversing Back");
     is(yield show(() => browser.goBack()), true, "pushState aliases restore one cached presentation");
     is(browser.contentWindow.wrappedJSObject.pageToken, token, "Aliased viewer keeps its global");
     is(browser.contentWindow.history.state.number, 2, "pushState value survives");
