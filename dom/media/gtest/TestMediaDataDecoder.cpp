@@ -9,6 +9,7 @@
 #include "DecoderTraits.h"
 #include "MP4Demuxer.h"
 #include "WebMDemuxer.h"
+#include "gfxPlatform.h"
 
 using namespace mozilla;
 
@@ -40,7 +41,18 @@ private:
   RefPtr<Benchmark> mBenchmark;
 };
 
-TEST(MediaDataDecoder, H264)
+class MediaDataDecoderTest : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    // Gtests run before the normal browser graphics startup. PDMFactory's
+    // platform modules read gfxVars, which gfxPlatform initializes.
+    ASSERT_TRUE(gfxPlatform::GetPlatform());
+  }
+};
+
+TEST_F(MediaDataDecoderTest, H264)
 {
   if (!DecoderTraits::IsMP4TypeAndEnabled(NS_LITERAL_CSTRING("video/mp4")
         , /* DecoderDoctorDiagnostics* */ nullptr)) {
@@ -56,7 +68,7 @@ TEST(MediaDataDecoder, H264)
   }
 }
 
-TEST(MediaDataDecoder, VP9)
+TEST_F(MediaDataDecoderTest, VP9)
 {
   if (!DecoderTraits::IsWebMTypeAndEnabled(NS_LITERAL_CSTRING("video/webm"))) {
     EXPECT_TRUE(true);

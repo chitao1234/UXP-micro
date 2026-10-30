@@ -11,6 +11,7 @@
 #include "Layers.h"
 #include "MediaData.h"
 #include "MediaFormatReader.h"
+#include "MediaShutdownManager.h"
 #include "MP4Decoder.h"
 #include "MockMediaDecoderOwner.h"
 #include "MockMediaResource.h"
@@ -24,7 +25,12 @@ class MockMP4Decoder : public MP4Decoder
 public:
   MockMP4Decoder()
     : MP4Decoder(new MockMediaDecoderOwner())
-  {}
+  {
+    // HTMLMediaElement normally creates this singleton before a decoder.
+    // This fixture bypasses the element but still schedules async Unregister
+    // from MediaDecoder::Shutdown; initialize its owner before that callback.
+    MediaShutdownManager::InitStatics();
+  }
 
   // Avoid the assertion.
   AbstractCanonical<media::NullableTimeUnit>* CanonicalDurationOrNull() override
