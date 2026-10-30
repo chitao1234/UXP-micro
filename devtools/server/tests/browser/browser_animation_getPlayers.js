@@ -47,11 +47,14 @@ function* playersCanBePausedAndResumed(walker, animations) {
      "The player has an initialState");
   ok(player.getCurrentState,
      "The player has the getCurrentState method");
-  is(player.initialState.playState, "running",
+  // initialState is the snapshot sent before ready() resolved. Fetch the
+  // current state after the animation has left its pending state.
+  let state = yield player.getCurrentState();
+  is(state.playState, "running",
      "The animation is currently running");
 
   yield player.pause();
-  let state = yield player.getCurrentState();
+  state = yield player.getCurrentState();
   is(state.playState, "paused",
      "The animation is now paused");
 
