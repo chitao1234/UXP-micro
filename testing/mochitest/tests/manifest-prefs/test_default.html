@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Manifest preferences do not leak into defaults</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+is(SpecialPowers.Services.prefs.getPrefType("test.manifestprefs"), 0,
+   "manifest without prefs has no previous boolean override");
+is(SpecialPowers.Services.prefs.getPrefType("test.manifestprefs.string"), 0,
+   "manifest without prefs has no previous string override");
+</script>

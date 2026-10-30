@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Different manifest preferences are isolated</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+ok(!SpecialPowers.getBoolPref("test.manifestprefs"), "this manifest overrides the boolean");
+is(SpecialPowers.Services.prefs.getPrefType("test.manifestprefs.string"), 0,
+   "the previous manifest's string pref did not leak");
+</script>

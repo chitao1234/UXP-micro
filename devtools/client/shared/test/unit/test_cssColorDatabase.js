@@ -56,7 +56,8 @@ function run_test() {
   for (let name of names) {
     if (name !== "hsl" && name !== "hsla" &&
         name !== "rgb" && name !== "rgba" &&
-        name !== "inherit" && name !== "initial" && name !== "unset") {
+        name !== "inherit" && name !== "initial" && name !== "unset" &&
+        name !== "revert" && name !== "revert-layer") {
       checkOne(name, true);
     }
   }

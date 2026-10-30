@@ -12,4 +12,9 @@ TESTING_JS_MODULES += [
 ]
 
 MOCHITEST_MANIFESTS += ['Harness_sanity/mochitest.ini']
+MOCHITEST_MANIFESTS += [
+    'manifest-prefs/a.ini',
+    'manifest-prefs/b.ini',
+    'manifest-prefs/c.ini',
+]
 BROWSER_CHROME_MANIFESTS += ['browser/browser.ini']

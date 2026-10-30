@@ -55,6 +55,7 @@ TEST_HARNESS_FILES.testing.mochitest += [
     'mach_test_package_commands.py',
     'manifest.webapp',
     'manifestLibrary.js',
+    'manifestprefs.py',
     'mochitest_options.py',
     'nested_setup.js',
     'pywebsocket_wrapper.py',

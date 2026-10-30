@@ -36,6 +36,7 @@ import urllib.request, urllib.error, urllib.parse
 import uuid
 import zipfile
 import bisection
+from manifestprefs import manifest_test_groups
 
 from datetime import datetime
 from manifestparser import TestManifest
@@ -787,6 +788,7 @@ class MochitestDesktop(object):
         self.websocketProcessBridge = None
         self.sslTunnel = None
         self._active_tests = None
+        self._current_manifest = None
         self._locations = None
 
         self.marionette = None
@@ -1050,6 +1052,9 @@ class MochitestDesktop(object):
         tests = self.getActiveTests(options, disabled)
         paths = []
         for test in tests:
+            if (self._current_manifest is not None and
+                    test['manifest'] != self._current_manifest):
+                continue
             if testsToFilter and (test['path'] not in testsToFilter):
                 continue
             paths.append(test)
@@ -1386,7 +1391,8 @@ toolbar#nav-bar {
                     (test['name'], test['manifest']))
                 continue
 
-            testob = {'path': tp}
+            testob = {'path': tp, 'manifest': test['manifest'],
+                      'prefs': test.get('prefs', '')}
             if 'disabled' in test:
                 testob['disabled'] = test['disabled']
             if 'expected' in test:
@@ -2201,15 +2207,24 @@ toolbar#nav-bar {
         # jobs, not jetpack*, a11yr (for perf reasons), or plain
 
         testsToRun = self.getTestsToRun(options)
+        try:
+            groups = manifest_test_groups(self.getActiveTests(options), testsToRun)
+        except ValueError as error:
+            self.log.error(str(error))
+            return 1
+        if any(group[2] for group in groups):
+            options.runByDir = True
         if not options.runByDir:
             return self.runMochitests(options, testsToRun)
 
         # code for --run-by-dir
-        dirs = self.getDirectories(options)
-
         result = 1  # default value, if no tests are run.
-        for d in dirs:
-            print("dir: %s" % d)
+        overallResult = 0
+        originalPrefs = options.extraPrefs[:]
+        for d, manifest, prefs, tests_in_dir in groups:
+            print("manifest: %s (dir: %s)" % (manifest, d))
+            self._current_manifest = manifest
+            options.extraPrefs = originalPrefs + list(prefs)
 
             # BEGIN LEAKCHECK HACK
             # Leak checking was broken in mochitest unnoticed for a length of time. During
@@ -2234,12 +2249,16 @@ toolbar#nav-bar {
 
             # END LEAKCHECK HACK
 
-            tests_in_dir = [t for t in testsToRun if os.path.dirname(t) == d]
-
             # If we are using --run-by-dir, we should not use the profile path (if) provided
             # by the user, since we need to create a new directory for each run. We would face
             # problems if we use the directory provided by the user.
-            result = self.runMochitests(options, tests_in_dir)
+            try:
+                result = self.runMochitests(options, tests_in_dir)
+            finally:
+                options.extraPrefs = originalPrefs[:]
+                self._current_manifest = None
+            if result:
+                overallResult = result
 
             # Dump the logging buffer
             self.message_logger.dump_buffered()
@@ -2266,7 +2285,7 @@ toolbar#nav-bar {
             print("4 INFO Mode:    %s" % e10s_mode)
             print("5 INFO SimpleTest FINISHED")
 
-        return result
+        return overallResult or result
 
     def doTests(self, options, testsToFilter=None):
         # A call to initializeLooping method is required in case of --run-by-dir or --bisect-chunk

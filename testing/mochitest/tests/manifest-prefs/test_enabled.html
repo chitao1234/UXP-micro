@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Manifest preferences are installed</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+ok(SpecialPowers.getBoolPref("test.manifestprefs"), "manifest boolean pref");
+is(SpecialPowers.getCharPref("test.manifestprefs.string"), "two words",
+   "manifest string prefs preserve spaces");
+</script>
