@@ -6,7 +6,10 @@
 #include "vm/DateTime.h"
 
 #include "mozilla/Atomics.h"
+#include "mozilla/UniquePtr.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <time.h>
 
 #include "jsutil.h"
@@ -330,24 +333,47 @@ JS::ResetTimeZone()
 {
     js::DateTimeInfo::updateTimeZoneAdjustment();
 
-#if defined(ICU_TZ_HAS_RECREATE_DEFAULT)
     TZInfo.acquire();
     TZInfo.status = IcuTimeZoneInfo::NeedsUpdate;
     TZInfo.release();
+}
+
+static icu::TimeZone*
+DetectDefaultTimeZone()
+{
+#if defined(XP_WIN)
+    // ICU reads the Windows system zone, but the CRT functions used by Date
+    // honor TZ. As in Firefox 78, accept only names whose IANA rules also match
+    // the restricted Windows TZ syntax (including its U.S. DST rules).
+    static const char* const compatibleIds[] = {
+        "EST5EDT", "CST6CDT", "MST7MDT", "PST8PDT",
+        "GMT+0", "GMT-0", "GMT0", "UCT", "UTC", "GMT"
+    };
+    if (const char* tz = std::getenv("TZ")) {
+        for (const char* id : compatibleIds) {
+            if (std::strcmp(tz, id) != 0)
+                continue;
+
+            mozilla::UniquePtr<icu::TimeZone> zone(
+                icu::TimeZone::createTimeZone(icu::UnicodeString(tz, -1, US_INV)));
+            if (zone && *zone != icu::TimeZone::getUnknown())
+                return zone.release();
+            break;
+        }
+    }
 #endif
+    return icu::TimeZone::detectHostTimeZone();
 }
 
 void
 js::ResyncICUDefaultTimeZone()
 {
-#if defined(ICU_TZ_HAS_RECREATE_DEFAULT)
     TZInfo.acquire();
     if (TZInfo.status == IcuTimeZoneInfo::NeedsUpdate) {
-        if (icu::TimeZone *defaultZone = icu::TimeZone::detectHostTimeZone()) {
+        if (icu::TimeZone* defaultZone = DetectDefaultTimeZone()) {
             icu::TimeZone::adoptDefault(defaultZone);
             TZInfo.status = IcuTimeZoneInfo::Valid;
         }
     }
     TZInfo.release();
-#endif
 }
