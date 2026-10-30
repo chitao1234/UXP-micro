@@ -965,12 +965,13 @@ static bool AssignFromLocaleId(JSContext* cx, LocaleId& localeId,
   if (localeId[0] == '\0' || localeId[0] == '-') {
     static constexpr char und[] = "und";
     size_t length = strlen(und);
+    size_t originalLength = localeId.length();
 
     // Insert "und" in front of the locale ID.
     if (!localeId.growBy(length)) {
       return false;
     }
-    memmove(localeId.begin() + length, localeId.begin(), localeId.length());
+    memmove(localeId.begin() + length, localeId.begin(), originalLength);
     memmove(localeId.begin(), und, length);
   }
 
