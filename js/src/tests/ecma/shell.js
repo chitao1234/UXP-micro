@@ -233,28 +233,18 @@ function InLeapYear( t ) {
 }
 function YearFromTime( t ) {
   t = Number( t );
-  var sign = ( t < 0 ) ? -1 : 1;
-  var year = ( sign < 0 ) ? 1969 : 1970;
-  for ( var timeToTimeZero = t; ;  ) {
-    // subtract the current year's time from the time that's left.
-    timeToTimeZero -= sign * TimeInYear(year)
+  if (!isFinite(t))
+    return NaN;
 
-      // if there's less than the current year's worth of time left, then break.
-      if ( sign < 0 ) {
-        if ( sign * timeToTimeZero <= 0 ) {
-          break;
-        } else {
-          year += sign;
-        }
-      } else {
-        if ( sign * timeToTimeZero < 0 ) {
-          break;
-        } else {
-          year += sign;
-        }
-      }
-  }
-  return ( year );
+  // Estimate using the Gregorian 400-year cycle, then use the independent
+  // calendar arithmetic above to find the exact interval. Walking from 1970
+  // for every lookup made year-zero tests time out in the interpreter.
+  var year = 1970 + Math.floor(t / (146097 * msPerDay / 400));
+  while (TimeFromYear(year) > t)
+    --year;
+  while (TimeFromYear(year + 1) <= t)
+    ++year;
+  return year;
 }
 function MonthFromTime( t ) {
   // i know i could use switch but i'd rather not until it's part of ECMA
