@@ -8746,18 +8746,13 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
   {
     const nsCSSPropertyID* subprops =
       nsCSSProps::SubpropertyEntryFor(eCSSProperty_border_radius);
-    const float RADIUS_MAX = 17895697; // CSS length clamp value
     NS_FOR_CSS_FULL_CORNERS(corner) {
       int cx = FullToHalfCorner(corner, false);
       int cy = FullToHalfCorner(corner, true);
-      nsCSSValue radius = *aRuleData->ValueFor(subprops[corner]);
+      const nsCSSValue& radius = *aRuleData->ValueFor(subprops[corner]);
       nsStyleCoord parentX = parentBorder->mBorderRadius.Get(cx);
       nsStyleCoord parentY = parentBorder->mBorderRadius.Get(cy);
       nsStyleCoord coordX, coordY;
-      // Clamp border radius to the max value so it will not wrap and cause artifacts.
-      if (radius.GetFloatValue() > RADIUS_MAX) {
-        radius.SetFloatValue(RADIUS_MAX, eCSSUnit_Number);
-      }
       if (SetPairCoords(radius, coordX, coordY, parentX, parentY,
                         SETCOORD_LPH | SETCOORD_INITIAL_ZERO |
                           SETCOORD_STORE_CALC | SETCOORD_UNSET_INITIAL,
@@ -10564,10 +10559,9 @@ nsRuleNode::ComputeSVGData(void* aStartStruct,
   } else if (eCSSUnit_None == markerStartValue->GetUnit() ||
              eCSSUnit_Initial == markerStartValue->GetUnit()) {
     svg->mMarkerStart = nullptr;
-  } else if (eCSSUnit_Inherit == markerStartValue->GetUnit()) {
-
   } else if (eCSSUnit_Inherit == markerStartValue->GetUnit() ||
-             eCSSUnit_Unset == markerStartValue->GetUnit()) {
+             eCSSUnit_Unset == markerStartValue->GetUnit() ||
+             eCSSUnit_Revert == markerStartValue->GetUnit()) {
     conditions.SetUncacheable();
     svg->mMarkerStart = parentSVG->mMarkerStart;
   }

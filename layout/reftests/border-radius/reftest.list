@@ -33,6 +33,7 @@ fuzzy-if(gtkWidget,3,10) fuzzy-if(winWidget&&!d2d,3,10) fuzzy-if(d2d,15,32) fuzz
 fuzzy-if(skiaContent,1,2728) == corner-4.html corner-4-ref.svg
 
 # Test that radii too long are reduced
+== huge-radius.html huge-radius-ref.html
 == border-reduce-height.html border-reduce-height-ref.html
 
 # Tests for border clipping

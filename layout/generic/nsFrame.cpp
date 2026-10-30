@@ -1289,7 +1289,9 @@ nsIFrame::ComputeBorderRadii(const nsStyleCorners& aBorderRadius,
     uint32_t hc2 = SideToHalfCorner(side, true, true);
     nscoord length =
       SideIsVertical(side) ? aBorderArea.height : aBorderArea.width;
-    nscoord sum = aRadii[hc1] + aRadii[hc2];
+    // Each radius can saturate at nscoord_MAX. Their sum must not wrap
+    // before the CSS overlap-reduction algorithm computes its scale.
+    int64_t sum = int64_t(aRadii[hc1]) + aRadii[hc2];
     if (sum)
       haveRadius = true;
 

@@ -1,0 +1,108 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test explicit SVG marker inheritance and rule-tree cache dependencies</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+  <style id="marker-rules">
+    .marker-child { marker: url(#cached-child); }
+  </style>
+</head>
+<body>
+<div id="display"></div>
+<script>
+const sheet = document.getElementById("marker-rules").sheet;
+const overrideRule = sheet.cssRules[sheet.insertRule(".marker-child {}",
+                                                    sheet.cssRules.length)];
+const markerProperties = ["marker-start", "marker-mid", "marker-end"];
+
+function checkMarkers(element, expectedParent, all, description) {
+  const cs = getComputedStyle(element);
+  const parentStyle = getComputedStyle(expectedParent);
+  for (const property of markerProperties) {
+    if (all || property == "marker-start") {
+      is(cs.getPropertyValue(property), parentStyle.getPropertyValue(property),
+         description + ": " + property + " inherits the correct parent URL");
+    } else {
+      ok(cs.getPropertyValue(property).includes("#cached-child"),
+         description + ": " + property + " retains the child declaration");
+    }
+  }
+}
+
+for (const hidden of [false, true]) {
+  const fixture = document.createElement("div");
+  fixture.style.display = hidden ? "none" : "block";
+  document.getElementById("display").appendChild(fixture);
+  const parents = [];
+  const mode = hidden ? "without frames" : "with frames";
+
+  for (const suffix of ["a", "b"]) {
+    const parent = document.createElement("div");
+    parent.style.marker = "url(#parent-" + suffix + ")";
+    fixture.appendChild(parent);
+    parents.push(parent);
+    ok(getComputedStyle(parent).markerStart.includes("#parent-" + suffix),
+       mode + ": parent " + suffix + " has its distinct marker URL");
+    for (let i = 0; i < 2; i++) {
+      const child = document.createElement("span");
+      child.className = "marker-child";
+      child.textContent = "marker";
+      parent.appendChild(child);
+    }
+    is(parent.children[0].getClientRects().length > 0, !hidden,
+       mode + ": child frame setup matches the test mode");
+  }
+
+  for (const keyword of ["inherit", "unset", "revert"]) {
+    // Compute a non-default child value first, so explicit inheritance must
+    // replace cached data rather than succeeding through default initialization.
+    overrideRule.style.cssText = "";
+    for (const parent of parents) {
+      for (const child of parent.children) {
+        ok(getComputedStyle(child).markerStart.includes("#cached-child"),
+           mode + ": warm non-default marker before " + keyword);
+      }
+    }
+
+    overrideRule.style.setProperty("marker-start", keyword);
+    for (const parent of parents) {
+      for (const child of parent.children) {
+        checkMarkers(child, parent, false, mode + ", " + keyword);
+      }
+    }
+
+    // Children matching the same rule must not reuse inheritance from another
+    // parent, and their computed values must follow later parent changes.
+    parents[0].style.marker = "url(#parent-a-changed)";
+    ok(getComputedStyle(parents[0]).markerStart.includes("#parent-a-changed"),
+       mode + ": parent marker mutation takes effect");
+    for (const parent of parents) {
+      for (const child of parent.children) {
+        checkMarkers(child, parent, false,
+                     mode + ", " + keyword + " after parent mutation");
+      }
+    }
+    parents[0].style.marker = "url(#parent-a)";
+  }
+
+  overrideRule.style.cssText = "";
+  for (const parent of parents) {
+    for (const child of parent.children) {
+      ok(getComputedStyle(child).markerStart.includes("#cached-child"),
+         mode + ": warm non-default marker before shorthand inherit");
+    }
+  }
+  overrideRule.style.setProperty("marker", "inherit");
+  for (const parent of parents) {
+    for (const child of parent.children) {
+      checkMarkers(child, parent, true, mode + ", marker: inherit");
+    }
+  }
+  overrideRule.style.cssText = "";
+  fixture.remove();
+}
+</script>
+</body>
+</html>

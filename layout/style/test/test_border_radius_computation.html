@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Border radius computation preserves typed values</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="parent"><div id="target"></div></div>
+<script>
+const parentElement = document.getElementById("parent");
+const target = document.getElementById("target");
+const corners = ["borderTopLeftRadius", "borderTopRightRadius",
+                 "borderBottomRightRadius", "borderBottomLeftRadius"];
+
+for (const [specified, expected] of [
+  ["5px 3px", "5px 3px"],
+  ["10% 20%", "10% 20%"],
+  ["calc(2px + 3px)", "5px"],
+  ["calc(-2px)", "0px"],
+  ["inherit", "7px 11px"],
+  ["initial", "0px"],
+  ["unset", "0px"],
+]) {
+  parentElement.style.borderRadius = "7px / 11px";
+  target.style.borderRadius = "";
+  for (const corner of corners) {
+    target.style[corner] = specified;
+  }
+  const computed = getComputedStyle(target);
+  for (const corner of corners) {
+    is(computed[corner], expected, corner + " computes " + specified);
+  }
+}
+
+// A specified length above the app-unit limit must saturate as a length,
+// rather than becoming an invalid unitless number or reverting to zero.
+for (const specified of ["20000000px", "1000000000em"]) {
+  target.style.borderRadius = specified;
+  for (const corner of corners) {
+    const computed = getComputedStyle(target)[corner];
+    ok(/px$/.test(computed) && parseFloat(computed) > 17000000 &&
+       parseFloat(computed) < 18000000,
+       corner + " saturates the large length " + specified + ": " + computed);
+  }
+}
+
+// Percentages retain their unit and do not use the absolute-length limit.
+target.style.borderRadius = "2000000000%";
+for (const corner of corners) {
+  const computed = getComputedStyle(target)[corner];
+  ok(/%$/.test(computed) && parseFloat(computed) == 2000000000,
+     corner + " preserves a large percentage: " + computed);
+}
+</script>
