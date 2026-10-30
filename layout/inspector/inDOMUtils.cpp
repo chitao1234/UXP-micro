@@ -742,6 +742,13 @@ PropertySupportsVariant(nsCSSPropertyID aPropertyID, uint32_t aVariant)
     return false;
   }
 
+  // Opacity accepts percentages even though it serializes and computes as a
+  // number.  Keep cssPropertySupportsType in sync with the parser's input types.
+  if ((aVariant & VARIANT_PERCENT) &&
+      (nsCSSProps::ParserVariant(aPropertyID) & VARIANT_OPACITY)) {
+    return true;
+  }
+
   // Properties that are parsed by functions must have their
   // attributes hand-maintained here.
   if (nsCSSProps::PropHasFlags(aPropertyID, CSS_PROPERTY_VALUE_PARSER_FUNCTION) ||
@@ -753,6 +760,10 @@ PropertySupportsVariant(nsCSSPropertyID aPropertyID, uint32_t aVariant)
       case eCSSProperty_grid_template:
       case eCSSProperty_grid:
         supported = VARIANT_PN;
+        break;
+
+      case eCSSProperty_aspect_ratio:
+        supported = VARIANT_NUMBER;
         break;
 
       case eCSSProperty_border_image_outset:
@@ -768,6 +779,10 @@ PropertySupportsVariant(nsCSSPropertyID aPropertyID, uint32_t aVariant)
       case eCSSProperty_border_top_right_radius:
       case eCSSProperty_border_bottom_left_radius:
       case eCSSProperty_border_bottom_right_radius:
+      case eCSSProperty_border_end_end_radius:
+      case eCSSProperty_border_end_start_radius:
+      case eCSSProperty_border_start_end_radius:
+      case eCSSProperty_border_start_start_radius:
       case eCSSProperty_background_position:
       case eCSSProperty_background_position_x:
       case eCSSProperty_background_position_y:
