@@ -420,169 +420,89 @@ bool js::intl::LanguageTag::performVariantMappings(JSContext* cx) {
 """.strip("\n"))
 
 
-def writeGrandfatheredMappingsFunction(println, grandfathered_mappings,
-                                       description, source, url):
-    """ Writes a function definition that maps grandfathered language tags. """
+def writeMultiSubtagMappings(println, mappings, description, source, url):
+    """Emit CLDR languageAlias rules containing script, region or variants."""
     println("")
     writeMappingHeader(println, description, source, url)
-    println("""\
-bool js::intl::LanguageTag::updateGrandfatheredMappings(JSContext* cx) {
-  // We're mapping regular grandfathered tags to non-grandfathered form here.
-  // Other tags remain unchanged.
-  //
-  // regular       = "art-lojban"
-  //               / "cel-gaulish"
-  //               / "no-bok"
-  //               / "no-nyn"
-  //               / "zh-guoyu"
-  //               / "zh-hakka"
-  //               / "zh-min"
-  //               / "zh-min-nan"
-  //               / "zh-xiang"
-  //
-  // Therefore we can quickly exclude most tags by checking every
-  // |unicode_locale_id| subcomponent for characteristics not shared by any of
-  // the regular grandfathered (RG) tags:
-  //
-  //   * Real-world |unicode_language_subtag|s are all two or three letters,
-  //     so don't waste time running a useless |language.length > 3| fast-path.
-  //   * No RG tag has a "script"-looking component.
-  //   * No RG tag has a "region"-looking component.
-  //   * The RG tags that match |unicode_locale_id| (art-lojban, cel-gaulish,
-  //     zh-guoyu, zh-hakka, zh-xiang) have exactly one "variant". (no-bok,
-  //     no-nyn, zh-min, and zh-min-nan require BCP47's extlang subtag
-  //     that |unicode_locale_id| doesn't support.)
-  //   * No RG tag contains |extensions| or |pu_extensions|.
-  if (script().present() ||
-      region().present() ||
-      variants().length() != 1 ||
-      extensions().length() != 0 ||
-      privateuse()) {
-    return true;
-  }
-
-  MOZ_ASSERT(IsCanonicallyCasedLanguageTag(language().span()));
-  MOZ_ASSERT(IsCanonicallyCasedVariantTag(mozilla::MakeCStringSpan(variants()[0].get())));
-
-  auto variantEqualTo = [this](const char* variant) {
-    return strcmp(variants()[0].get(), variant) == 0;
-  };""")
-
-    # From Unicode BCP 47 locale identifier <https://unicode.org/reports/tr35/>.
-    #
-    # Doesn't allow any 'extensions' subtags.
-    re_unicode_locale_id = re.compile(
-        r"""
-        ^
-        # unicode_language_id = unicode_language_subtag
-        #     unicode_language_subtag = alpha{2,3} | alpha{5,8}
-        (?P<language>[a-z]{2,3}|[a-z]{5,8})
-
-        # (sep unicode_script_subtag)?
-        #     unicode_script_subtag = alpha{4}
-        (?:-(?P<script>[a-z]{4}))?
-
-        # (sep unicode_region_subtag)?
-        #     unicode_region_subtag = (alpha{2} | digit{3})
-        (?:-(?P<region>([a-z]{2}|[0-9]{3})))?
-
-        # (sep unicode_variant_subtag)*
-        #     unicode_variant_subtag = (alphanum{5,8} | digit alphanum{3})
-        (?P<variants>(-([a-z0-9]{5,8}|[0-9][a-z0-9]{3}))+)?
-
-        # pu_extensions?
-        #     pu_extensions = sep [xX] (sep alphanum{1,8})+
-        (?:-(?P<privateuse>x(-[a-z0-9]{1,8})+))?
-        $
-        """, re.IGNORECASE | re.VERBOSE)
-
-    is_first = True
-
-    for (tag, modern) in sorted(list(grandfathered_mappings.items()), key=itemgetter(0)):
-        tag_match = re_unicode_locale_id.match(tag)
-        assert tag_match is not None
-
-        tag_language = tag_match.group("language")
-        assert tag_match.group("script") is None, (
-               "{} does not contain a script subtag".format(tag))
-        assert tag_match.group("region") is None, (
-               "{} does not contain a region subtag".format(tag))
-        tag_variants = tag_match.group("variants")
-        assert tag_variants is not None, (
-               "{} contains a variant subtag".format(tag))
-        assert tag_match.group("privateuse") is None, (
-               "{} does not contain a privateuse subtag".format(tag))
-
-        tag_variant = tag_variants[1:]
-        assert "-" not in tag_variant, (
-               "{} contains only a single variant".format(tag))
-
-        modern_match = re_unicode_locale_id.match(modern)
-        assert modern_match is not None
-
-        modern_language = modern_match.group("language")
-        modern_script = modern_match.group("script")
-        modern_region = modern_match.group("region")
-        modern_variants = modern_match.group("variants")
-        modern_privateuse = modern_match.group("privateuse")
-
-        println("""
-  // {} -> {}
-""".format(tag, modern).rstrip())
-
-        println("""
-  {}if (language().equalTo("{}") && variantEqualTo("{}")) {{
-        """.format("" if is_first else "else ",
-                   tag_language,
-                   tag_variant).rstrip().strip("\n"))
-
-        is_first = False
-
-        println("""
-    setLanguage("{}");
-        """.format(modern_language).rstrip().strip("\n"))
-
-        if modern_script is not None:
-            println("""
-    setScript("{}");
-            """.format(modern_script).rstrip().strip("\n"))
-
-        if modern_region is not None:
-            println("""
-    setRegion("{}");
-            """.format(modern_region).rstrip().strip("\n"))
-
-        assert modern_variants is None, (
-            "all regular grandfathered tags' modern forms do not contain variant subtags")
-
-        println("""
-    clearVariants();
-        """.rstrip().strip("\n"))
-
-        if modern_privateuse is not None:
-            println("""
-    auto privateuse = DuplicateString(cx, "{}");
-    if (!privateuse) {{
-      return false;
-    }}
-    setPrivateuse(std::move(privateuse));
-        """.format(modern_privateuse).rstrip().rstrip("\n"))
-
-        println("""
-    return true;
-  }""".rstrip().strip("\n"))
-
+    println("""bool js::intl::LanguageTag::performMultiSubtagMappings(JSContext* cx) {
+  // Most identifiers cannot match a multi-subtag alias.
+""".rstrip())
+    nonvariant_languages = sorted({tag[0] for tag in mappings if not tag[3]})
+    if "und" not in nonvariant_languages:
+        exclusions = " && ".join('!language().equalTo("{}")'.format(language)
+                                 for language in nonvariant_languages)
+        println("  if (variants_.empty(){}{})".format(" && " if exclusions else "", exclusions))
+        println("    return true;")
     println("""
-  return true;
-}""")
+  auto findVariant = [this](const char* variant) {
+    return std::lower_bound(variants_.begin(), variants_.end(), variant,
+                            IsLessThan<decltype(variants_)::ElementType, const char*>);
+  };
+  auto hasVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    return p != variants_.end() && strcmp(p->get(), variant) == 0;
+  };
+  auto removeVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    MOZ_ASSERT(p != variants_.end() && strcmp(p->get(), variant) == 0);
+    variants_.erase(p);
+  };
+  auto addVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    if (p != variants_.end() && strcmp(p->get(), variant) == 0)
+      return true;
+    auto replacement = DuplicateString(cx, variant);
+    return replacement && variants_.insert(p, std::move(replacement));
+  };
+
+  // More specific rules precede wildcard rules. After replacement, restart
+  // matching as required by UTS 35 Annex C. Other fields/extensions survive.
+  for (;;) {""")
+
+    def order(tag):
+        language, script, region, variants = tag
+        return (-(int(language != "und") + bool(script) + bool(region) + len(variants)),
+                language == "und", language, script or "", region or "", variants)
+
+    for tag in sorted(mappings, key=order):
+        language, script, region, variants = tag
+        new_language, new_script, new_region, new_variants = mappings[tag]
+        checks = []
+        if language != "und":
+            checks.append('language().equalTo("{}")'.format(language))
+        if script:
+            checks.append('script().equalTo("{}")'.format(script))
+        if region:
+            checks.append('region().equalTo("{}")'.format(region))
+        checks.extend('hasVariant("{}")'.format(variant) for variant in variants)
+        assert checks and tag != mappings[tag], "non-progressing alias rule"
+        println("    if ({}) {{".format(" && ".join(checks)))
+        if language != "und" or new_language != "und":
+            println('      setLanguage("{}");'.format(new_language))
+        for name, before, after in (("Script", script, new_script), ("Region", region, new_region)):
+            if before:
+                if after:
+                    println('      set{}("{}");'.format(name, after))
+                else:
+                    println('      {}_.set(mozilla::Span<const char>());'.format(name.lower()))
+            elif after:
+                println('      if ({}().missing())'.format(name.lower()))
+                println('        set{}("{}");'.format(name, after))
+        for variant in variants:
+            println('      removeVariant("{}");'.format(variant))
+        for variant in new_variants:
+            println('      if (!addVariant("{}"))'.format(variant))
+            println('        return false;')
+        println("      continue;\n    }")
+    println("    return true;\n  }\n}")
+
 
 
 def readSupplementalData(core_file):
     """ Reads CLDR Supplemental Data and extracts information for Intl.js.
 
         Information extracted:
-        - grandfatheredMappings: mappings from grandfathered tags to preferred
-          complete language tags
+        - multiSubtagMappings: language alias patterns with multiple subtags
         - languageMappings: mappings from language subtags to preferred subtags
         - complexLanguageMappings: mappings from language subtags with complex rules
         - regionMappings: mappings from region subtags to preferred subtags
@@ -639,40 +559,6 @@ def readSupplementalData(core_file):
         $
         """, re.IGNORECASE | re.VERBOSE)
 
-    # The fixed list of BCP 47 grandfathered language tags.
-    grandfathered_tags = (
-        "art-lojban",
-        "cel-gaulish",
-        "en-GB-oed",
-        "i-ami",
-        "i-bnn",
-        "i-default",
-        "i-enochian",
-        "i-hak",
-        "i-klingon",
-        "i-lux",
-        "i-mingo",
-        "i-navajo",
-        "i-pwn",
-        "i-tao",
-        "i-tay",
-        "i-tsu",
-        "no-bok",
-        "no-nyn",
-        "sgn-BE-FR",
-        "sgn-BE-NL",
-        "sgn-CH-DE",
-        "zh-guoyu",
-        "zh-hakka",
-        "zh-min",
-        "zh-min-nan",
-        "zh-xiang",
-    )
-
-    # The list of grandfathered tags which are valid Unicode BCP 47 locale identifiers.
-    unicode_bcp47_grandfathered_tags = {tag for tag in grandfathered_tags
-                                        if re_unicode_language_id.match(tag)}
-
     # Dictionary of simple language subtag mappings, e.g. "in" -> "id".
     language_mappings = {}
 
@@ -692,8 +578,8 @@ def readSupplementalData(core_file):
     # "aaland" -> ("region", "AX") or "heploc" -> ("variant", "alalc97").
     variant_mappings = {}
 
-    # Dictionary of grandfathered mappings to preferred values.
-    grandfathered_mappings = {}
+    # Multi-subtag language aliases, including wildcard "und" variant rules.
+    multi_subtag_mappings = {}
 
     # CLDR uses "_" as the separator for some elements. Replace it with "-".
     def bcp47_id(cldr_id):
@@ -713,13 +599,26 @@ def readSupplementalData(core_file):
 
     tree = ET.parse(core_file.open("common/supplemental/supplementalMetadata.xml"))
 
+    def parsed_alias(match):
+        language, script, region = bcp47_canonical(match.group("language"),
+                                                   match.group("script"),
+                                                   match.group("region"))
+        variants = tuple(sorted((match.group("variants") or "").lower().split("-")[1:]))
+        return (language, script, region, variants)
+
     for language_alias in tree.iterfind(".//languageAlias"):
         type = bcp47_id(language_alias.get("type"))
         replacement = bcp47_id(language_alias.get("replacement"))
 
-        # Handle grandfathered mappings first.
-        if type in unicode_bcp47_grandfathered_tags:
-            grandfathered_mappings[type] = replacement
+        # CLDR moved legacy variant replacements into languageAlias rules.
+        # Only accept rules whose input is a valid Unicode language identifier;
+        # irregular grandfathered/extlang forms remain rejected by the parser.
+        type_match = re_unicode_language_id.match(type)
+        if type_match and (type_match.group("script") or type_match.group("region") or
+                           type_match.group("variants")):
+            replacement_match = re_unicode_language_id.match(replacement)
+            assert replacement_match is not None, "invalid alias replacement: {}".format(replacement)
+            multi_subtag_mappings[parsed_alias(type_match)] = parsed_alias(replacement_match)
             continue
 
         # We're only interested in language subtag matches, so ignore any
@@ -857,7 +756,7 @@ def readSupplementalData(core_file):
         else:
             region_mappings[deprecated_region] = default
 
-    return {"grandfatheredMappings": grandfathered_mappings,
+    return {"multiSubtagMappings": multi_subtag_mappings,
             "languageMappings": language_mappings,
             "complexLanguageMappings": complex_language_mappings,
             "regionMappings": region_mappings,
@@ -1131,7 +1030,7 @@ static bool IsCanonicallyCasedTransformType(mozilla::Span<const char> type) {
 """.rstrip())
 
     source = "CLDR Supplemental Data, version {}".format(data["version"])
-    grandfathered_mappings = data["grandfatheredMappings"]
+    multi_subtag_mappings = data["multiSubtagMappings"]
     language_mappings = data["languageMappings"]
     complex_language_mappings = data["complexLanguageMappings"]
     region_mappings = data["regionMappings"]
@@ -1179,9 +1078,8 @@ static bool IsCanonicallyCasedTransformType(mozilla::Span<const char> type) {
     writeVariantTagMappings(println, variant_mappings,
                             "Mappings from variant subtags to preferred values.", source, url)
 
-    writeGrandfatheredMappingsFunction(println, grandfathered_mappings,
-                                       "Canonicalize grandfathered locale identifiers.", source,
-                                       url)
+    writeMultiSubtagMappings(println, multi_subtag_mappings,
+                             "Language alias rules with multiple subtags.", source, url)
 
     writeUnicodeExtensionsMappings(println, unicode_mappings, "Unicode")
     writeUnicodeExtensionsMappings(println, transform_mappings, "Transform")

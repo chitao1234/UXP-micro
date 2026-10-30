@@ -222,7 +222,7 @@ class MOZ_STACK_CLASS LanguageTag final {
   void performComplexRegionMappings();
   [[nodiscard]] bool performVariantMappings(JSContext* cx);
 
-  [[nodiscard]] bool updateGrandfatheredMappings(JSContext* cx);
+  [[nodiscard]] bool performMultiSubtagMappings(JSContext* cx);
 
   static const char* replaceTransformExtensionType(
       mozilla::Span<const char> key, mozilla::Span<const char> type);

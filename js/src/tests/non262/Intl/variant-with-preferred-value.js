@@ -21,10 +21,9 @@ const languageTags = {
     "hy-arevmda-fonipa": "hyw-fonipa",
     "hy-fonipa-arevmda": "hyw-fonipa",
 
-    // The preferred value of "ja-Latn-hepburn-heploc" is "ja-Latn-alalc97-hepburn" per CLDR.
-    // But: The preferred value of "ja-Latn-hepburn-heploc" is "ja-Latn-alalc97" per IANA!
-    "ja-Latn-hepburn-heploc": "ja-Latn-alalc97-hepburn",
-    "ja-Latn-JP-hepburn-heploc": "ja-Latn-JP-alalc97-hepburn",
+    // CLDR 48 matches and replaces both variants as a single languageAlias.
+    "ja-Latn-hepburn-heploc": "ja-Latn-alalc97",
+    "ja-Latn-JP-hepburn-heploc": "ja-Latn-JP-alalc97",
 
     // Variant subtag replacements not present in IANA.
     "sv-aaland": "sv-AX",
@@ -33,15 +32,15 @@ const languageTags = {
     // Additional cases when more variant subtags are present.
 
     // 1. The preferred variant is already present.
-    "ja-Latn-alalc97-hepburn-heploc": "ja-Latn-alalc97-hepburn",
-    "ja-Latn-hepburn-alalc97-heploc": "ja-Latn-alalc97-hepburn",
-    "ja-Latn-hepburn-heploc-alalc97": "ja-Latn-alalc97-hepburn",
+    "ja-Latn-alalc97-hepburn-heploc": "ja-Latn-alalc97",
+    "ja-Latn-hepburn-alalc97-heploc": "ja-Latn-alalc97",
+    "ja-Latn-hepburn-heploc-alalc97": "ja-Latn-alalc97",
 
     // 2. The variant subtags aren't in the expected order per IANA. (CLDR doesn't care
     //    about the order of variant subtags.)
-    "ja-Latn-heploc-hepburn": "ja-Latn-alalc97-hepburn",
+    "ja-Latn-heploc-hepburn": "ja-Latn-alalc97",
 
-    // 3. IANA expects both variant subtags to be present, CLDR only requires "heploc".
+    // 3. The individual heploc variant alias also works without hepburn.
     "ja-Latn-heploc": "ja-Latn-alalc97",
 
     // 4. Test for cases when the same variant subtag position needs to be checked more

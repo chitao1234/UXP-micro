@@ -338,10 +338,6 @@ bool LanguageTag::canonicalizeBaseName(JSContext* cx,
   // Replace deprecated language, region, and variant subtags with their
   // preferred mappings.
 
-  if (!updateGrandfatheredMappings(cx)) {
-    return false;
-  }
-
   // Replace deprecated language subtags with their preferred values.
   if (!languageMapping(language_) && complexLanguageMapping(language_)) {
     performComplexLanguageMappings();
@@ -354,6 +350,12 @@ bool LanguageTag::canonicalizeBaseName(JSContext* cx,
     if (!regionMapping(region_) && complexRegionMapping(region_)) {
       performComplexRegionMappings();
     }
+  }
+
+  // Match multi-subtag language aliases before individual variant aliases,
+  // so rules such as und-hepburn-heploc consume both matching variants.
+  if (!performMultiSubtagMappings(cx)) {
+    return false;
   }
 
   // Replace deprecated variant subtags with their preferred values.

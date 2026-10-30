@@ -47,5 +47,41 @@ class VariantAliases(unittest.TestCase):
                 self.read_alias(replacement)
 
 
+class MultiSubtagAliases(unittest.TestCase):
+    def read_rules(self, aliases):
+        with io.BytesIO() as data:
+            with ZipFile(data, 'w') as archive:
+                archive.writestr('common/supplemental/supplementalMetadata.xml',
+                                 '<supplementalData><metadata><alias>' +
+                                 ''.join('<languageAlias type="%s" replacement="%s"/>' % pair
+                                         for pair in aliases) +
+                                 '</alias></metadata></supplementalData>')
+                archive.writestr('common/supplemental/likelySubtags.xml',
+                                 '<supplementalData><likelySubtags/></supplementalData>')
+            data.seek(0)
+            with ZipFile(data) as archive:
+                return intl_data.readSupplementalData(archive)['multiSubtagMappings']
+
+    def test_wildcards_and_specific_languages_are_preserved(self):
+        rules = self.read_rules([('und_arevmda', 'und'), ('hy_arevmda', 'hyw'),
+                                 ('und_aaland', 'und_AX'), ('sgn_US', 'ase')])
+        self.assertEqual(rules[('und', None, None, ('aaland',))], ('und', None, 'AX', ()))
+        self.assertEqual(rules[('hy', None, None, ('arevmda',))], ('hyw', None, None, ()))
+        self.assertEqual(rules[('sgn', None, 'US', ())], ('ase', None, None, ()))
+        lines = []
+        intl_data.writeMultiSubtagMappings(lines.append, rules, 'test', 'test', 'test')
+        output = '\n'.join(lines)
+        self.assertLess(output.index('language().equalTo("hy") && hasVariant("arevmda")'),
+                        output.index('if (hasVariant("arevmda"))'))
+        self.assertIn('if (region().missing())', output)
+        self.assertIn('region_.set(mozilla::Span<const char>())', output)
+
+    def test_multi_variant_rule_and_invalid_language_forms(self):
+        rules = self.read_rules([('und_hepburn_heploc', 'und_alalc97'),
+                                 ('i_klingon', 'tlh'), ('zh_cmn', 'zh')])
+        self.assertEqual(rules, {('und', None, None, ('hepburn', 'heploc')):
+                                ('und', None, None, ('alalc97',))})
+
+
 if __name__ == '__main__':
     unittest.main()

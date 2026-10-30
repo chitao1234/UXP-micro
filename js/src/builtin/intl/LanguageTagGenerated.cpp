@@ -748,87 +748,225 @@ bool js::intl::LanguageTag::performVariantMappings(JSContext* cx) {
   return true;
 }
 
-// Canonicalize grandfathered locale identifiers.
+// Language alias rules with multiple subtags.
 // Derived from CLDR Supplemental Data, version 48.
 // https://unicode.org/Public/cldr/48/core.zip
-bool js::intl::LanguageTag::updateGrandfatheredMappings(JSContext* cx) {
-  // We're mapping regular grandfathered tags to non-grandfathered form here.
-  // Other tags remain unchanged.
-  //
-  // regular       = "art-lojban"
-  //               / "cel-gaulish"
-  //               / "no-bok"
-  //               / "no-nyn"
-  //               / "zh-guoyu"
-  //               / "zh-hakka"
-  //               / "zh-min"
-  //               / "zh-min-nan"
-  //               / "zh-xiang"
-  //
-  // Therefore we can quickly exclude most tags by checking every
-  // |unicode_locale_id| subcomponent for characteristics not shared by any of
-  // the regular grandfathered (RG) tags:
-  //
-  //   * Real-world |unicode_language_subtag|s are all two or three letters,
-  //     so don't waste time running a useless |language.length > 3| fast-path.
-  //   * No RG tag has a "script"-looking component.
-  //   * No RG tag has a "region"-looking component.
-  //   * The RG tags that match |unicode_locale_id| (art-lojban, cel-gaulish,
-  //     zh-guoyu, zh-hakka, zh-xiang) have exactly one "variant". (no-bok,
-  //     no-nyn, zh-min, and zh-min-nan require BCP47's extlang subtag
-  //     that |unicode_locale_id| doesn't support.)
-  //   * No RG tag contains |extensions| or |pu_extensions|.
-  if (script().present() ||
-      region().present() ||
-      variants().length() != 1 ||
-      extensions().length() != 0 ||
-      privateuse()) {
+bool js::intl::LanguageTag::performMultiSubtagMappings(JSContext* cx) {
+  // Most identifiers cannot match a multi-subtag alias.
+  if (variants_.empty() && !language().equalTo("sgn"))
     return true;
-  }
 
-  MOZ_ASSERT(IsCanonicallyCasedLanguageTag(language().span()));
-  MOZ_ASSERT(IsCanonicallyCasedVariantTag(mozilla::MakeCStringSpan(variants()[0].get())));
-
-  auto variantEqualTo = [this](const char* variant) {
-    return strcmp(variants()[0].get(), variant) == 0;
+  auto findVariant = [this](const char* variant) {
+    return std::lower_bound(variants_.begin(), variants_.end(), variant,
+                            IsLessThan<decltype(variants_)::ElementType, const char*>);
+  };
+  auto hasVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    return p != variants_.end() && strcmp(p->get(), variant) == 0;
+  };
+  auto removeVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    MOZ_ASSERT(p != variants_.end() && strcmp(p->get(), variant) == 0);
+    variants_.erase(p);
+  };
+  auto addVariant = [&](const char* variant) {
+    auto* p = findVariant(variant);
+    if (p != variants_.end() && strcmp(p->get(), variant) == 0)
+      return true;
+    auto replacement = DuplicateString(cx, variant);
+    return replacement && variants_.insert(p, std::move(replacement));
   };
 
-  // art-lojban -> jbo
-  if (language().equalTo("art") && variantEqualTo("lojban")) {
-    setLanguage("jbo");
-    clearVariants();
+  // More specific rules precede wildcard rules. After replacement, restart
+  // matching as required by UTS 35 Annex C. Other fields/extensions survive.
+  for (;;) {
+    if (language().equalTo("aa") && hasVariant("saaho")) {
+      setLanguage("ssy");
+      removeVariant("saaho");
+      continue;
+    }
+    if (language().equalTo("art") && hasVariant("lojban")) {
+      setLanguage("jbo");
+      removeVariant("lojban");
+      continue;
+    }
+    if (language().equalTo("cel") && hasVariant("gaulish")) {
+      setLanguage("xtg");
+      removeVariant("gaulish");
+      continue;
+    }
+    if (language().equalTo("hy") && hasVariant("arevmda")) {
+      setLanguage("hyw");
+      removeVariant("arevmda");
+      continue;
+    }
+    if (language().equalTo("no") && hasVariant("bokmal")) {
+      setLanguage("nb");
+      removeVariant("bokmal");
+      continue;
+    }
+    if (language().equalTo("no") && hasVariant("nynorsk")) {
+      setLanguage("nn");
+      removeVariant("nynorsk");
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("BR")) {
+      setLanguage("bzs");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("CO")) {
+      setLanguage("csn");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("DE")) {
+      setLanguage("gsg");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("DK")) {
+      setLanguage("dsl");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("ES")) {
+      setLanguage("ssp");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("FR")) {
+      setLanguage("fsl");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("GB")) {
+      setLanguage("bfi");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("GR")) {
+      setLanguage("gss");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("IE")) {
+      setLanguage("isg");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("IT")) {
+      setLanguage("ise");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("JP")) {
+      setLanguage("jsl");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("MX")) {
+      setLanguage("mfs");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("NI")) {
+      setLanguage("ncs");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("NL")) {
+      setLanguage("dse");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("NO")) {
+      setLanguage("nsi");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("PT")) {
+      setLanguage("psr");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("SE")) {
+      setLanguage("swl");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("US")) {
+      setLanguage("ase");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("sgn") && region().equalTo("ZA")) {
+      setLanguage("sfs");
+      region_.set(mozilla::Span<const char>());
+      continue;
+    }
+    if (language().equalTo("zh") && hasVariant("guoyu")) {
+      setLanguage("zh");
+      removeVariant("guoyu");
+      continue;
+    }
+    if (language().equalTo("zh") && hasVariant("hakka")) {
+      setLanguage("hak");
+      removeVariant("hakka");
+      continue;
+    }
+    if (language().equalTo("zh") && hasVariant("xiang")) {
+      setLanguage("hsn");
+      removeVariant("xiang");
+      continue;
+    }
+    if (hasVariant("hepburn") && hasVariant("heploc")) {
+      removeVariant("hepburn");
+      removeVariant("heploc");
+      if (!addVariant("alalc97"))
+        return false;
+      continue;
+    }
+    if (hasVariant("aaland")) {
+      if (region().missing())
+        setRegion("AX");
+      removeVariant("aaland");
+      continue;
+    }
+    if (hasVariant("arevela")) {
+      removeVariant("arevela");
+      continue;
+    }
+    if (hasVariant("arevmda")) {
+      removeVariant("arevmda");
+      continue;
+    }
+    if (hasVariant("bokmal")) {
+      removeVariant("bokmal");
+      continue;
+    }
+    if (hasVariant("hakka")) {
+      removeVariant("hakka");
+      continue;
+    }
+    if (hasVariant("lojban")) {
+      removeVariant("lojban");
+      continue;
+    }
+    if (hasVariant("nynorsk")) {
+      removeVariant("nynorsk");
+      continue;
+    }
+    if (hasVariant("saaho")) {
+      removeVariant("saaho");
+      continue;
+    }
+    if (hasVariant("xiang")) {
+      removeVariant("xiang");
+      continue;
+    }
     return true;
   }
-
-  // cel-gaulish -> xtg
-  else if (language().equalTo("cel") && variantEqualTo("gaulish")) {
-    setLanguage("xtg");
-    clearVariants();
-    return true;
-  }
-
-  // zh-guoyu -> zh
-  else if (language().equalTo("zh") && variantEqualTo("guoyu")) {
-    setLanguage("zh");
-    clearVariants();
-    return true;
-  }
-
-  // zh-hakka -> hak
-  else if (language().equalTo("zh") && variantEqualTo("hakka")) {
-    setLanguage("hak");
-    clearVariants();
-    return true;
-  }
-
-  // zh-xiang -> hsn
-  else if (language().equalTo("zh") && variantEqualTo("xiang")) {
-    setLanguage("hsn");
-    clearVariants();
-    return true;
-  }
-
-  return true;
 }
 
 template <size_t Length>

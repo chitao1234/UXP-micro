@@ -10,9 +10,11 @@
 //   Deprecated: 2009-07-29
 //   Preferred-Value: gsg
 //
-// CLDR doesn't contain these mappings. Make sure we follow CLDR instead of IANA.
+// CLDR 48 includes these multi-subtag language aliases too.
 
-assertEq(Intl.getCanonicalLocales("sgn-DE")[0], "sgn-DE");
+assertEq(Intl.getCanonicalLocales("sgn-DE")[0], "gsg");
+assertEq(Intl.getCanonicalLocales("sgn-Latn-DE")[0], "gsg-Latn");
+assertEq(Intl.getCanonicalLocales("sgn-AQ")[0], "sgn-AQ");
 
 if (typeof reportCompare === "function")
     reportCompare(true, true);
