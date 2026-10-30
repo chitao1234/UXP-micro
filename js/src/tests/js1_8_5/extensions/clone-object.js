@@ -54,12 +54,13 @@ function test() {
     b["\ud800 \udbff \udc00 \udfff"] = 2;
     check(b);
 
-    // An array's .length property is not enumerable, so it is not cloned.
+    // Array length is preserved, including trailing holes.
     b = Array(5);
     assertEq(b.length, 5);
     a = check(b);
-    assertEq(a.length, 0);
+    assertEq(a.length, 5);
 
+    b = Array(0);
     b[1] = "ok";
     a = check(b);
     assertEq(a.length, 2);

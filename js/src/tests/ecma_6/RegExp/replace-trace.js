@@ -102,7 +102,8 @@ assertEq(log,
          "get:exec,call:exec," +
          "get:result[0]," +
          "get:exec,call:exec," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace global with empty match.
 reset();
@@ -120,7 +121,8 @@ assertEq(log,
          "get:result[0]," +
          "get:lastIndex,set:lastIndex," +
          "get:exec,call:exec," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace global and unicode with empty match.
 // 1. not surrogate pair
@@ -159,10 +161,15 @@ assertEq(log,
          "get:lastIndex,set:lastIndex," +
          "get:exec,call:exec," +
          "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups]," +
          "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups]," +
          "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups]," +
          "get:result[length],get:result[0],get:result[index]," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[groups]," +
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace global with captures and substitutions.
 reset();
@@ -180,7 +187,8 @@ assertEq(log,
          "get:result[0]," +
          "get:exec,call:exec," +
          "get:result[length],get:result[0],get:result[index]," +
-         "get:result[1],get:result[2],");
+         "get:result[1],get:result[2]," +
+         "get:result[groups],");
 
 // Trace global with empty match and captures and substitutions,
 // with different matched.
@@ -200,7 +208,8 @@ assertEq(log,
          "get:lastIndex,set:lastIndex," +
          "get:exec,call:exec," +
          "get:result[length],get:result[0],get:result[index]," +
-         "get:result[1],get:result[2],");
+         "get:result[1],get:result[2]," +
+         "get:result[groups],");
 
 // Trace global with empty match and captures and function,
 // with different matched.
@@ -232,6 +241,7 @@ assertEq(log,
          "get:exec,call:exec," +
          "get:result[length],get:result[0],get:result[index]," +
          "get:result[1],get:result[2]," +
+         "get:result[groups]," +
          "call:replaceFunc,");
 
 // Trace global with non-empty match, move backwards.
@@ -253,7 +263,9 @@ assertEq(log,
          "get:result[0]," +
          "get:exec,call:exec," +
          "get:result[length],get:result[0],get:result[index]," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[groups]," +
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace global with non-empty match, position + matchLength overflows.
 reset();
@@ -270,7 +282,8 @@ assertEq(log,
          "get:exec,call:exec," +
          "get:result[0]," +
          "get:exec,call:exec," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace global with non-empty match, position overflows.
 reset();
@@ -287,7 +300,8 @@ assertEq(log,
          "get:exec,call:exec," +
          "get:result[0]," +
          "get:exec,call:exec," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 // Trace non-global.
 reset();
@@ -301,7 +315,8 @@ assertEq(ret, "a_XYZ_AbcABC");
 assertEq(log,
          "get:global," +
          "get:exec,call:exec," +
-         "get:result[length],get:result[0],get:result[index],");
+         "get:result[length],get:result[0],get:result[index]," +
+         "get:result[groups],");
 
 stopObserve();
 

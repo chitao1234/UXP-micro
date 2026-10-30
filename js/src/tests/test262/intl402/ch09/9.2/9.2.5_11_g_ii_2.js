@@ -18,8 +18,8 @@ extensions.forEach(function (extension) {
         if (numeric !== true) {
             $ERROR("Default value for \"kn\" should be true, but is " + numeric + ".");
         }
-        if (locale.indexOf("-kn") !== -1) {
-            $ERROR("\"kn\" is returned in locale, but shouldn't be.");
+        if (locale.indexOf("-kn") === -1 || locale.indexOf("-kn-true") !== -1) {
+            $ERROR("The true boolean key must be retained in canonical bare -kn form.");
         }
     }
 });

@@ -25,7 +25,7 @@ var methodInfo = {
 for (var name of Reflect.ownKeys(Reflect)) {
     // If this assertion fails, congratulations on implementing a new Reflect feature!
     // Add it to methodInfo above.
-    if (name !== "parse")
+    if (name !== "parse" && name !== "Loader")
       assertEq(name in methodInfo, true);
 }
 

@@ -8,7 +8,7 @@ if (typeof parseModule === "function") {
     parseModule("async function f() { await 3; }");
     assertThrows(() => parseModule("var await = 5;"), SyntaxError);
     assertThrows(() => parseModule("await;"), SyntaxError);
-    assertThrows(() => parseModule("await 5;"), SyntaxError);
+    parseModule("await 5;"); // Top-level await is supported in modules.
     assertThrows(() => parseModule("function f() { await 5; }"), SyntaxError);
     assertThrows(() => parseModule("() => { await 5; }"), SyntaxError);
     assertThrows(() => parseModule("export var await;"), SyntaxError);

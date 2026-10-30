@@ -10,11 +10,14 @@ function test(ctor, props, { nextVal=undefined,
                              modifier=undefined,
                              rejectReason=undefined,
                              rejectType=undefined,
-                             closed=true }) {
+                             closed=true,
+                             acquired=true }) {
     function getIterable() {
         let iterable = {
             closed: false,
+            acquired: false,
             [Symbol.iterator]() {
+                this.acquired = true;
                 let iterator = {
                     first: true,
                     next() {
@@ -49,6 +52,7 @@ function test(ctor, props, { nextVal=undefined,
         else
             assertEq(e, rejectReason);
         assertEq(iterable.closed, closed);
+        assertEq(iterable.acquired, acquired);
     }
 }
 
@@ -64,7 +68,8 @@ class MyPromiseStaticResolveGetterThrows extends Promise {
 test(MyPromiseStaticResolveGetterThrows, ["all", "race"], {
     nextVal: { value: Promise.resolve(1), done: false },
     rejectReason: "static resolve getter throws",
-    closed: true,
+    closed: false,
+    acquired: false,
 });
 
 class MyPromiseStaticResolveThrows extends Promise {
@@ -111,7 +116,8 @@ test(MyPromiseThenThrows, ["all", "race"], {
 });
 
 // ES 2017 draft 7.4.6 step 3.
-// if GetMethod fails, the thrown value should be used.
+// This engine retains the pre-ES2018 IteratorClose ordering for GetMethod.
+// Reading Promise.resolve itself now precedes acquiring the iterator.
 test(MyPromiseThenThrows, ["all", "race"], {
     nextVal: { value: Promise.resolve(1), done: false },
     modifier: (iterator, iterable) => {

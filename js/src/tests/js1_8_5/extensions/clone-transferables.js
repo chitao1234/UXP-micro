@@ -70,15 +70,15 @@ function test() {
             var copy_arr = deserialize(serialize(old_arr, [ buf ], { scope }), { scope });
             assertEq(buf.byteLength, 0,
                      "donor array buffer should be detached");
-            assertEq(old_arr.byteLength, 0,
-                     "donor typed array should be detached");
+            if (dataview)
+                assertThrowsInstanceOf(() => old_arr.byteLength, TypeError);
+            else
+                assertEq(old_arr.byteLength, 0, "donor typed array should be detached");
             if (!dataview) {
                 assertEq(old_arr.length, 0,
                          "donor typed array should be detached");
             }
-            assertEq(dv.byteLength, 0,
-                     "all views of donor array buffer should have zero " +
-                     "length because their underlying buffer is detached");
+            assertThrowsInstanceOf(() => dv.byteLength, TypeError);
 
             buf = null;
             old_arr = null;

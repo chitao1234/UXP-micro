@@ -73,6 +73,7 @@ var Match =
             (typeof x === "string") ||
             (typeof x === "boolean") ||
             (x === null) ||
+            (x === undefined) ||
             (typeof x === "object" && x instanceof RegExp);
     }
 
@@ -108,6 +109,7 @@ var Match =
         }
 
         switch (typeof exp) {
+        case "undefined":
         case "string":
             if (act !== exp)
                 throw new MatchError("expected " + quote(exp) + ", got " + quote(act));

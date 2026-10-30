@@ -56,6 +56,7 @@ function testRealError()
 
   try
   {
+    var expectedLine = new Error().lineNumber + 1;
     blabla;
   }
   catch (e)
@@ -63,7 +64,7 @@ function testRealError()
     if (e.fileName.search (/-50447-1\.js$/i) == -1)
       reportCompare('PASS', 'FAIL', "expected fileName to end with '-50447-1.js'");
 
-    reportCompare(60, e.lineNumber,
+    reportCompare(expectedLine, e.lineNumber,
 		  "lineNumber property returned unexpected value.");
   }
 
@@ -98,13 +99,14 @@ function test2()
      test file and assumes the path to the test case
      is a subdirectory of the directory containing jsDriver.pl
   */
-  var expectedLine = 109;
+  var expectedLine;
   var expectedFileName = 'js1_5/extensions/regress-50447-1.js';
   if (typeof document != "undefined") {
     expectedFileName = document.location.href.
       replace(/[^\/]*(\?.*)$/, '') +
       expectedFileName;
   }
+  expectedLine = new Error().lineNumber + 1;
   var e = new InternalError ("msg");
   reportCompare ("(new InternalError(\"msg\", \"" +
 		 expectedFileName + "\", " + expectedLine + "))",
@@ -157,7 +159,7 @@ function test4()
   /* generate an error with only msg and filename properties */
   enterFunc ("test4");
 
-  var expectedLine = 163;
+  var expectedLine = new Error().lineNumber + 2;
 
   var e = new InternalError ("msg", "file");
   reportCompare ("(new InternalError(\"msg\", \"file\", " + expectedLine + "))",

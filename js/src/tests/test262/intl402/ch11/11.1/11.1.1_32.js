@@ -11,24 +11,16 @@ var read = 0;
 
 function readMinimumSignificantDigits() {
     ++read;
-    if (read === 1) {
-        return 0; // invalid value, but on first read that's OK
-    } else if (read === 3) {
-        return 1; // valid value
-    } else {
+    if (read !== 1)
         $ERROR("minimumSignificantDigits read out of sequence: " + read + ".");
-    }
+    return 1;
 }
 
 function readMaximumSignificantDigits() {
     ++read;
-    if (read === 2) {
-        return 0; // invalid value, but on first read that's OK
-    } else if (read === 4) {
-        return 1; // valid value
-    } else {
+    if (read !== 2)
         $ERROR("maximumSignificantDigits read out of sequence: " + read + ".");
-    }
+    return 1;
 }
 
 var options = {};
@@ -39,6 +31,6 @@ Object.defineProperty(options, "maximumSignificantDigits",
 
 new Intl.NumberFormat("de", options);
 
-if (read !== 4) {
+if (read !== 2) {
     $ERROR("insuffient number of property reads: " + read + ".");
 }

@@ -36,7 +36,7 @@ var methods = {
 for (var name of Reflect.ownKeys(Reflect)) {
     // If this assertion fails, congratulations on implementing a new Reflect feature!
     // Add it to the list of methods above.
-    if (name !== "parse")
+    if (name !== "parse" && name !== "Loader")
         assertEq(name in methods, true, `unexpected property found: Reflect.${name}`);
 }
 

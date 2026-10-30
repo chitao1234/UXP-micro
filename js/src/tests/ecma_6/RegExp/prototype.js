@@ -1,9 +1,9 @@
 const t = RegExp.prototype;
 
 const properties = "toSource,toString,compile,exec,test," +
-                   "flags,global,ignoreCase,multiline,source,sticky,unicode," +
+                   "flags,hasIndices,global,ignoreCase,multiline,dotAll,source,sticky,unicode," +
                    "constructor," +
-                   "Symbol(Symbol.match),Symbol(Symbol.replace),Symbol(Symbol.search),Symbol(Symbol.split)";
+                   "Symbol(Symbol.match),Symbol(Symbol.matchAll),Symbol(Symbol.replace),Symbol(Symbol.search),Symbol(Symbol.split)";
 assertEq(Reflect.ownKeys(t).map(String).toString(), properties);
 
 
@@ -14,6 +14,8 @@ function getter(name) {
 
 assertEq(getter("flags"), "");
 assertEq(getter("global"), undefined);
+assertEq(getter("hasIndices"), undefined);
+assertEq(getter("dotAll"), undefined);
 assertEq(getter("ignoreCase"), undefined);
 assertEq(getter("multiline"), undefined);
 assertEq(getter("source"), "(?:)");

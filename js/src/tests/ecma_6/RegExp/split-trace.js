@@ -98,7 +98,7 @@ lastIndexResult   = [ ,  ,     2,        ,     4,        ,    ];
 lastIndexExpected = [ 0, 1,    2,        3,    4,             ];
 var ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `["a","c","e"]`);
+assertDeepEq(ret, ["a","c","e"]);
 assertEq(log,
          "get:constructor," +
          "get:species," +
@@ -122,7 +122,7 @@ lastIndexResult   = [];
 lastIndexExpected = [];
 ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `[""]`);
+assertDeepEq(ret, [""]);
 assertEq(log,
          "get:constructor," +
          "get:species," +
@@ -138,7 +138,7 @@ lastIndexResult   = [];
 lastIndexExpected = [];
 ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `[]`);
+assertDeepEq(ret, []);
 assertEq(log,
          "get:constructor," +
          "get:species," +
@@ -154,7 +154,7 @@ lastIndexResult   = [ ,  ,     2,                   ,    ];
 lastIndexExpected = [ 0, 1,    2,                        ];
 ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `["a","X","YZ","c"]`);
+assertDeepEq(ret, ["a","X","YZ","c"]);
 assertEq(log,
          "get:constructor," +
          "get:species," +
@@ -181,7 +181,7 @@ lastIndexResult   = [ ,  ,     ,     ,     ,    ];
 lastIndexExpected = [ 0, 1,    3,    4,         ];
 ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `["-\uD83D\uDC38\uDC38\uD83D"]`);
+assertDeepEq(ret, ["-\uD83D\uDC38\uDC38\uD83D"]);
 assertEq(log,
          "get:constructor," +
          "get:species," +
@@ -203,7 +203,7 @@ lastIndexResult   = [ ,  0, 1, 1, 3, 3, 4, 4 ];
 lastIndexExpected = [ 0, 1, 1, 3, 3, 4, 4,   ];
 ret = RegExp.prototype[Symbol.split].call(myRegExp, target);
 assertEq(arraySetterObserved, false);
-assertEq(JSON.stringify(ret), `["-","X","\uD83D\uDC38","X","\uDC38","X","\uD83D"]`);
+assertDeepEq(ret, ["-","X","\uD83D\uDC38","X","\uDC38","X","\uD83D"]);
 assertEq(log,
          "get:constructor," +
          "get:species," +

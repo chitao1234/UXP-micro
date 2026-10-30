@@ -337,8 +337,9 @@ function GetUnicodeValues( c ) {
     u[1] = c + 48;
     return u;
   }
-  if ( c >= 0x10D0 && c <= 0x10F5 ) {
-    u[0] = c;
+  // Modern Unicode maps Mkhedruli to Mtavruli capitals (Unicode 11).
+  if ((c >= 0x10D0 && c <= 0x10FA) || (c >= 0x10FD && c <= 0x10FF)) {
+    u[0] = c + 0xBC0;
     u[1] = c;
     return u;
   }

@@ -20,18 +20,12 @@ assertDeepEq(desc2, {
 
 let keys = Reflect.ownKeys(Array_unscopables);
 print(uneval(keys));
-assertDeepEq(keys, [
-    "copyWithin",
-    "entries",
-    "fill",
-    "find",
-    "findIndex",
-    "flat",
-    "flatMap",
-    "includes",
-    "keys",
-    "values"
-]);
+// The property set is specified; its creation order is not.
+assertDeepEq(keys.slice().sort(), [
+    "copyWithin", "entries", "fill", "find", "findIndex", "findLast",
+    "findLastIndex", "flat", "flatMap", "includes", "keys", "toReversed",
+    "toSorted", "toSpliced", "values", "with"
+].sort());
 
 for (let key of keys)
     assertEq(Array_unscopables[key], true);

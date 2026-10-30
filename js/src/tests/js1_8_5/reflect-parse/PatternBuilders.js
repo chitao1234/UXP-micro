@@ -303,3 +303,23 @@ function assignProp(property, target, defaultExpr = null, shorthand = !target, t
         type: "Property", key: ident(property), shorthand,
         value: defaultExpr ? aExpr('=', targetProp, defaultExpr) : targetProp });
 }
+
+function optExpr(val) {
+    return Pattern({ type: "OptionalExpression", expression: val});
+}
+
+function optDotExpr(obj, id) {
+    return Pattern({ type: "OptionalMemberExpression", computed: false, object: obj, property: id });
+}
+
+function optMemExpr(obj, id) {
+    return Pattern({ type: "OptionalMemberExpression", computed: true, object: obj, property: id });
+}
+
+function optCallExpr(callee, args) {
+    return Pattern({ type: "OptionalCallExpression", callee: callee, arguments: args });
+}
+
+function delOptExpr(expr) {
+    return Pattern({type: "DeleteOptionalExpression", expression: expr});
+}
