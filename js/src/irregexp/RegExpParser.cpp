@@ -2055,7 +2055,10 @@ RegExpParser<CharT>::ParseDisjunction()
                 Advance(2);
                 widechar value;
                 if (ParseUnicodeEscape(&value)) {
-                  builder->AddUnicodeCharacter(value, ignore_case_);
+                  if (unicode_)
+                    builder->AddUnicodeCharacter(value, ignore_case_);
+                  else
+                    builder->AddCharacter(static_cast<char16_t>(value));
                 } else if (!unicode_) {
                   builder->AddCharacter('u');
                 } else {
