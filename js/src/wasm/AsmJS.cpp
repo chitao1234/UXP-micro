@@ -2569,7 +2569,8 @@ static bool
 CheckFunctionHead(ModuleValidator& m, FunctionNode* funNode)
 {
     FunctionBox* funbox = funNode->funbox();
-    MOZ_ASSERT(!funbox->isExprBody());
+    if (funbox->isExprBody())
+        return m.fail(funNode, "expression closures not allowed");
 
     if (funbox->hasRest())
         return m.fail(funNode, "rest args not allowed");

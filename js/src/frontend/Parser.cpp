@@ -11041,6 +11041,12 @@ Parser<ParseHandler>::propertyOrMethodName(YieldHandling yieldHandling,
             error(JSMSG_BAD_PROP_ID);
             return null();
         }
+        // A slash cannot start another class element. Reject it before ASI
+        // tries to reinterpret lookahead scanned with the division modifier.
+        if (tt == TOK_DIV || tt == TOK_REGEXP) {
+            error(JSMSG_SEMI_BEFORE_STMNT);
+            return null();
+        }
         tokenStream.ungetToken();
         *propType = PropertyType::Field;
         return propName;
