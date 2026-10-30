@@ -801,64 +801,26 @@ CreateFunctionConstructor(JSContext* cx, JSProtoKey key)
 
 }
 
+static bool
+FunctionPrototype(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    args.rval().setUndefined();
+    return true;
+}
+
 static JSObject*
 CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
 {
     Rooted<GlobalObject*> self(cx, cx->global());
 
     RootedObject objectProto(cx, &self->getPrototype(JSProto_Object).toObject());
-    /*
-     * Bizarrely, |Function.prototype| must be an interpreted function, so
-     * give it the guts to be one.
-     */
-    RootedObject enclosingEnv(cx, &self->lexicalEnvironment());
-    JSObject* functionProto_ =
-        NewFunctionWithProto(cx, nullptr, 0, JSFunction::INTERPRETED,
-                             enclosingEnv, nullptr, objectProto, AllocKind::FUNCTION,
-                             SingletonObject);
-    if (!functionProto_)
+    RootedFunction functionProto(cx,
+      NewFunctionWithProto(cx, FunctionPrototype, 0, JSFunction::NATIVE_FUN,
+                           nullptr, HandlePropertyName(cx->names().empty),
+                           objectProto, AllocKind::FUNCTION, SingletonObject));
+    if (!functionProto)
         return nullptr;
-
-    RootedFunction functionProto(cx, &functionProto_->as<JSFunction>());
-
-    const char* rawSource = "function () {\n}";
-    size_t sourceLen = strlen(rawSource);
-    size_t begin = 9;
-    MOZ_ASSERT(rawSource[begin] == '(');
-    mozilla::UniquePtr<char16_t[], JS::FreePolicy> source(InflateString(cx, rawSource, &sourceLen));
-    if (!source)
-        return nullptr;
-
-    ScriptSource* ss = cx->new_<ScriptSource>();
-    if (!ss)
-        return nullptr;
-    ScriptSourceHolder ssHolder(ss);
-    if (!ss->setSource(cx, mozilla::Move(source), sourceLen))
-        return nullptr;
-
-    CompileOptions options(cx);
-    options.setNoScriptRval(true)
-           .setVersion(JSVERSION_DEFAULT);
-    RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
-    if (!sourceObject || !ScriptSourceObject::initFromOptions(cx, sourceObject, options))
-        return nullptr;
-
-    RootedScript script(cx, JSScript::Create(cx,
-                                             options,
-                                             sourceObject,
-                                             begin,
-                                             ss->length(),
-                                             0,
-                                             ss->length()));
-    if (!script || !JSScript::initFunctionPrototype(cx, script, functionProto))
-        return nullptr;
-
-    functionProto->initScript(script);
-    ObjectGroup* protoGroup = JSObject::getGroup(cx, functionProto);
-    if (!protoGroup)
-        return nullptr;
-
-    protoGroup->setInterpretedFunction(functionProto);
 
     /*
      * The default 'new' group of Function.prototype is required by type

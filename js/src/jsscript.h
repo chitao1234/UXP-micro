@@ -1172,10 +1172,6 @@ class JSScript : public js::gc::TenuredCell
     static bool fullyInitFromEmitter(js::ExclusiveContext* cx, js::HandleScript script,
                                      js::frontend::BytecodeEmitter* bce);
 
-    // Initialize the Function.prototype script.
-    static bool initFunctionPrototype(js::ExclusiveContext* cx, js::HandleScript script,
-                                      JS::HandleFunction functionProto);
-
 #ifdef DEBUG
   private:
     // Assert that jump targets are within the code array of the script.

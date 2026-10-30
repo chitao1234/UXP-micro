@@ -28,9 +28,9 @@ function TabSources(threadActor, allowSourceFn = () => true) {
   this._useSourceMaps = true;
   this._autoBlackBox = true;
   this._anonSourceMapId = 1;
-  this.allowSource = source => {
-    return !isHiddenSource(source) && allowSourceFn(source);
-  };
+  // Engine intrinsics have no script source. Do not identify them by text,
+  // which can also belong to author code and needlessly loads source data.
+  this.allowSource = source => allowSourceFn(source);
 
   this.blackBoxedSources = new Set();
   this.prettyPrintedSources = new Map();
@@ -813,15 +813,6 @@ TabSources.prototype = {
   }
 };
 
-/*
- * Checks if a source should never be displayed to the user because
- * it's either internal or we don't support in the UI yet.
- */
-function isHiddenSource(aSource) {
-  // Ignore the internal Function.prototype script
-  return aSource.text === "() {\n}";
-}
-
 /**
  * Returns true if its argument is not null.
  */
@@ -830,4 +821,3 @@ function isNotNull(aThing) {
 }
 
 exports.TabSources = TabSources;
-exports.isHiddenSource = isHiddenSource;

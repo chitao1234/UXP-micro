@@ -2791,42 +2791,6 @@ JSScript::partiallyInit(ExclusiveContext* cx, HandleScript script, uint32_t nsco
     return true;
 }
 
-/* static */ bool
-JSScript::initFunctionPrototype(ExclusiveContext* cx, Handle<JSScript*> script,
-                                HandleFunction functionProto)
-{
-    uint32_t numScopes = 1;
-    uint32_t numConsts = 0;
-    uint32_t numObjects = 0;
-    uint32_t numTryNotes = 0;
-    uint32_t numScopeNotes = 0;
-    uint32_t numYieldAndAwaitOffsets = 0;
-    uint32_t numTypeSets = 0;
-    if (!partiallyInit(cx, script, numScopes, numConsts, numObjects, numTryNotes,
-                       numScopeNotes, numYieldAndAwaitOffsets, numTypeSets))
-    {
-        return false;
-    }
-
-    RootedScope enclosing(cx, &cx->global()->emptyGlobalScope());
-    Scope* functionProtoScope = FunctionScope::create(cx, nullptr, false, false, functionProto,
-                                                      enclosing);
-    if (!functionProtoScope)
-        return false;
-    script->scopes()->vector[0].init(functionProtoScope);
-
-    uint32_t codeLength = 1;
-    uint32_t srcNotesLength = 1;
-    uint32_t numAtoms = 0;
-    if (!script->createScriptData(cx, codeLength, srcNotesLength, numAtoms))
-        return false;
-
-    jsbytecode* code = script->code();
-    code[0] = JSOP_RETRVAL;
-    code[1] = SRC_NULL;
-    return script->shareScriptData(cx);
-}
-
 static void
 InitAtomMap(frontend::AtomIndexMap& indices, GCPtrAtom* atoms)
 {
