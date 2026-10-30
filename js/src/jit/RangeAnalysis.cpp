@@ -1340,7 +1340,7 @@ MClampToUint8::computeRange(TempAllocator& alloc)
 void
 MBitAnd::computeRange(TempAllocator& alloc)
 {
-    if (specialization_ == MIRType::Int64)
+    if (specialization_ != MIRType::Int32)
         return;
 
     Range left(getOperand(0));
@@ -1354,7 +1354,7 @@ MBitAnd::computeRange(TempAllocator& alloc)
 void
 MBitOr::computeRange(TempAllocator& alloc)
 {
-    if (specialization_ == MIRType::Int64)
+    if (specialization_ != MIRType::Int32)
         return;
 
     Range left(getOperand(0));
@@ -1368,7 +1368,7 @@ MBitOr::computeRange(TempAllocator& alloc)
 void
 MBitXor::computeRange(TempAllocator& alloc)
 {
-    if (specialization_ == MIRType::Int64)
+    if (specialization_ != MIRType::Int32)
         return;
 
     Range left(getOperand(0));
@@ -1382,6 +1382,8 @@ MBitXor::computeRange(TempAllocator& alloc)
 void
 MBitNot::computeRange(TempAllocator& alloc)
 {
+    if (specialization_ != MIRType::Int32)
+        return;
     Range op(getOperand(0));
     op.wrapAroundToInt32();
 
@@ -1391,7 +1393,7 @@ MBitNot::computeRange(TempAllocator& alloc)
 void
 MLsh::computeRange(TempAllocator& alloc)
 {
-    if (specialization_ == MIRType::Int64)
+    if (specialization_ != MIRType::Int32)
         return;
 
     Range left(getOperand(0));
@@ -1412,7 +1414,7 @@ MLsh::computeRange(TempAllocator& alloc)
 void
 MRsh::computeRange(TempAllocator& alloc)
 {
-    if (specialization_ == MIRType::Int64)
+    if (specialization_ != MIRType::Int32)
         return;
 
     Range left(getOperand(0));
@@ -1744,6 +1746,11 @@ MTruncateToInt32::computeRange(TempAllocator& alloc)
 void
 MToNumeric::computeRange(TempAllocator& alloc)
 {
+    // Range describes Number values. ToNumeric can instead return a BigInt,
+    // including after calling an object's conversion hook. Attaching a Number
+    // range both misleads later consumers and emits invalid range assertions.
+    if (mightBeType(MIRType::BigInt))
+        return;
     setRange(new (alloc) Range(getOperand(0)));
 }
 
