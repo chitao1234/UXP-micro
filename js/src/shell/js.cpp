@@ -7983,6 +7983,12 @@ main(int argc, char** argv, char** envp)
 
 #ifdef HAVE_SETLOCALE
     setlocale(LC_ALL, "");
+#ifdef XP_WIN
+    // The Windows CRT ignores POSIX LC_TIME environment overrides. Honor an
+    // explicit shell/test-harness choice without changing the user's default.
+    if (const char* timeLocale = getenv("LC_TIME"))
+        setlocale(LC_TIME, timeLocale);
+#endif
 #endif
 
     // Special-case stdout and stderr. We bump their refcounts to prevent them
