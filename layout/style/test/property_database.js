@@ -5928,6 +5928,38 @@ var gCSSProperties = {
     other_values: ["auto", "scroll", "hidden", "clip"],
     invalid_values: [],
   },
+  "overflow-inline": {
+    domProp: "overflowInline",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    logical: true,
+    axis: true,
+    get_computed: logical_axis_prop_get_computed,
+    prerequisites: {
+      display: "block",
+      "overflow-block": "visible",
+      contain: "none",
+    },
+    initial_values: ["visible"],
+    other_values: ["auto", "scroll", "hidden", "clip"],
+    invalid_values: [],
+  },
+  "overflow-block": {
+    domProp: "overflowBlock",
+    inherited: false,
+    type: CSS_TYPE_LONGHAND,
+    logical: true,
+    axis: true,
+    get_computed: logical_axis_prop_get_computed,
+    prerequisites: {
+      display: "block",
+      "overflow-inline": "visible",
+      contain: "none",
+    },
+    initial_values: ["visible"],
+    other_values: ["auto", "scroll", "hidden", "clip"],
+    invalid_values: [],
+  },
   padding: {
     domProp: "padding",
     inherited: false,
@@ -8973,6 +9005,16 @@ function logical_axis_prop_get_computed(cs, property) {
   var orientation = writingMode.substring(0, writingMode.indexOf("-"));
 
   var mappings = {
+    "overflow-inline": {
+      horizontal: "overflow-x",
+      vertical: "overflow-y",
+      sideways: "overflow-y",
+    },
+    "overflow-block": {
+      horizontal: "overflow-y",
+      vertical: "overflow-x",
+      sideways: "overflow-x",
+    },
     "block-size": {
       horizontal: "height",
       vertical: "width",

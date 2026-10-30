@@ -4635,28 +4635,37 @@ CSS_PROP_POSITION(
     nullptr,
     offsetof(nsStylePosition, mZIndex),
     eStyleAnimType_Coord)
-CSS_PROP_DISPLAY(
+CSS_PROP_LOGICAL(
     overflow-block,
     overflow_block,
     OverflowBlock,
     CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER,
+        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER |
+        CSS_PROPERTY_LOGICAL |
+        CSS_PROPERTY_LOGICAL_AXIS |
+        CSS_PROPERTY_LOGICAL_BLOCK_AXIS,
     "",
     VARIANT_HK,
     kOverflowSubKTable,
+    Overflow,
+    Display,
     CSS_PROP_NO_OFFSET,
-    eStyleAnimType_Discrete)
-CSS_PROP_DISPLAY(
+    eStyleAnimType_None)
+CSS_PROP_LOGICAL(
     overflow-inline,
     overflow_inline,
     OverflowInline,
     CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER,
+        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER |
+        CSS_PROPERTY_LOGICAL |
+        CSS_PROPERTY_LOGICAL_AXIS,
     "",
     VARIANT_HK,
     kOverflowSubKTable,
+    Overflow,
+    Display,
     CSS_PROP_NO_OFFSET,
-    eStyleAnimType_Discrete)
+    eStyleAnimType_None)
 
 
 #ifdef USED_CSS_PROP

@@ -41,6 +41,9 @@ var gValues = {
   "length":       ["1px", "2px", "3px", "4px", "5px"],
   "color":        ["rgb(1, 1, 1)", "rgb(2, 2, 2)", "rgb(3, 3, 3)", "rgb(4, 4, 4)", "rgb(5, 5, 5)"],
   "border-style": ["solid", "dashed", "dotted", "double", "groove"],
+  // Scrollable values avoid overflow's cross-axis computed-value adjustments
+  // in the generic mapping and cascade tests below.
+  "overflow":     ["hidden", "scroll", "auto"],
 };
 
 // Six unique overall writing modes for property-mapping purposes.
@@ -142,6 +145,12 @@ function init() {
       prerequisites:
         make_declaration(gCSSProperties[`${aPrefix}height`].prerequisites)
     });
+  });
+  gAxisPropertyGroups.push({
+    horizontal: "overflow-x", vertical: "overflow-y",
+    inline: "overflow-inline", block: "overflow-block",
+    type: "overflow",
+    prerequisites: "display: block; contain: none; "
   });
 }
 
@@ -397,6 +406,82 @@ function run_box_test_for_writing_mode(aGroup, aWritingMode, aWritingModeDecl) {
   });
 }
 
+function run_overflow_tests() {
+  // Check computed-value adjustments after logical properties have been mapped
+  // to physical axes, including the non-scrollable visible/clip combination.
+  var values = ["visible", "clip", "hidden", "scroll", "auto"];
+  ["horizontal-tb", "vertical-rl", "vertical-lr", "sideways-rl", "sideways-lr"].forEach(function(wm) {
+    values.forEach(function(inline) {
+      values.forEach(function(block) {
+        var scrollable = value => value != "visible" && value != "clip";
+        var adjust = function(value, other) {
+          if (scrollable(other)) {
+            if (value == "visible") return "auto";
+            if (value == "clip") return "hidden";
+          }
+          return value;
+        };
+        var expectedInline = adjust(inline, block);
+        var expectedBlock = adjust(block, inline);
+        var horizontal = wm == "horizontal-tb";
+        test_computed_values(`logical overflow ${inline}/${block}, ${wm}`,
+          `.test { writing-mode: ${wm}; overflow-inline: ${inline}; overflow-block: ${block}; }`,
+          [["overflow-x", horizontal ? expectedInline : expectedBlock],
+           ["overflow-y", horizontal ? expectedBlock : expectedInline],
+           ["overflow-inline", expectedInline],
+           ["overflow-block", expectedBlock]]);
+      });
+    });
+  });
+
+  // Warm one rule path, then use it with another writing mode.  A cached style
+  // struct must retain the dependency on the mode used to map logical axes.
+  var container = document.createElement("div");
+  var horizontal = document.createElement("div");
+  var vertical = document.createElement("div");
+  horizontal.className = vertical.className = "overflow-cache";
+  horizontal.style.writingMode = "horizontal-tb";
+  vertical.style.writingMode = "vertical-rl";
+  container.appendChild(horizontal);
+  container.appendChild(vertical);
+  document.body.appendChild(container);
+  gSheet.textContent = ".overflow-cache { overflow-inline: hidden; overflow-block: scroll; } " +
+                       ".overflow-cache.override { overflow-x: auto; }";
+
+  function check(element, x, y, message) {
+    var cs = getComputedStyle(element);
+    is(cs.overflowX, x, message + ": overflow-x");
+    is(cs.overflowY, y, message + ": overflow-y");
+  }
+  check(horizontal, "hidden", "scroll", "warm horizontal rule path");
+  check(vertical, "scroll", "hidden", "shared rule with vertical writing mode");
+  horizontal.style.writingMode = "vertical-lr";
+  check(horizontal, "scroll", "hidden", "writing-mode mutation remaps axes");
+  vertical.className += " override";
+  check(vertical, "auto", "hidden", "higher specificity physical declaration wins");
+  vertical.className = "overflow-cache";
+  check(vertical, "scroll", "hidden", "removing physical override restores logical value");
+
+  // inherit uses the corresponding physical computed property of the parent,
+  // even when the child has a different writing mode.
+  container.style.cssText = "writing-mode: horizontal-tb; overflow-x: hidden; overflow-y: scroll";
+  vertical.className = "";
+  vertical.style.cssText = "writing-mode: vertical-rl; overflow-inline: inherit; overflow-block: inherit";
+  check(vertical, "hidden", "scroll", "inherit across writing modes");
+  ["initial", "unset", "revert"].forEach(function(keyword) {
+    vertical.style.overflowInline = keyword;
+    vertical.style.overflowBlock = keyword;
+    check(vertical, "visible", "visible", keyword + " uses overflow initial values");
+  });
+  vertical.style.cssText = "writing-mode: vertical-rl; --overflow: hidden; overflow-inline: var(--overflow); overflow-block: scroll";
+  check(vertical, "scroll", "hidden", "logical overflow accepts variable substitution");
+  vertical.style.setProperty("--overflow", "auto");
+  check(vertical, "scroll", "auto", "variable mutation updates mapped overflow");
+
+  container.remove();
+  gSheet.textContent = "";
+}
+
 function run_tests() {
   gBoxPropertyGroups.forEach(function(aGroup) {
     gWritingModes.forEach(function(aWritingMode) {
@@ -413,6 +498,8 @@ function run_tests() {
       });
     });
   });
+
+  run_overflow_tests();
 
   SimpleTest.finish();
 }
