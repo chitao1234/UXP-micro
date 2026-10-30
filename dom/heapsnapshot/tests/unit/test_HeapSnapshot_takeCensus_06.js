@@ -58,13 +58,13 @@ function run_test() {
   })
     .assert(saveHeapSnapshotAndTakeCensus(dbg, { breakdown: { by: "coarseType" } }));
 
-  // As for { by: 'objectClass' }, restrict our pattern to the types
-  // we predict will stick around for a long time.
+  // As for { by: 'objectClass' }, restrict our pattern to guaranteed types.
+  // A fresh global with native Function.prototype retains no authored script,
+  // so its census need not contain a JSScript internalType entry.
   Pattern({
     JSString:             { count: Pattern.NATURAL },
     "js::Shape":          { count: Pattern.NATURAL },
-    JSObject:             { count: Pattern.NATURAL },
-    JSScript:             { count: Pattern.NATURAL }
+    JSObject:             { count: Pattern.NATURAL }
   })
     .assert(saveHeapSnapshotAndTakeCensus(dbg, { breakdown: { by: "internalType" } }));
 
@@ -82,7 +82,6 @@ function run_test() {
     JSString:    coarseTypePattern,
     "js::Shape": coarseTypePattern,
     JSObject:    coarseTypePattern,
-    JSScript:    coarseTypePattern,
   })
     .assert(saveHeapSnapshotAndTakeCensus(dbg, {
       breakdown: { by: "internalType",
