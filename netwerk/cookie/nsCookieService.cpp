@@ -1069,7 +1069,7 @@ nsCookieService::TryInitDB(bool aRecreateDB)
         NS_ENSURE_SUCCESS(rv, RESULT_RETRY);
 
         // Drop old table
-        rv = mDefaultDBState->dbConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
+        rv = mDefaultDBState->syncConn->ExecuteSimpleSQL(NS_LITERAL_CSTRING(
           "DROP TABLE moz_cookies_old"));
         NS_ENSURE_SUCCESS(rv, RESULT_RETRY);
 

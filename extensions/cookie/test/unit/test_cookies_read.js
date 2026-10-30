@@ -26,14 +26,16 @@ function do_run_test() {
   // Allow all cookies.
   Services.prefs.setIntPref("network.cookie.cookieBehavior", 0);
 
-  // Start the cookieservice, to force creation of a database.
-  Services.cookies;
+  // Service construction starts a worker; a cookie API call is the barrier
+  // that finishes initialization and creates the database/write connection.
+  do_check_eq(do_count_cookies(), 0);
 
   // Open a database connection now, after synchronous initialization has
   // completed. We may not be able to open one later once asynchronous writing
   // begins.
   do_check_true(do_get_cookie_file(profile).exists());
-  let db = new CookieDatabaseConnection(do_get_cookie_file(profile), 4);
+  let db = new CookieDatabaseConnection(do_get_cookie_file(profile),
+                                        COOKIE_DATABASE_SCHEMA_CURRENT);
 
   for (let i = 0; i < CMAX; ++i) {
     let uri = NetUtil.newURI("http://" + i + ".com/");

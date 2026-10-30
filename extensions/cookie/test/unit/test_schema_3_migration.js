@@ -95,7 +95,11 @@ function do_run_test() {
   do_close_profile(test_generator);
   yield;
 
-  // Open the database so we can execute some more schema 3 statements on it.
+  // Use a historical schema 4 fixture for old schema 3 writes that omit
+  // creationTime; the resulting NULL must survive migration as zero.
+  do_create_schema4_fixture(do_get_cookie_file(profile));
+
+  // Execute some more schema 3 statements on the historical fixture.
   schema3db = new CookieDatabaseConnection(do_get_cookie_file(profile), 3);
 
   // Populate it with more cookies.

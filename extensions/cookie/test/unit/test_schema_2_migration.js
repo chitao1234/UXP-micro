@@ -95,7 +95,12 @@ function do_run_test() {
   do_close_profile(test_generator);
   yield;
 
-  // Open the database so we can execute some more schema 2 statements on it.
+  // Make a historical schema 4 fixture containing the migrated cookies, so
+  // old schema 2 writes can omit baseDomain and exercise its migration purge.
+  // Schema 8 removed that field and cannot represent a NULL baseDomain row.
+  do_create_schema4_fixture(do_get_cookie_file(profile));
+
+  // Execute some more schema 2 statements on the historical fixture.
   schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile), 2);
 
   // Populate it with more cookies.
@@ -149,7 +154,8 @@ function do_run_test() {
   yield;
 
   // Open the database and prove that they were deleted.
-  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile), 2);
+  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile),
+                                           COOKIE_DATABASE_SCHEMA_CURRENT);
   do_check_eq(do_count_cookies_in_db(schema2db.db), 40);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "foo.com"), 20);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "bar.com"), 20);
@@ -172,7 +178,8 @@ function do_run_test() {
   yield;
 
   // Open the database and prove that they were deleted.
-  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile), 2);
+  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile),
+                                           COOKIE_DATABASE_SCHEMA_CURRENT);
   do_check_eq(do_count_cookies_in_db(schema2db.db), 40);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "foo.com"), 20);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "bar.com"), 20);
@@ -196,7 +203,8 @@ function do_run_test() {
   yield;
 
   // Open the database and prove that they were deleted.
-  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile), 2);
+  schema2db = new CookieDatabaseConnection(do_get_cookie_file(profile),
+                                           COOKIE_DATABASE_SCHEMA_CURRENT);
   do_check_eq(do_count_cookies_in_db(schema2db.db), 40);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "foo.com"), 20);
   do_check_eq(do_count_cookies_in_db(schema2db.db, "bar.com"), 20);

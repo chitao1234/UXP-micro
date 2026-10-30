@@ -10,6 +10,8 @@ var Cc = Components.classes;
 var Ci = Components.interfaces;
 var Cr = Components.results;
 
+const COOKIE_DATABASE_SCHEMA_CURRENT = 8;
+
 XPCOMUtils.defineLazyServiceGetter(Services, "cookies",
                                    "@mozilla.org/cookieService;1",
                                    "nsICookieService");
@@ -81,8 +83,13 @@ _observer.prototype = {
 // Close the cookie database. If a generator is supplied, it will be invoked
 // once the close is complete.
 function do_close_profile(generator) {
+  // Obtaining the service only starts the worker. A cookie API call is the
+  // barrier that also creates the write connection before we ask it to close.
+  do_count_cookies();
   // Register an observer for db close.
-  let obs = new _observer(generator, "cookie-db-closed");
+  if (generator) {
+    new _observer(generator, "cookie-db-closed");
+  }
 
   // Close the db.
   let service = Services.cookies.QueryInterface(Ci.nsIObserver);
@@ -92,12 +99,18 @@ function do_close_profile(generator) {
 // Load the cookie database. If a generator is supplied, it will be invoked
 // once the load is complete.
 function do_load_profile(generator) {
-  // Register an observer for read completion.
-  let obs = new _observer(generator, "cookie-db-read");
-
   // Load the profile.
   let service = Services.cookies.QueryInterface(Ci.nsIObserver);
   service.observe(null, "profile-do-change", "");
+  if (generator) {
+    // Read completion is not notified for an empty database. Force the same
+    // public initialization barrier on the next tick for empty and populated
+    // profiles, rather than waiting forever for that optional notification.
+    do_execute_soon(function() {
+      do_count_cookies();
+      do_run_generator(generator);
+    });
+  }
 }
 
 // Set a single session cookie using http and test the cookie count
@@ -343,7 +356,7 @@ function CookieDatabaseConnection(file, schema)
             lastAccessed INTEGER,           \
             creationTime INTEGER,           \
             isSecure INTEGER,               \
-            isHttpOnly INTEGER              \
+            isHttpOnly INTEGER,             \
             CONSTRAINT moz_uniqueid UNIQUE (name, host, path))");
 
         this.db.executeSimpleSQL(
@@ -385,6 +398,32 @@ function CookieDatabaseConnection(file, schema)
         "UPDATE moz_cookies SET lastAccessed = :lastAccessed \
            WHERE name = :name AND host = :host AND path = :path");
 
+      break;
+    }
+
+  case COOKIE_DATABASE_SCHEMA_CURRENT:
+    {
+      if (!exists) {
+        this.db.executeSimpleSQL(
+          "CREATE TABLE moz_cookies (" +
+          "id INTEGER PRIMARY KEY, originAttributes TEXT NOT NULL DEFAULT '', " +
+          "name TEXT, value TEXT, host TEXT, path TEXT, expiry INTEGER, " +
+          "lastAccessed INTEGER, creationTime INTEGER, isSecure INTEGER, " +
+          "isHttpOnly INTEGER, " +
+          "CONSTRAINT moz_uniqueid UNIQUE (name, host, path, originAttributes))");
+      }
+      this.stmtInsert = this.db.createStatement(
+        "INSERT INTO moz_cookies (originAttributes, name, value, host, path, " +
+        "expiry, lastAccessed, creationTime, isSecure, isHttpOnly) VALUES (" +
+        ":originAttributes, :name, :value, :host, :path, :expiry, " +
+        ":lastAccessed, :creationTime, :isSecure, :isHttpOnly)");
+      this.stmtDelete = this.db.createStatement(
+        "DELETE FROM moz_cookies WHERE name = :name AND host = :host " +
+        "AND path = :path AND originAttributes = :originAttributes");
+      this.stmtUpdate = this.db.createStatement(
+        "UPDATE moz_cookies SET lastAccessed = :lastAccessed " +
+        "WHERE name = :name AND host = :host AND path = :path " +
+        "AND originAttributes = :originAttributes");
       break;
     }
 
@@ -439,7 +478,12 @@ CookieDatabaseConnection.prototype =
       break;
 
     case 4:
-      this.stmtInsert.bindByName("baseDomain", cookie.baseDomain);
+    case COOKIE_DATABASE_SCHEMA_CURRENT:
+      if (this.schema == 4) {
+        this.stmtInsert.bindByName("baseDomain", cookie.baseDomain);
+      } else {
+        this.stmtInsert.bindByName("originAttributes", cookie.originAttributes || "");
+      }
       this.stmtInsert.bindByName("name", cookie.name);
       this.stmtInsert.bindByName("value", cookie.value);
       this.stmtInsert.bindByName("host", cookie.host);
@@ -472,9 +516,13 @@ CookieDatabaseConnection.prototype =
       break;
 
     case 4:
+    case COOKIE_DATABASE_SCHEMA_CURRENT:
       this.stmtDelete.bindByName("name", cookie.name);
       this.stmtDelete.bindByName("host", cookie.host);
       this.stmtDelete.bindByName("path", cookie.path);
+      if (this.schema == COOKIE_DATABASE_SCHEMA_CURRENT) {
+        this.stmtDelete.bindByName("originAttributes", cookie.originAttributes || "");
+      }
       break;
 
     default:
@@ -501,9 +549,13 @@ CookieDatabaseConnection.prototype =
       break;
 
     case 4:
-      this.stmtDelete.bindByName("name", cookie.name);
-      this.stmtDelete.bindByName("host", cookie.host);
-      this.stmtDelete.bindByName("path", cookie.path);
+    case COOKIE_DATABASE_SCHEMA_CURRENT:
+      this.stmtUpdate.bindByName("name", cookie.name);
+      this.stmtUpdate.bindByName("host", cookie.host);
+      this.stmtUpdate.bindByName("path", cookie.path);
+      if (this.schema == COOKIE_DATABASE_SCHEMA_CURRENT) {
+        this.stmtUpdate.bindByName("originAttributes", cookie.originAttributes || "");
+      }
       this.stmtUpdate.bindByName("lastAccessed", cookie.lastAccessed);
       break;
 
@@ -534,6 +586,40 @@ function do_get_cookie_file(profile)
   let file = profile.clone();
   file.append("cookies.sqlite");
   return file;
+}
+
+// Rebuild a CLOSED current fixture as schema 4 to test historical writers that
+// omit baseDomain/creationTime. Schema 8 deliberately removed baseDomain, so
+// writing old-schema rows directly into the upgraded file cannot model those
+// migrations. Copy every cookie into an independent historical fixture first.
+function do_create_schema4_fixture(file) {
+  let db = Services.storage.openDatabase(file);
+  do_check_eq(db.schemaVersion, COOKIE_DATABASE_SCHEMA_CURRENT);
+  do_check_false(db.tableExists("moz_cookies_old"));
+  let stmt = db.createStatement(
+    "SELECT name, value, host, path, expiry, lastAccessed, creationTime, " +
+    "isSecure, isHttpOnly FROM moz_cookies");
+  let cookies = [];
+  try {
+    while (stmt.executeStep()) {
+      cookies.push(new Cookie(stmt.getUTF8String(0), stmt.getUTF8String(1),
+        stmt.getUTF8String(2), stmt.getUTF8String(3), stmt.getInt64(4),
+        stmt.getInt64(5), stmt.getInt64(6), false,
+        !!stmt.getInt32(7), !!stmt.getInt32(8)));
+    }
+  } finally {
+    stmt.finalize();
+    db.close();
+  }
+  file.remove(false);
+  let historical = new CookieDatabaseConnection(file, 4);
+  try {
+    for (let cookie of cookies) {
+      historical.insertCookie(cookie);
+    }
+  } finally {
+    historical.close();
+  }
 }
 
 // Count the cookies from 'host' in a database. If 'host' is null, count all
