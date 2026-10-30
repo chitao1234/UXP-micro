@@ -1,3 +1,4 @@
+// |jit-test| skip-if: !this.oomTest || !this.gczeal || !!this.jitTestMissingCapabilities.gczeal
 if (!('oomTest' in this))
     quit();
 
