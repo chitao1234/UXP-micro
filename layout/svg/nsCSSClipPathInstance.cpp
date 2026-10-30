@@ -70,16 +70,17 @@ nsCSSClipPathInstance::CreateClipPath(DrawTarget* aDrawTarget)
     nsLayoutUtils::ComputeGeometryBox(mTargetFrame,
                                       mClipPathStyle.GetReferenceBox());
 
-  if (mClipPathStyle.GetType() != StyleShapeSourceType::Shape) {
-    // TODO Clip to border-radius/reference box if no shape
-    // was specified.
-    RefPtr<PathBuilder> builder = aDrawTarget->CreatePathBuilder();
-    return builder->Finish();
-  }
-
   nscoord appUnitsPerDevPixel =
     mTargetFrame->PresContext()->AppUnitsPerDevPixel();
   r = ToAppUnits(r.ToNearestPixels(appUnitsPerDevPixel), appUnitsPerDevPixel);
+
+  if (mClipPathStyle.GetType() == StyleShapeSourceType::Box) {
+    RefPtr<PathBuilder> builder = aDrawTarget->CreatePathBuilder();
+    AppendRectToPath(builder, NSRectToRect(r, appUnitsPerDevPixel), true);
+    return builder->Finish();
+  }
+
+  MOZ_ASSERT(mClipPathStyle.GetType() == StyleShapeSourceType::Shape);
 
   StyleBasicShape* basicShape = mClipPathStyle.GetBasicShape();
   switch (basicShape->GetShapeType()) {

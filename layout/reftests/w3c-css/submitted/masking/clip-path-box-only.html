@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Box-only clip paths clip backgrounds and overflowing descendants</title>
+<link rel="match" href="clip-path-box-only-ref.html">
+<style>
+  body { margin: 0; background: white; }
+  .target {
+    position: absolute;
+    top: 20px;
+    width: 80px;
+    height: 60px;
+    padding: 10px;
+    border: 10px solid green;
+    background: green;
+    transform-origin: 0 0;
+  }
+  .overflow {
+    position: absolute;
+    left: -30px;
+    top: -30px;
+    width: 200px;
+    height: 180px;
+    background: green;
+  }
+  .border { left: 20px; clip-path: border-box; }
+  .padding { left: 240px; clip-path: padding-box; }
+  .content { left: 460px; clip-path: content-box; }
+  .transformed { top: 180px; transform: translate(10px, 10px) scale(1.5); }
+</style>
+<div class="target border"><div class="overflow"></div></div>
+<div class="target padding"><div class="overflow"></div></div>
+<div class="target content"><div class="overflow"></div></div>
+<div class="target border transformed"><div class="overflow"></div></div>
+<div class="target padding transformed"><div class="overflow"></div></div>
+<div class="target content transformed"><div class="overflow"></div></div>

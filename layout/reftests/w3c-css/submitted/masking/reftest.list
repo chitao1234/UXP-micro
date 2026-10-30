@@ -80,6 +80,8 @@ fails == mask-size-percent-length.html mask-size-percent-percent-ref.html
 fails == mask-size-percent-percent.html mask-size-percent-percent-ref.html
 fails == mask-size-percent-percent-stretch.html mask-size-percent-percent-stretch-ref.html
 
+== clip-path-box-only.html clip-path-box-only-ref.html
+
 default-preferences pref(layout.css.clip-path-shapes.enabled,true)
 
 fuzzy-if(winWidget,1,21) == clip-path-contentBox-1a.html clip-path-geometryBox-1-ref.html

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Box-only clip paths retain their computed type, transition, and hit-test behavior</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<style>
+  #underlay {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 400px;
+    height: 300px;
+    z-index: 1;
+  }
+  #target {
+    position: fixed;
+    left: 20px;
+    top: 20px;
+    width: 100px;
+    height: 80px;
+    padding: 20px;
+    border: 10px solid green;
+    background: green;
+    transform-origin: 0 0;
+    z-index: 2;
+  }
+  #overflow {
+    position: absolute;
+    left: -30px;
+    top: -30px;
+    width: 240px;
+    height: 220px;
+    background: green;
+  }
+  #probe { position: absolute; left: -10000px; width: 100px; height: 100px; }
+</style>
+<div id="underlay"></div>
+<div id="target"><div id="overflow"></div></div>
+<div id="probe"><div id="inherited"></div></div>
+<script>
+"use strict";
+
+const target = document.getElementById("target");
+const probe = document.getElementById("probe");
+const inherited = document.getElementById("inherited");
+const underlay = document.getElementById("underlay");
+
+// A box is a distinct computed value, not an implicit inset(0) shape.
+for (const box of ["border-box", "padding-box", "content-box", "margin-box",
+                   "fill-box", "stroke-box", "view-box"]) {
+  probe.style.clipPath = box;
+  is(getComputedStyle(probe).clipPath, box, box + " retains its computed type");
+  inherited.style.clipPath = "inherit";
+  is(getComputedStyle(inherited).clipPath, box, box + " inherits as a box");
+  probe.style.clipPath = getComputedStyle(probe).clipPath;
+  is(getComputedStyle(probe).clipPath, box, box + " round-trips through computed style");
+}
+
+function computedWithoutTransition(value) {
+  probe.style.transitionProperty = "none";
+  probe.style.clipPath = value;
+  return getComputedStyle(probe).clipPath;
+}
+
+function checkTransition(start, end, expected) {
+  const expectedValue = computedWithoutTransition(expected);
+  computedWithoutTransition(start);
+  probe.style.transition = "clip-path 4s linear -1s";
+  probe.style.clipPath = end;
+  is(getComputedStyle(probe).clipPath, expectedValue,
+     start + " -> " + end + " at one-quarter progress");
+}
+
+// Incompatible value types do not start a transition. In particular, a box
+// must not silently become an inset shape and interpolate with another inset.
+for (const box of ["border-box", "padding-box", "content-box"]) {
+  checkTransition("circle(20px)", box, box);
+  checkTransition(box, "circle(20px)", "circle(20px)");
+  const inset = "inset(20px) " + box;
+  checkTransition(inset, box, box);
+  checkTransition(box, inset, inset);
+  checkTransition("inset(20px) " + box, "inset(40px) " + box,
+                  "inset(25px) " + box);
+}
+checkTransition("border-box", "content-box", "content-box");
+
+const boxes = [
+  { value: "border-box", x: 0, y: 0, width: 160, height: 140 },
+  { value: "padding-box", x: 10, y: 10, width: 140, height: 120 },
+  { value: "content-box", x: 30, y: 30, width: 100, height: 80 },
+];
+const points = [
+  [-5, 70], [5, 70], [15, 70], [35, 70],
+  [80, 5], [80, 15], [80, 35],
+  [155, 70], [145, 70], [125, 70],
+  [80, 135], [80, 125], [80, 105],
+];
+for (const transform of ["none", "translate(10px, 10px) scale(1.5)"]) {
+  target.style.transform = transform;
+  for (const box of boxes) {
+    target.style.clipPath = box.value;
+    const bounds = target.getBoundingClientRect();
+    const scale = bounds.width / 160;
+    for (const [x, y] of points) {
+      const inside = x > box.x && x < box.x + box.width &&
+                     y > box.y && y < box.y + box.height;
+      const hit = document.elementFromPoint(bounds.left + x * scale,
+                                            bounds.top + y * scale);
+      const description = box.value + " " + transform + " hit at " + x + "," + y;
+      if (inside) {
+        ok(hit == target || target.contains(hit), description + " hits clipped content");
+      } else {
+        is(hit, underlay, description + " excludes clipped overflow");
+      }
+    }
+  }
+}
+
+target.remove();
+underlay.remove();
+probe.remove();
+</script>
