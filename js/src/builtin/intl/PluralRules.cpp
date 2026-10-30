@@ -81,40 +81,24 @@ static const JSFunctionSpec pluralRules_methods[] = {
  * Spec: ECMAScript 402 API, PluralRules, 13.2.1
  */
 static bool
-PluralRules(JSContext* cx, const CallArgs& args, bool construct)
+PluralRules(JSContext* cx, const CallArgs& args)
 {
-    RootedObject obj(cx);
+    RootedObject proto(cx);
+    if (args.isConstructing() && !GetPrototypeFromCallableConstructor(cx, args, &proto))
+        return false;
 
-    if (!construct) {
-        JSObject* intl = GlobalObject::getOrCreateIntlObject(cx, cx->global());
-        if (!intl)
-            return false;
-        RootedValue self(cx, args.thisv());
-        if (!self.isUndefined() && (!self.isObject() || self.toObject() != *intl)) {
-            obj = ToObject(cx, self);
-            if (!obj)
-                return false;
-
-            bool extensible;
-            if (!IsExtensible(cx, obj, &extensible))
-                return false;
-            if (!extensible)
-                return Throw(cx, obj, JSMSG_OBJECT_NOT_EXTENSIBLE);
-        } else {
-            construct = true;
-        }
-    }
-    if (construct) {
-        RootedObject proto(cx, GlobalObject::getOrCreatePluralRulesPrototype(cx, cx->global()));
+    if (!proto) {
+        proto = GlobalObject::getOrCreatePluralRulesPrototype(cx, cx->global());
         if (!proto)
             return false;
-        obj = NewObjectWithGivenProto<PluralRulesObject>(cx, proto);
-        if (!obj)
-            return false;
-
-        obj->as<PluralRulesObject>().setReservedSlot(PluralRulesObject::INTERNALS_SLOT, NullValue());
-        obj->as<PluralRulesObject>().setReservedSlot(PluralRulesObject::UPLURAL_RULES_SLOT, PrivateValue(nullptr));
     }
+
+    Rooted<PluralRulesObject*> obj(cx, NewObjectWithGivenProto<PluralRulesObject>(cx, proto));
+    if (!obj)
+        return false;
+
+    obj->setReservedSlot(PluralRulesObject::INTERNALS_SLOT, NullValue());
+    obj->setReservedSlot(PluralRulesObject::UPLURAL_RULES_SLOT, PrivateValue(nullptr));
 
     RootedValue locales(cx, args.get(0));
     RootedValue options(cx, args.get(1));
@@ -130,7 +114,9 @@ static bool
 PluralRules(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return PluralRules(cx, args, args.isConstructing());
+    if (!ThrowIfNotConstructing(cx, args, "Intl.PluralRules"))
+        return false;
+    return PluralRules(cx, args);
 }
 
 bool
@@ -138,7 +124,8 @@ js::intl_PluralRules(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     MOZ_ASSERT(args.length() == 2);
-    return PluralRules(cx, args, true);
+    MOZ_ASSERT(!args.isConstructing());
+    return PluralRules(cx, args);
 }
 
 void

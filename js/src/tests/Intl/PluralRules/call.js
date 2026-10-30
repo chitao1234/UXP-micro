@@ -11,10 +11,6 @@ function IsConstructor(o) {
   }
 }
 
-function IsObject(o) {
-    return Object(o) === o;
-}
-
 function thisValues() {
     const intlConstructors = Object.getOwnPropertyNames(Intl).map(name => Intl[name]).filter(IsConstructor);
 
@@ -28,44 +24,32 @@ function thisValues() {
         // Intl objects.
         ...[].concat(...intlConstructors.map(ctor => [
             // Instance of an Intl constructor.
-            new ctor(),
+            new ctor("en"),
 
             // Instance of a subclassed Intl constructor.
-            new class extends ctor {},
+            new (class extends ctor {})("en"),
 
             // Object inheriting from an Intl constructor prototype.
             Object.create(ctor.prototype),
 
             // Intl object not inheriting from its default prototype.
-            Object.setPrototypeOf(new ctor(), Object.prototype),
+            Object.setPrototypeOf(new ctor("en"), Object.prototype),
         ])),
     ];
 }
 
-// Invoking [[Call]] for Intl.PluralRules always returns a new PluralRules instance.
+// Intl.PluralRules requires NewTarget, including when a receiver is supplied.
+assertThrowsInstanceOf(() => Intl.PluralRules(), TypeError);
 for (let thisValue of thisValues()) {
-    let obj = Intl.PluralRules.call(thisValue);
-    assertEq(Object.is(obj, thisValue), false);
-    assertEq(obj instanceof Intl.PluralRules, true);
-
-    // Ensure Intl.[[FallbackSymbol]] wasn't installed on |thisValue|.
-    if (IsObject(thisValue))
-        assertEqArray(Object.getOwnPropertySymbols(thisValue), []);
+    assertThrowsInstanceOf(() => Intl.PluralRules.call(thisValue), TypeError);
 }
 
-// Intl.PluralRules doesn't use the legacy Intl constructor compromise semantics.
-for (let thisValue of thisValues()) {
-    // Ensure instanceof operator isn't invoked for Intl.PluralRules.
-    Object.defineProperty(Intl.PluralRules, Symbol.hasInstance, {
-        get() {
-            assertEq(false, true, "@@hasInstance operator called");
-        }, configurable: true
-    });
-    let obj = Intl.PluralRules.call(thisValue);
-    delete Intl.PluralRules[Symbol.hasInstance];
-    assertEq(Object.is(obj, thisValue), false);
-    assertEq(obj instanceof Intl.PluralRules, true);
-}
+// Fail before inspecting the receiver, locales or options.
+let poison = new Proxy({}, {get() { throw new Error("unexpected access"); },
+                            isExtensible() { throw new Error("unexpected access"); }});
+assertThrowsInstanceOf(() => Intl.PluralRules.call(poison, poison, poison), TypeError);
+assertThrowsInstanceOf(() => Reflect.apply(Intl.PluralRules, null, [poison, poison]), TypeError);
+assertThrowsInstanceOf(() => Intl.PluralRules.bind(poison, poison, poison)(), TypeError);
 
 if (typeof reportCompare === "function")
     reportCompare(true, true);
