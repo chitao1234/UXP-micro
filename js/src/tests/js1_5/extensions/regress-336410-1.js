@@ -42,9 +42,11 @@ try
 }
 catch(ex)
 {
-  expect = '\(InternalError: allocation size overflow|out of memory\)';
-  actual = ex + '';
-  print(actual);
+  // reportCompare compares strings literally; validate the allowed errors
+  // here instead of passing its old stringified-regexp convention through.
+  assertEq(/^(?:InternalError: allocation size overflow|out of memory)$/.test(String(ex)), true);
+  print(String(ex));
+  actual = expect;
 }
 
 reportCompare(expect, actual, summary);

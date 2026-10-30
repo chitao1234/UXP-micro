@@ -1,4 +1,4 @@
-// |jit-test| slow;
+// |jit-test| slow; allow-oom
 
 if (!('oomTest' in this))
   quit();
@@ -18,11 +18,14 @@ loadFile(`
 `);
 function loadFile(lfVarx) {
     var k = 0;
+    // Debugger reports hook exceptions to the embedding and returns
+    // JSTRAP_ERROR with the pending exception cleared. This is a permitted
+    // termination, not the ordinary throw required by oomTest's default.
     oomTest(function() {
         // In practice a crash occurs before iteration 4000.
         if (k++ > 4000)
           quit();
         eval(lfVarx);
-    })
+    }, false)
 }
 

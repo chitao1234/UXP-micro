@@ -1,4 +1,4 @@
-// |jit-test| slow;
+// |jit-test| slow; skip-if: helperThreadCount() === 0
 if (!('oomTest' in this))
     quit();
 

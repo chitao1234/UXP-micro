@@ -32,7 +32,9 @@ try {
         (new Function(arg, body))(10000000);
      }).apply(null, new Array(getMaxArgs()));
 } catch(e) {
-    assertEq(""+e, "InternalError: too much recursion");
+    // This deliberately consumes both stack and compiler allocations. The
+    // debug 32-bit interpreter can exhaust its heap before its stack limit.
+    assertEq(""+e === "InternalError: too much recursion" || e === "out of memory", true);
     threwOut = true;
 }
 assertEq(threwOut, true);
