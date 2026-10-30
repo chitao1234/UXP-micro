@@ -1214,7 +1214,9 @@ ArrayBufferObject::createMappedContents(int fd, size_t offset, size_t length)
 uint8_t*
 ArrayBufferObject::inlineDataPointer() const
 {
-    return static_cast<uint8_t*>(fixedData(JSCLASS_RESERVED_SLOTS(&class_)));
+    // Reserved slots need not exactly fill an allocation kind (there are five
+    // after adding maxByteLength). Inline data follows all physical slots.
+    return static_cast<uint8_t*>(fixedData(numFixedSlots()));
 }
 
 uint8_t*
