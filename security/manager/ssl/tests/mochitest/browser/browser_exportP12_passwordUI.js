@@ -68,18 +68,14 @@ function openSetP12PasswordDialog() {
                      .createInstance(Ci.nsIWritablePropertyBag2);
   let win = window.openDialog("chrome://pippki/content/setp12password.xul", "",
                               "", returnVals);
-  return new Promise((resolve, reject) => {
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad);
-      resolve([win, returnVals]);
-    });
-  });
+  return waitForDialogLoad(win).then(() => [win, returnVals]);
 }
 
 // Tests that the first password textbox is the element that is initially
 // focused.
 add_task(function* testFocus() {
   let [win, retVals] = yield openSetP12PasswordDialog();
+  yield SimpleTest.promiseFocus(win);
   Assert.equal(win.document.activeElement,
                win.document.getElementById("pw1").inputField,
                "First password textbox should have focus");

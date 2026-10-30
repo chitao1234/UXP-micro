@@ -13,6 +13,28 @@ var gCertDB = Cc["@mozilla.org/security/x509certdb;1"]
  */
 var gImportedCerts = [];
 
+/**
+ * Wait until a dialog's load handlers have completed before inspecting it.
+ * Firefox78/current use the same executeSoon barrier: resolving from inside
+ * the load event can resume a task before the dialog's own onload handler.
+ */
+function waitForDialogLoad(win) {
+  registerCleanupFunction(() => {
+    if (!win.closed) {
+      win.close();
+    }
+  });
+  return new Promise(resolve => {
+    win.addEventListener("load", function onLoad(event) {
+      if (event.target !== win.document) {
+        return;
+      }
+      win.removeEventListener("load", onLoad);
+      executeSoon(() => resolve(win));
+    });
+  });
+}
+
 registerCleanupFunction(() => {
   for (let cert of gImportedCerts) {
     gCertDB.deleteCertificate(cert);

@@ -85,6 +85,49 @@ class CertificateGeneration(unittest.TestCase):
         self.assertEqual(policies["bad_certs/notYetValid.pem"], "fixed negative/edge case")
         self.assertEqual(policies["test_cert_sha1/ee-post_int-post.pem"], "historical")
         self.assertEqual(policies["bad_certs/evroot.pem"], "pinned EV root")
+        self.assertEqual(policies[refresh.BROWSER_FIXTURE_PREFIX + "expired-ca.pem"],
+                         "fixed negative/edge case")
+        self.assertEqual(policies[refresh.BROWSER_FIXTURE_PREFIX + "ee-from-expired-ca.pem"],
+                         "rolling")
+
+    def test_browser_viewer_refresh_preserves_negative_and_identity_inputs(self):
+        browser = refresh.HERE.parent / "mochitest/browser"
+        make = lambda name: pycert.Certificate(
+            io.StringIO((browser / (name + ".pem.certspec")).read_text()),
+            now=datetime.datetime(2026, 1, 1))
+        expired = make("expired-ca")
+        self.assertEqual(expired.toPEM().strip(), (browser / "expired-ca.pem").read_text().strip())
+        self.assertEqual(expired.notAfter, datetime.datetime(2011, 1, 1))
+
+        serial_cert, _ = decoder.decode(make("has-empty-subject").toDER(),
+                                       asn1Spec=rfc2459.Certificate())
+        self.assertEqual(int(serial_cert["tbsCertificate"]["serialNumber"]), 10)
+
+        md5_cert, _ = decoder.decode(make("md5-ee").toDER(), asn1Spec=rfc2459.Certificate())
+        self.assertEqual(str(md5_cert["signatureAlgorithm"]["algorithm"]), "1.2.840.113549.1.1.4")
+
+        revoked, _ = decoder.decode(make("revoked").toDER(), asn1Spec=rfc2459.Certificate())
+        subject = encoder.encode(revoked["tbsCertificate"]["subject"])
+        key = encoder.encode(revoked["tbsCertificate"]["subjectPublicKeyInfo"])
+        self.assertEqual(base64.b64encode(subject), b"MBIxEDAOBgNVBAMMB3Jldm9rZWQ=")
+        self.assertEqual(base64.b64encode(hashlib.sha256(key).digest()),
+                         b"VCIlmPM9NkgFQtrs4Oa5TeFcDu6MWRTKSNdePEhOgD8=")
+
+    def test_browser_content_signing_chain_and_pin_match_psm(self):
+        self.assertEqual(refresh.content_verifier_updates([]), [])
+
+    def test_browser_content_signing_uses_pending_generated_root(self):
+        relative = refresh.CONTENT_SIGNING_CHAIN[-1]
+        spec = (refresh.HERE / (relative + ".certspec")).read_text()
+        cert = pycert.Certificate(io.StringIO(spec), now=datetime.datetime(2028, 1, 1))
+        pem = (cert.toPEM() + "\n").encode("ascii")
+        derived = dict(refresh.content_verifier_updates([(refresh.HERE / relative, pem)]))
+        self.assertEqual(set(derived), {refresh.CONTENT_VERIFIER / "goodChain.pem",
+                                       refresh.CONTENT_VERIFIER / "head.js"})
+        self.assertTrue(derived[refresh.CONTENT_VERIFIER / "goodChain.pem"].endswith(pem))
+        fingerprint = hashlib.sha256(cert.toDER()).hexdigest().upper()
+        fingerprint = ":".join(fingerprint[i:i + 2] for i in range(0, len(fingerprint), 2))
+        self.assertIn(fingerprint.encode("ascii"), derived[refresh.CONTENT_VERIFIER / "head.js"])
 
     def test_unknown_explicit_validity_requires_classification(self):
         with self.assertRaises(ValueError):

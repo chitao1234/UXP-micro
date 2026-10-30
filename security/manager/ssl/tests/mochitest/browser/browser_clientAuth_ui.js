@@ -38,12 +38,7 @@ function openClientAuthDialog(cert) {
   let win = window.openDialog("chrome://pippki/content/clientauthask.xul", "",
                               "", TEST_HOSTNAME, TEST_ORG, TEST_ISSUER_ORG,
                               TEST_PORT, certList, returnVals);
-  return new Promise((resolve, reject) => {
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad);
-      resolve([win, returnVals]);
-    });
-  });
+  return waitForDialogLoad(win).then(() => [win, returnVals]);
 }
 
 /**
@@ -70,7 +65,7 @@ function checkDialogContents(win, notBefore, notAfter) {
                "Actual and expected issuer organization should be equal");
 
   Assert.equal(win.document.getElementById("nicknames").label,
-               "test client certificate [03]",
+               "mochitest [03]",
                "Actual and expected selected cert nickname and serial should " +
                "be equal");
 
@@ -83,16 +78,28 @@ function checkDialogContents(win, notBefore, notAfter) {
   Assert.equal(validity, `Valid from ${notBefore} to ${notAfter}`,
                "Actual and expected validity should be equal");
   Assert.equal(issuer,
-               "Issued by: CN=Temporary Certificate Authority,O=Mozilla " +
-               "Testing,OU=Profile Guided Optimization",
+               "Issued by: OU=Profile Guided Optimization,O=Mozilla " +
+               "Testing,CN=Temporary Certificate Authority",
                "Actual and expected issuer should be equal");
   Assert.equal(tokenName, "Stored on: Software Security Device",
                "Actual and expected token name should be equal");
 }
 
 add_task(function* setup() {
-  cert = certDB.findCertByNickname("test client certificate");
+  // Like Firefox78/current, locate the harness certificate by its subject.
+  // PKCS12 friendly names depend on how the harness generated the bundle.
+  let certificates = certDB.getCerts().getEnumerator();
+  while (certificates.hasMoreElements()) {
+    let candidate = certificates.getNext().QueryInterface(Ci.nsIX509Cert);
+    if (candidate.commonName === "Mochitest client") {
+      Assert.ok(!cert, "Only one Mochitest client certificate should be present");
+      cert = candidate;
+    }
+  }
   Assert.notEqual(cert, null, "Should be able to find the test client cert");
+  Assert.equal(cert.nickname, "mochitest",
+               "The current harness PKCS12 friendly name should be retained");
+  Assert.equal(cert.serialNumber, "03", "The harness client serial should be retained");
 });
 
 // Test that the contents of the dialog correspond to the details of the

@@ -49,5 +49,7 @@ function* testObtainingManifest(aBrowser, aTest) {
     yield ManifestObtainer.browserObtainManifest(aBrowser);
   } catch (e) {
     aTest.run(e);
+    return;
   }
+  ok(false, "Mixed-content manifest must be rejected, not successfully fetched");
 }

@@ -25,12 +25,7 @@ var gCert;
 function openEditCertTrustDialog() {
   let win = window.openDialog("chrome://pippki/content/editcacert.xul", "", "",
                               gCert);
-  return new Promise((resolve, reject) => {
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad);
-      resolve(win);
-    });
-  });
+  return waitForDialogLoad(win);
 }
 
 add_task(function* setup() {

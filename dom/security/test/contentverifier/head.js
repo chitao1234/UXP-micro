@@ -85,7 +85,7 @@ function doTest(aExpectedStrings, reload, aUrl, aNewTabPref) {
       ["browser.newtabpage.remote.content-signing-test", true],
       ["browser.newtabpage.remote", true],
       ["security.content.signature.root_hash",
-       "CC:BE:04:87:74:B2:98:24:4A:C6:7A:71:BC:6F:DB:D6:C0:48:17:29:57:51:96:47:38:CC:24:C8:E4:F9:DD:CB"]);
+       "6A:68:0E:FB:C1:BB:2C:2B:22:A3:6B:FF:3E:66:AF:7E:63:E7:2E:4C:BD:0A:17:DD:A3:08:31:C1:D4:1D:3E:1A"]);
 
   if (aNewTabPref === URI_BAD_CSP) {
     // Use stricter CSP to test CSP violation.

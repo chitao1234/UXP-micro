@@ -15,6 +15,19 @@ changes verifier policy, or changes the clock. Keys stay unchanged: pycert uses
 the same fixed test keys in pykey. Non-time negative fixtures retain their
 specified signature algorithms, key sizes, names and extensions.
 
+The command also refreshes the duplicate `dom/security/test/contentverifier/goodChain.pem`
+and its root fingerprint in `head.js` from the three PSM content-signing
+certificates. Keep the browser's payload signatures unchanged: its leaf uses the
+same fixed key. These browser tests cover the signed-content channel, CSP, SRI,
+reloads and rejection of invalid signatures in addition to the PSM unit checks.
+
+The inventory includes `../mochitest/browser/*.pem.certspec`, whose ordinary
+viewer/UI certificates use the same rolling validity. The browser's
+`expired-ca.pem` stays fixed at 2010–2011, while `ee-from-expired-ca.pem` rolls
+so its error still identifies the expired issuer. Subject/key blocklist hashes,
+the empty-subject serial, MD5-signature negative case, usages and trust are
+preserved and checked by the maintenance tests.
+
 Policies are explicit in `generate_test_certs.py`:
 
 * Ordinary default-validity fixtures retain upstream's 800-day interval centered

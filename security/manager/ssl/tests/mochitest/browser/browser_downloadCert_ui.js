@@ -48,12 +48,7 @@ function openCertDownloadDialog(cert) {
                      .createInstance(Ci.nsIWritablePropertyBag2);
   let win = window.openDialog("chrome://pippki/content/downloadcert.xul", "",
                               "", cert, returnVals);
-  return new Promise((resolve, reject) => {
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad);
-      resolve([win, returnVals]);
-    });
-  });
+  return waitForDialogLoad(win).then(() => [win, returnVals]);
 }
 
 // Mock implementation of nsICertificateDialogs.

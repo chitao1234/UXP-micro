@@ -22,6 +22,7 @@ const tests = [
   // will result in a policy violation.
   {
     expected: "default-src 'none' blocks fetching manifest.",
+    blocked: true,
     get tabURL() {
       const url = new URL(defaultURL);
       url.searchParams.append("file", testFile);
@@ -29,7 +30,7 @@ const tests = [
       return url.href;
     },
     run(topic) {
-      is(topic, "csp-on-violate-policy", this.expected);
+      is(topic, "securitypolicyviolation", this.expected);
     }
   },
   // CSP allows fetching only from mochi.test:8888,
@@ -37,6 +38,7 @@ const tests = [
   // triggers a CSP violation.
   {
     expected: "default-src mochi.test:8888 blocks manifest fetching.",
+    blocked: true,
     get tabURL() {
       const url = new URL(defaultURL);
       url.searchParams.append("file", testFile);
@@ -44,7 +46,7 @@ const tests = [
       return url.href;
     },
     run(topic) {
-      is(topic, "csp-on-violate-policy", this.expected);
+      is(topic, "securitypolicyviolation", this.expected);
     }
   },
   // CSP restricts fetching to 'self', so allowing the manifest
@@ -80,6 +82,7 @@ const tests = [
   // policy violation.
   {
     expected: "default-src 'none' blocks mochi.test:8888",
+    blocked: true,
     get tabURL() {
       const url = new URL(defaultURL);
       url.searchParams.append("file", remoteFile);
@@ -87,7 +90,7 @@ const tests = [
       return url.href;
     },
     run(topic) {
-      is(topic, "csp-on-violate-policy", this.expected);
+      is(topic, "securitypolicyviolation", this.expected);
     }
   },
   // CSP allows fetching from self, so manifest should load.
@@ -133,6 +136,7 @@ const tests = [
   // triggered.
   {
     expected: "CSP blocks manifest fetching from example.org.",
+    blocked: true,
     get tabURL() {
       const url = new URL(defaultURL);
       url.searchParams.append("file", testFile);
@@ -140,7 +144,7 @@ const tests = [
       return url.href;
     },
     run(topic) {
-      is(topic, "csp-on-violate-policy", this.expected);
+      is(topic, "securitypolicyviolation", this.expected);
     }
   },
   // CSP is set to only allow manifest to be loaded from same origin,
@@ -148,6 +152,7 @@ const tests = [
   // this causes a CSP violation.
   {
     expected: "CSP manifest-src 'self' blocks cross-origin fetch.",
+    blocked: true,
     get tabURL() {
       const url = new URL(defaultURL);
       url.searchParams.append("file", remoteFile);
@@ -155,15 +160,15 @@ const tests = [
       return url.href;
     },
     run(topic) {
-      is(topic, "csp-on-violate-policy", this.expected);
+      is(topic, "securitypolicyviolation", this.expected);
     }
   },
-  // CSP allows fetching over TLS from example.org, so manifest should load.
+  // CSP allows fetching over TLS from example.com, so manifest should load.
   {
     expected: "CSP manifest-src allows example.com over TLS",
     get tabURL() {
       // secureURL loads https://example.com:443
-      // and gets manifest from https://example.org:443
+      // and gets manifest from https://example.com:443
       const url = new URL(secureURL);
       url.searchParams.append("file", httpsManifest);
       url.searchParams.append("cors", "*");
@@ -176,49 +181,51 @@ const tests = [
   },
 ];
 
-//jscs:disable
 add_task(function* () {
-  //jscs:enable
-  const testPromises = tests.map((test) => {
+  for (const test of tests) {
     const tabOptions = {
       gBrowser,
       url: test.tabURL,
       skipAnimation: true,
     };
-    return BrowserTestUtils.withNewTab(tabOptions, (browser) => testObtainingManifest(browser, test));
-  });
-  yield Promise.all(testPromises);
+    yield BrowserTestUtils.withNewTab(tabOptions,
+      browser => testObtainingManifest(browser, test));
+  }
 });
 
 function* testObtainingManifest(aBrowser, aTest) {
-  const waitForObserver = waitForNetObserver(aTest);
-  // Expect an exception (from promise rejection) if there a content policy
-  // that is violated.
+  // Current Firefox observes this tab's DOM event rather than a process-wide
+  // notification which another test's violation could satisfy.
+  const violation = aTest.blocked ? BrowserTestUtils.waitForContentEvent(
+    aBrowser, "securitypolicyviolation", true, event =>
+      event.effectiveDirective === "manifest-src" ||
+      event.effectiveDirective === "default-src") : null;
+  if (violation) {
+    // The event listener is installed by a content task. A following task on
+    // the same message manager provides an installation barrier before fetch.
+    yield ContentTask.spawn(aBrowser, null, () => {});
+  }
+
+  let manifest;
   try {
-    const manifest = yield ManifestObtainer.browserObtainManifest(aBrowser);
-    aTest.run(manifest);
+    manifest = yield ManifestObtainer.browserObtainManifest(aBrowser);
   } catch (e) {
+    if (!aTest.blocked) {
+      ok(false, `Allowed manifest must load from ${aTest.tabURL}: ${e.message}`);
+      return;
+    }
     const wasBlocked = e.message.includes("NetworkError when attempting to fetch resource");
     ok(wasBlocked, `Expected promise rejection obtaining ${aTest.tabURL}: ${e.message}`);
-  } finally {
-    yield waitForObserver;
-  }
-}
-
-// Helper object used to observe policy violations when blocking is expected.
-function waitForNetObserver(aTest) {
-  return new Promise((resolve) => {
-    // We don't need to wait for violation, so just resolve
-    if (!aTest.expected.includes("block")){
-      return resolve();
+    if (aTest.blocked && wasBlocked) {
+      yield violation;
+      aTest.run("securitypolicyviolation");
     }
-    const observer = {
-      observe(subject, topic) {
-        SpecialPowers.removeObserver(observer, "csp-on-violate-policy");
-        aTest.run(topic);
-        resolve();
-      },
-    };
-    SpecialPowers.addObserver(observer, "csp-on-violate-policy", false);
-  });
+    return;
+  }
+
+  if (aTest.blocked) {
+    ok(false, `Blocked manifest must not load from ${aTest.tabURL}`);
+    return;
+  }
+  aTest.run(manifest);
 }
