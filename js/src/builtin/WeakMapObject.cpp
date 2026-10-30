@@ -57,7 +57,11 @@ EnsureWeakMapData(JSContext* cx, Handle<WeakMapObject*> mapObj)
     if (mapObj->getData())
         return true;
 
-    auto data = cx->make_unique<WeakMapObject::Data>(cx, mapObj.get());
+    // Either table can fail to initialize after the other has joined the
+    // zone's weak-map list. Destroy partial data with the same GC-safe policy
+    // as a standalone ObjectValueMap, after nursery pointers are swept.
+    UniquePtr<WeakMapObject::Data, GCManagedDeletePolicy<WeakMapObject::Data>> data(
+        cx->new_<WeakMapObject::Data>(cx, mapObj.get()));
     if (!data)
         return false;
 
