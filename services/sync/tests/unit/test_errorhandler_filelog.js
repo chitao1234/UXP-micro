@@ -46,19 +46,20 @@ add_test(function test_noOutput() {
   Svc.Prefs.set("log.appender.file.logOnSuccess", false);
   Svc.Obs.notify("weave:service:sync:finish");
 
-  // Clear again without having issued any output.
-  Svc.Prefs.set("log.appender.file.logOnSuccess", true);
-
-  Svc.Obs.add("weave:service:reset-file-log", function onResetFileLog() {
-    Svc.Obs.remove("weave:service:reset-file-log", onResetFileLog);
-
-    errorHandler._logManager._fileAppender.level = Log.Level.Trace;
-    Svc.Prefs.resetBranch("");
-    run_next_test();
+  // Wait for the first async reset before starting another. Firefox78 uses
+  // the same sequencing; otherwise its notification can advance the test
+  // while the second operation is still writing or resetting the appender.
+  Svc.Obs.add("weave:service:reset-file-log", function onResetFileLogOuter() {
+    Svc.Obs.remove("weave:service:reset-file-log", onResetFileLogOuter);
+    Svc.Prefs.set("log.appender.file.logOnSuccess", true);
+    Svc.Obs.add("weave:service:reset-file-log", function onResetFileLogInner() {
+      Svc.Obs.remove("weave:service:reset-file-log", onResetFileLogInner);
+      errorHandler._logManager._fileAppender.level = Log.Level.Trace;
+      Svc.Prefs.resetBranch("");
+      run_next_test();
+    });
+    Svc.Obs.notify("weave:service:sync:finish");
   });
-
-  // Fake a successful sync.
-  Svc.Obs.notify("weave:service:sync:finish");
 });
 
 add_test(function test_logOnSuccess_false() {
@@ -81,16 +82,14 @@ add_test(function test_logOnSuccess_false() {
 });
 
 function readFile(file, callback) {
-  NetUtil.asyncFetch2(file, function (inputStream, statusCode, request) {
+  NetUtil.asyncFetch({
+    uri: NetUtil.newURI(file),
+    loadUsingSystemPrincipal: true,
+  }, function (inputStream, statusCode, request) {
     let data = NetUtil.readInputStreamToString(inputStream,
                                                inputStream.available());
     callback(statusCode, data);
-  },
-  null,      // aLoadingNode
-  Services.scriptSecurityManager.getSystemPrincipal(),
-  null,      // aTriggeringPrincipal
-  Ci.nsILoadInfo.SEC_NORMAL,
-  Ci.nsIContentPolicy.TYPE_OTHER);
+  });
 }
 
 add_test(function test_logOnSuccess_true() {
@@ -137,7 +136,7 @@ add_test(function test_sync_error_logOnError_false() {
   Svc.Prefs.set("log.appender.file.logOnError", false);
 
   let log = Log.repository.getLogger("Sync.Test.FileLog");
-  log.info("this won't show up");
+  log.error("this won't show up");
 
   Svc.Obs.add("weave:service:reset-file-log", function onResetFileLog() {
     Svc.Obs.remove("weave:service:reset-file-log", onResetFileLog);
@@ -158,7 +157,7 @@ add_test(function test_sync_error_logOnError_true() {
 
   let log = Log.repository.getLogger("Sync.Test.FileLog");
   const MESSAGE = "this WILL show up";
-  log.info(MESSAGE);
+  log.error(MESSAGE);
 
   // We need to wait until the log cleanup started by this test is complete
   // or the next test will fail as it is ongoing.
@@ -204,7 +203,7 @@ add_test(function test_login_error_logOnError_false() {
   Svc.Prefs.set("log.appender.file.logOnError", false);
 
   let log = Log.repository.getLogger("Sync.Test.FileLog");
-  log.info("this won't show up");
+  log.error("this won't show up");
 
   Svc.Obs.add("weave:service:reset-file-log", function onResetFileLog() {
     Svc.Obs.remove("weave:service:reset-file-log", onResetFileLog);
@@ -225,7 +224,7 @@ add_test(function test_login_error_logOnError_true() {
 
   let log = Log.repository.getLogger("Sync.Test.FileLog");
   const MESSAGE = "this WILL show up";
-  log.info(MESSAGE);
+  log.error(MESSAGE);
 
   // We need to wait until the log cleanup started by this test is complete
   // or the next test will fail as it is ongoing.
@@ -318,6 +317,7 @@ add_test(function test_logErrorCleanup_age() {
 
   _("Cleaning up logs after " + delay + "msec.");
   CommonUtils.namedTimer(function onTimer() {
+    Log.repository.getLogger("Sync.Test.FileLog").error("Trigger error-log cleanup");
     Svc.Obs.notify("weave:service:sync:error");
   }, delay, this, "cleanup-timer");
 });
