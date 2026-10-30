@@ -37,10 +37,88 @@
 #include "nsIObserverService.h"
 #include "nsMimeTypes.h"
 #include "imgITools.h"
+#include "mozilla/Logging.h"
 
 using mozilla::LogLevel;
 
 PRLogModuleInfo* gWin32ClipboardLog = nullptr;
+
+namespace {
+
+mozilla::LazyLogModule sNativeClipboardLog("nsClipboard");
+
+// Unlike MOZ_LOG in this tree, this opt-in logger is available in release
+// builds. It records native operation metadata, never clipboard contents.
+void
+PrintNativeClipboardLog(const char* aFormat, ...)
+{
+  mozilla::LogModule* log = sNativeClipboardLog;
+  va_list args;
+  va_start(args, aFormat);
+  log->Printv(LogLevel::Debug, aFormat, args);
+  va_end(args);
+}
+
+void
+LogNativeClipboardResult(const char* aOperation, UINT aFormat, uint32_t aStatus,
+                         int aAttempt = 0)
+{
+  // Logging and the diagnostic Win32 queries must not affect callers which
+  // inspect the native operation's last-error value.
+  DWORD lastError = ::GetLastError();
+  mozilla::LogModule* log = sNativeClipboardLog;
+  if (log->ShouldLog(LogLevel::Debug)) {
+    DWORD openPID = 0;
+    HWND openWindow = ::GetOpenClipboardWindow();
+    DWORD openTID = openWindow ?
+      ::GetWindowThreadProcessId(openWindow, &openPID) : 0;
+    DWORD ownerPID = 0;
+    HWND ownerWindow = ::GetClipboardOwner();
+    DWORD ownerTID = ownerWindow ?
+      ::GetWindowThreadProcessId(ownerWindow, &ownerPID) : 0;
+    // The sequence API is unavailable on NT4. Diagnostics must not introduce
+    // a new static import or require the API when logging is disabled.
+    typedef DWORD (WINAPI* GetSequenceNumberFn)();
+    HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+    GetSequenceNumberFn getSequenceNumber = user32 ?
+      reinterpret_cast<GetSequenceNumberFn>(
+        ::GetProcAddress(user32, "GetClipboardSequenceNumber")) : nullptr;
+    DWORD sequence = getSequenceNumber ? getSequenceNumber() : 0;
+    // Format zero denotes an operation on the entire clipboard.
+    PrintNativeClipboardLog(
+      "%s attempt=%d format=%u status=0x%08x lastError=%lu sequence=%lu "
+      "openWindow=%p openPID=%lu openTID=%lu "
+      "ownerWindow=%p ownerPID=%lu ownerTID=%lu",
+      aOperation, aAttempt, aFormat, aStatus, lastError, sequence,
+      static_cast<void*>(openWindow), openPID, openTID,
+      static_cast<void*>(ownerWindow), ownerPID, ownerTID);
+  }
+  ::SetLastError(lastError);
+}
+
+// Other applications can briefly hold the clipboard mutex. Match Firefox's
+// bounded retry policy (bug 1726269), including its current SleepEx replacement
+// for ineffective std::this_thread::sleep_for calls (bug 1927664).
+// https://bugzilla.mozilla.org/show_bug.cgi?id=1726269
+template<typename Function>
+HRESULT
+RepeatedlyTryClipboardOperation(const char* aOperation, UINT aFormat,
+                               Function aFunction)
+{
+  static constexpr int kNumberOfTries = 3;
+  static constexpr DWORD kDelayInMs = 3;
+
+  for (int attempt = 1; ; ++attempt) {
+    HRESULT result = aFunction();
+    LogNativeClipboardResult(aOperation, aFormat, uint32_t(result), attempt);
+    if (result == S_OK || attempt == kNumberOfTries) {
+      return result;
+    }
+    ::SleepEx(kDelayInMs, TRUE);
+  }
+}
+
+} // namespace
 
 // oddly, this isn't in the MSVC headers anywhere.
 UINT nsClipboard::CF_HTML = ::RegisterClipboardFormatW(L"HTML Format");
@@ -265,12 +343,20 @@ NS_IMETHODIMP nsClipboard::SetNativeClipboardData ( int32_t aWhichClipboard )
   }
 
   IDataObject * dataObj;
-  if ( NS_SUCCEEDED(CreateNativeDataObject(mTransferable, &dataObj, nullptr)) ) { // this add refs dataObj
-    ::OleSetClipboard(dataObj);
+  nsresult rv = CreateNativeDataObject(mTransferable, &dataObj, nullptr);
+  LogNativeClipboardResult("CreateNativeDataObject", 0, uint32_t(rv));
+  if (NS_SUCCEEDED(rv)) { // this add refs dataObj
+    RepeatedlyTryClipboardOperation("OleSetClipboard", 0,
+                                   [dataObj]() {
+      return ::OleSetClipboard(dataObj);
+    });
     dataObj->Release();
   } else {
     // Clear the native clipboard
-    ::OleSetClipboard(nullptr);
+    RepeatedlyTryClipboardOperation("OleSetClipboard(clear-after-create-failure)",
+                                   0, []() {
+      return ::OleSetClipboard(nullptr);
+    });
   }
 
   mIgnoreEmptyNotification = false;
@@ -401,9 +487,13 @@ static HRESULT FillSTGMedium(IDataObject * aDataObject, UINT aFormat, LPFORMATET
   // Starting by querying for the data to see if we can get it as from global memory
   HRESULT hres = S_FALSE;
   hres = aDataObject->QueryGetData(pFE);
+  LogNativeClipboardResult("QueryGetData", aFormat, uint32_t(hres));
   DisplayErrCode(hres);
   if (S_OK == hres) {
-    hres = aDataObject->GetData(pFE, pSTM);
+    hres = RepeatedlyTryClipboardOperation("GetData", aFormat,
+                                         [aDataObject, pFE, pSTM]() {
+      return aDataObject->GetData(pFE, pSTM);
+    });
     DisplayErrCode(hres);
   }
   return hres;
@@ -494,6 +584,8 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject * aDataObject, UINT 
                   result = imgTools->DecodeImage(inputStream,
                                                  NS_LITERAL_CSTRING(IMAGE_BMP_MS_CLIPBOARD),
                                                  getter_AddRefs(container));
+                  LogNativeClipboardResult("DecodeImage", aFormat,
+                                           uint32_t(result));
                   if (NS_FAILED(result)) {
                     break;
                   }
@@ -507,6 +599,8 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject * aDataObject, UINT 
 
                   result = imgTools->EncodeImage(container, mimeType, EmptyString(),
                                                  getter_AddRefs(inputStream));
+                  LogNativeClipboardResult("EncodeImage", aFormat,
+                                           uint32_t(result));
                   if (NS_FAILED(result)) {
                     break;
                   }
@@ -1008,7 +1102,11 @@ nsClipboard::GetNativeClipboardData ( nsITransferable * aTransferable, int32_t a
 
   // This makes sure we can use the OLE functionality for the clipboard
   IDataObject * dataObj;
-  if (S_OK == ::OleGetClipboard(&dataObj)) {
+  HRESULT result = RepeatedlyTryClipboardOperation("OleGetClipboard", 0,
+                                                  [&dataObj]() {
+    return ::OleGetClipboard(&dataObj);
+  });
+  if (S_OK == result) {
     // Use OLE IDataObject for clipboard operations
     res = GetDataFromDataObject(dataObj, 0, nullptr, aTransferable);
     dataObj->Release();
@@ -1030,7 +1128,9 @@ nsClipboard::EmptyClipboard(int32_t aWhichClipboard)
   // has the clipboard open.  So to avoid this race condition for OpenClipboard
   // we do not empty the clipboard when we're setting it.
   if (aWhichClipboard == kGlobalClipboard && !mEmptyingForSetData) {
-    OleSetClipboard(nullptr);
+    RepeatedlyTryClipboardOperation("OleSetClipboard(empty)", 0, []() {
+      return ::OleSetClipboard(nullptr);
+    });
   }
   return nsBaseClipboard::EmptyClipboard(aWhichClipboard);
 }
