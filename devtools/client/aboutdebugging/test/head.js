@@ -7,7 +7,7 @@
    getServiceWorkerList, getTabList, openPanel, waitForInitialAddonList,
    waitForServiceWorkerRegistered, unregisterServiceWorker,
    waitForDelayedStartupFinished, setupTestAboutDebuggingWebExtension,
-   waitForServiceWorkerActivation */
+   waitForServiceWorkerActivation, installAddonWithManager, createAddonXPI */
 /* import-globals-from ../../framework/test/shared-head.js */
 
 "use strict";
@@ -18,7 +18,6 @@ Services.scriptloader.loadSubScript(
   this);
 
 const { AddonManager } = Cu.import("resource://gre/modules/AddonManager.jsm", {});
-const { Management } = Cu.import("resource://gre/modules/Extension.jsm", {});
 
 flags.testing = true;
 registerCleanupFunction(() => {
@@ -110,12 +109,83 @@ function getTabList(document) {
     document.querySelector("#tabs.targets");
 }
 
-function* installAddon({document, path, name, isWebExtension}) {
-  // Mock the file picker to select a test addon
-  let MockFilePicker = SpecialPowers.MockFilePicker;
-  MockFilePicker.init(null);
-  let file = getSupportsFile(path);
-  MockFilePicker.returnFiles = [file.file];
+function createAddonXPI(files) {
+  let directory = Services.dirsvc.get("TmpD", Ci.nsIFile);
+  directory.append("aboutdebugging-addon");
+  directory.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+  registerCleanupFunction(() => {
+    if (directory.exists()) {
+      directory.remove(true);
+    }
+  });
+  let file = directory.clone();
+  file.append("fixture.xpi");
+  let zip = Cc["@mozilla.org/zipwriter;1"].createInstance(Ci.nsIZipWriter);
+  zip.open(file, 0x02 | 0x08 | 0x20); // write/create/truncate
+  try {
+    for (let name of Object.keys(files)) {
+      zip.addEntryFile(name, Ci.nsIZipWriter.COMPRESSION_NONE,
+                       getSupportsFile(files[name]).file, false);
+    }
+  } finally {
+    zip.close();
+  }
+  return file;
+}
+
+function installAddonWithManager(file) {
+  return new Promise((resolve, reject) => {
+    AddonManager.getInstallForFile(file, install => {
+      if (!install || install.error) {
+        reject(new Error("Cannot install add-on fixture: " +
+                         (install ? install.error : "no install")));
+        return;
+      }
+      let listener = {
+        onDownloadFailed() { failed(); },
+        onDownloadCancelled() { failed(); },
+        onInstallFailed() { failed(); },
+        onInstallCancelled() { failed(); },
+        onInstallEnded(installation, addon) {
+          install.removeListener(listener);
+          // Register before resolving, so a later assertion/toolbox failure
+          // cannot leave an installed fixture behind for the next test.
+          registerCleanupFunction(function* () {
+            let current = yield new Promise(done => AddonManager.getAddonByID(addon.id, done));
+            if (current) {
+              yield new Promise(done => {
+                let cleanupListener = {
+                  onUninstalled(removed) {
+                    if (removed.id === addon.id) {
+                      AddonManager.removeAddonListener(cleanupListener);
+                      done();
+                    }
+                  }
+                };
+                AddonManager.addAddonListener(cleanupListener);
+                current.uninstall();
+              });
+            }
+          });
+          resolve(addon);
+        }
+      };
+      function failed() {
+        install.removeListener(listener);
+        reject(new Error("Add-on fixture installation failed: " + install.error));
+      }
+      install.addListener(listener);
+      try {
+        install.install();
+      } catch (error) {
+        install.removeListener(listener);
+        reject(error);
+      }
+    });
+  });
+}
+
+function* installAddon({document, path, name, isWebExtension, temporary = false}) {
 
   let addonList = getAddonList(document);
   let addonListMutation = waitForMutation(addonList, { childList: true });
@@ -123,6 +193,10 @@ function* installAddon({document, path, name, isWebExtension}) {
   let onAddonInstalled;
 
   if (isWebExtension) {
+    // WebExtensions were removed by 43d44975b1. Keep their historical helper
+    // local to the explicitly skipped tests, not the supported worker/add-on
+    // tests which share this head file.
+    const { Management } = Cu.import("resource://gre/modules/Extension.jsm", {});
     onAddonInstalled = new Promise(done => {
       Management.on("startup", function listener(event, extension) {
         if (extension.name != name) {
@@ -136,15 +210,38 @@ function* installAddon({document, path, name, isWebExtension}) {
   } else {
     // Wait for a "test-devtools" message sent by the addon's bootstrap.js file
     onAddonInstalled = new Promise(done => {
-      Services.obs.addObserver(function listener() {
+      let observed = false;
+      function listener() {
+        observed = true;
         Services.obs.removeObserver(listener, "test-devtools");
-
         done();
-      }, "test-devtools", false);
+      }
+      Services.obs.addObserver(listener, "test-devtools", false);
+      registerCleanupFunction(() => {
+        if (!observed) {
+          Services.obs.removeObserver(listener, "test-devtools");
+        }
+      });
     });
   }
-  // Trigger the file picker by clicking on the button
-  document.getElementById("load-addon-from-file").click();
+  let addon;
+  if (isWebExtension || temporary) {
+    // Only the explicitly skipped temporary-install tests use this path.
+    let MockFilePicker = SpecialPowers.MockFilePicker;
+    MockFilePicker.init(null);
+    registerCleanupFunction(() => MockFilePicker.cleanup());
+    MockFilePicker.returnFiles = [getSupportsFile(path).file];
+    document.getElementById("load-addon-from-file").click();
+  } else {
+    // Bootstrap debugging is supported. Install the fixture normally through
+    // Tycho's manager instead of relying on the unavailable temporary API.
+    let directory = path.substring(0, path.lastIndexOf("/") + 1);
+    let file = createAddonXPI({
+      "install.rdf": path,
+      "bootstrap.js": directory + "bootstrap.js"
+    });
+    addon = yield installAddonWithManager(file);
+  }
 
   yield onAddonInstalled;
   ok(true, "Addon installed and running its bootstrap.js file");
@@ -155,6 +252,7 @@ function* installAddon({document, path, name, isWebExtension}) {
   names = names.map(element => element.textContent);
   ok(names.includes(name),
     "The addon name appears in the list of addons: " + names);
+  return addon;
 }
 
 function* uninstallAddon({document, id, name}) {

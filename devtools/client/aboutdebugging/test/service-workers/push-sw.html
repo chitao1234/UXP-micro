@@ -7,26 +7,24 @@
 <body>
 <script type="text/javascript">
 "use strict";
-SpecialPowers.addPermission("desktop-notification", true, document);
 var sw = navigator.serviceWorker.register("push-sw.js");
 var sub = null;
-sw.then(
-  function (registration) {
-    dump("SW registered\n");
-    registration.pushManager.subscribe().then(
-      function (subscription) {
-        sub = subscription;
-        dump("SW subscribed to push: " + sub.endpoint + "\n");
-      },
-      function (error) {
-        dump("SW not subscribed to push: " + error + "\n");
-      }
-    );
-  },
-  function (error) {
-    dump("SW not registered: " + error + "\n");
-  }
-);
+// Like the Firefox 78/current fixture, registration alone must not subscribe
+// to Push. The DevTools synthetic Push button does not need a subscription;
+// only the test with a mocked Push service calls these helpers.
+window.subscribeToPush = function() {
+  SpecialPowers.addPermission("desktop-notification", true, document);
+  return sw.then(registration => registration.pushManager.subscribe())
+    .then(subscription => {
+      sub = subscription;
+      dump("SW subscribed to push: " + sub.endpoint + "\n");
+      return sub.endpoint;
+    });
+};
+
+window.unsubscribeToPush = function() {
+  return sub.unsubscribe();
+};
 </script>
 </body>
 </html>

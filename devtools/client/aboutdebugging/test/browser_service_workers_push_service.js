@@ -59,6 +59,7 @@ add_task(function* () {
       return Promise.resolve(deleted);
     },
   };
+  registerCleanupFunction(() => { PushService.service = null; });
 
   let { tab, document } = yield openAboutDebugging("workers");
 
@@ -85,24 +86,34 @@ add_task(function* () {
   let targetContainer = name.parentNode.parentNode;
   let targetDetailsElement = targetContainer.querySelector(".target-details");
 
+  // The shared page only registers the worker. As in newer Firefox, request
+  // a subscription explicitly, after installing the mock and UI listeners.
+  let detailsChanged = waitForMutation(targetDetailsElement, { childList: true });
+  let endpoint = yield ContentTask.spawn(swTab.linkedBrowser, {}, function() {
+    return content.wrappedJSObject.subscribeToPush();
+  });
+  is(endpoint, FAKE_ENDPOINT, "The page subscribed through the mocked Push service");
+  yield detailsChanged;
+  yield BrowserTestUtils.waitForCondition(() =>
+    targetContainer.querySelector(".service-worker-push-url"));
+
   // Retrieve the push subscription endpoint URL, and verify it looks good.
   let pushURL = targetContainer.querySelector(".service-worker-push-url");
-  if (!pushURL) {
-    yield waitForMutation(targetDetailsElement, { childList: true });
-    pushURL = targetContainer.querySelector(".service-worker-push-url");
-  }
 
   ok(pushURL, "Found the push service URL in the service worker details");
   is(pushURL.textContent, FAKE_ENDPOINT, "The push service URL looks correct");
 
   // Unsubscribe from the push service.
-  ContentTask.spawn(swTab.linkedBrowser, {}, function () {
-    let win = content.wrappedJSObject;
-    return win.sub.unsubscribe();
+  detailsChanged = waitForMutation(targetDetailsElement, { childList: true });
+  let unsubscribed = yield ContentTask.spawn(swTab.linkedBrowser, {}, function() {
+    return content.wrappedJSObject.unsubscribeToPush();
   });
+  ok(unsubscribed, "The page unsubscribed from the mocked Push service");
 
   // Wait for the service worker details to update again.
-  yield waitForMutation(targetDetailsElement, { childList: true });
+  yield detailsChanged;
+  yield BrowserTestUtils.waitForCondition(() =>
+    !targetContainer.querySelector(".service-worker-push-url"));
   ok(!targetContainer.querySelector(".service-worker-push-url"),
     "The push service URL should be removed");
 

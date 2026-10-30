@@ -42,6 +42,11 @@ module.exports = createClass({
   },
 
   loadAddonFromFile() {
+    // Tycho's Add-on Manager (deea787c2e) supports normal XPI installation,
+    // but has no temporary-install API. Do not offer or invoke that action.
+    if (typeof AddonManager.installTemporaryAddon !== "function") {
+      return;
+    }
     this.setState({ installError: null });
     let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
     fp.init(window,
@@ -89,6 +94,7 @@ module.exports = createClass({
         ),
         dom.button({
           id: "load-addon-from-file",
+          disabled: typeof AddonManager.installTemporaryAddon !== "function",
           onClick: this.loadAddonFromFile,
         }, Strings.GetStringFromName("loadTemporaryAddon"))
       ),
