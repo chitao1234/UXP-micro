@@ -17,16 +17,24 @@ const {
   CanvasFrameAnonymousContentHelper
 } = require("devtools/server/actors/highlighters/utils/markup");
 
-const TEST_URL_1 = "data:text/html;charset=utf-8,CanvasFrameAnonymousContentHelper test 1";
-const TEST_URL_2 = "data:text/html;charset=utf-8,CanvasFrameAnonymousContentHelper test 2";
+// browserLoaded matches documentURI, where spaces are percent-encoded.
+const TEST_URL_1 = "data:text/html;charset=utf-8," +
+  encodeURIComponent("CanvasFrameAnonymousContentHelper test 1");
+const TEST_URL_2 = "data:text/html;charset=utf-8," +
+  encodeURIComponent("CanvasFrameAnonymousContentHelper test 2");
 
 add_task(function* () {
-  let browser = yield addTab(TEST_URL_2);
+  let browser = yield addTab(TEST_URL_1);
   let doc = browser.contentDocument;
+  let env = new HighlighterEnvironment();
+  env.initFromWindow(doc.defaultView);
 
   let nodeBuilder = () => {
-    let root = doc.createElement("div");
-    let child = doc.createElement("div");
+    // The helper rebuilds during the navigation progress notification, before
+    // this task resumes after browserLoaded. Never use the previous document.
+    let currentDoc = env.document;
+    let root = currentDoc.createElement("div");
+    let child = currentDoc.createElement("div");
     child.style = "pointer-events:auto;width:200px;height:200px;background:red;";
     child.id = "child-element";
     child.className = "child-element";
@@ -36,8 +44,6 @@ add_task(function* () {
   };
 
   info("Building the helper");
-  let env = new HighlighterEnvironment();
-  env.initFromWindow(doc.defaultView);
   let helper = new CanvasFrameAnonymousContentHelper(env, nodeBuilder);
 
   info("Get an element from the helper");
@@ -64,10 +70,16 @@ add_task(function* () {
   is(mouseDownHandled, 1, "The mousedown event was handled once before navigation");
 
   info("Navigating to a new page");
-  let loaded = BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser);
+  let previousDoc = doc;
+  let loaded = BrowserTestUtils.browserLoaded(browser, false, TEST_URL_2);
+  let navigated = once(env, "navigate");
   content.location = TEST_URL_2;
-  yield loaded;
-  doc = gBrowser.selectedBrowser.contentWindow.document;
+  yield Promise.all([loaded, navigated]);
+  doc = browser.contentDocument;
+  is(doc.documentURI, TEST_URL_2, "Navigation loaded the expected document");
+  isnot(doc, previousDoc, "Navigation replaced the document");
+  is(helper.anonymousContentDocument, doc,
+    "The helper reinserted its content into the new document");
 
   info("Try to access the element again");
   is(el.getAttribute("class"), "child-element",
