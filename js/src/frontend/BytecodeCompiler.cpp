@@ -472,6 +472,16 @@ BytecodeCompiler::compileStandaloneFunction(MutableHandleFunction fun,
             return false;
     } while (!fn);
 
+    // Parsing a standalone function has consumed the trailing source pragmas.
+    // Publish them before emitting any nested functions, since those can fire
+    // onNewScript before the outer function is finished.
+    if (parser->tokenStream.hasDisplayURL() &&
+        !scriptSource->setDisplayURL(cx, parser->tokenStream.displayURL()))
+        return false;
+    if (parser->tokenStream.hasSourceMapURL() &&
+        !scriptSource->setSourceMapURL(cx, parser->tokenStream.sourceMapURL()))
+        return false;
+
     FunctionBox* funbox = fn->funbox();
     if (funbox->function()->isInterpreted()) {
         MOZ_ASSERT(fun == funbox->function());
