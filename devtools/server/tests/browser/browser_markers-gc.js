@@ -5,7 +5,8 @@
  * Test that we get "GarbageCollection" markers.
  */
 
-const { PerformanceFront } = require("devtools/shared/fronts/performance");
+const { TimelineFront } = require("devtools/shared/fronts/timeline");
+const { PerformanceRecordingFront } = require("devtools/shared/fronts/performance-recording");
 const MARKER_NAME = "GarbageCollection";
 
 add_task(function* () {
@@ -15,12 +16,21 @@ add_task(function* () {
   initDebuggerServer();
   let client = new DebuggerClient(DebuggerServer.connectPipe());
   let form = yield connectDebuggerClient(client);
-  let front = PerformanceFront(client, form);
-  yield front.connect();
-  let rec = yield front.startRecording({ withMarkers: true });
+  let front = TimelineFront(client, form);
+  let markerBatches = [];
+  let collectMarkers = markers => markerBatches.push(markers);
+  front.on("markers", collectMarkers);
+  let onMarkers = waitForMarkerType(front, MARKER_NAME,
+    null, markers => markers, "markers");
+  let startTime = yield front.start({
+    withMarkers: true,
+    withFrames: true,
+    withGCEvents: true
+  });
 
-  let markers = yield waitForMarkerType(front, MARKER_NAME);
-  yield front.stopRecording(rec);
+  let markers = yield onMarkers;
+  yield front.stop();
+  front.off("markers", collectMarkers);
 
   ok(markers.some(m => m.name === MARKER_NAME), `got some ${MARKER_NAME} markers`);
   ok(markers.every(({causeName}) => typeof causeName === "string"),
@@ -28,6 +38,24 @@ add_task(function* () {
   ok(markers.every(({cycle}) => typeof cycle === "number"),
     "All markers have a `cycle` ID.");
 
+  // GC and docshell marker batches can arrive out of chronological order.
+  // Preserve coverage of the recording model's completion-time sorting without
+  // requiring a live SPS profiler or sorting the raw Timeline data in the test.
+  let rec = new PerformanceRecordingFront();
+  let recordingForm = {
+    configuration: { withMarkers: true },
+    startTime,
+    recording: true,
+    completed: false
+  };
+  rec.form(recordingForm);
+  for (let batch of markerBatches) {
+    rec._addTimelineData("markers", { markers: batch });
+  }
+  rec.form(Object.assign({}, recordingForm, {
+    recording: false,
+    completed: true
+  }));
   markers = rec.getMarkers();
 
   // Bug 1197646

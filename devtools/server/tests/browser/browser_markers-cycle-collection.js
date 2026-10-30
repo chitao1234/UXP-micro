@@ -6,7 +6,7 @@
  * "nsCycleCollector::ForgetSkippable" markers when we force cycle collection.
  */
 
-const { PerformanceFront } = require("devtools/shared/fronts/performance");
+const { TimelineFront } = require("devtools/shared/fronts/timeline");
 
 add_task(function* () {
   // This test runs very slowly on linux32 debug EC2 instances.
@@ -18,12 +18,13 @@ add_task(function* () {
   initDebuggerServer();
   let client = new DebuggerClient(DebuggerServer.connectPipe());
   let form = yield connectDebuggerClient(client);
-  let front = PerformanceFront(client, form);
-  yield front.connect();
-  let rec = yield front.startRecording({ withMarkers: true });
+  let front = TimelineFront(client, form);
+  yield front.start({ withMarkers: true, withFrames: true, withGCEvents: true });
 
-  let markers = yield waitForMarkerType(front, ["nsCycleCollector::Collect", "nsCycleCollector::ForgetSkippable"]);
-  yield front.stopRecording(rec);
+  let markers = yield waitForMarkerType(front,
+    ["nsCycleCollector::Collect", "nsCycleCollector::ForgetSkippable"],
+    null, markers => markers, "markers");
+  yield front.stop();
 
   ok(markers.some(m => m.name === "nsCycleCollector::Collect"), "got some nsCycleCollector::Collect markers");
   ok(markers.some(m => m.name === "nsCycleCollector::ForgetSkippable"), "got some nsCycleCollector::Collect markers");

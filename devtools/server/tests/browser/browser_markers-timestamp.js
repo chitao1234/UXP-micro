@@ -5,7 +5,7 @@
  * Test that we get a "TimeStamp" marker.
  */
 
-const { PerformanceFront } = require("devtools/shared/fronts/performance");
+const { TimelineFront } = require("devtools/shared/fronts/timeline");
 const { pmmConsoleMethod, pmmLoadFrameScripts, pmmClearFrameScripts } = require("devtools/client/performance/test/helpers/profiler-mm-utils");
 const MARKER_NAME = "TimeStamp";
 
@@ -16,17 +16,19 @@ add_task(function* () {
   initDebuggerServer();
   let client = new DebuggerClient(DebuggerServer.connectPipe());
   let form = yield connectDebuggerClient(client);
-  let front = PerformanceFront(client, form);
-  yield front.connect();
-  let rec = yield front.startRecording({ withMarkers: true });
+  let front = TimelineFront(client, form);
+  yield front.start({ withMarkers: true, withFrames: true, withGCEvents: true });
+
+  let onMarkers = waitForMarkerType(front, MARKER_NAME,
+    markers => markers.length >= 2, markers => markers, "markers");
 
   pmmLoadFrameScripts(gBrowser);
   pmmConsoleMethod("timeStamp");
   pmmConsoleMethod("timeStamp", "myLabel");
 
-  let markers = yield waitForMarkerType(front, MARKER_NAME, markers => markers.length >= 2);
+  let markers = yield onMarkers;
 
-  yield front.stopRecording(rec);
+  yield front.stop();
 
   ok(markers.every(({stack}) => typeof stack === "number"), "All markers have stack references.");
   ok(markers.every(({name}) => name === "TimeStamp"), "All markers found are TimeStamp markers");
