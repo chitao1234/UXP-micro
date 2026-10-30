@@ -23,19 +23,19 @@ function thisValues() {
         // Object values.
         ...[{}, [], /(?:)/, function(){}, new Proxy({}, {})],
 
-        // Intl objects.
+        // Intl objects. Intl.Locale requires an explicit language tag.
         ...[].concat(...intlConstructors.map(ctor => [
             // Instance of an Intl constructor.
-            new ctor(),
+            new ctor("en"),
 
             // Instance of a subclassed Intl constructor.
-            new class extends ctor {},
+            new (class extends ctor {})("en"),
 
             // Object inheriting from an Intl constructor prototype.
             Object.create(ctor.prototype),
 
             // Intl object not inheriting from its default prototype.
-            Object.setPrototypeOf(new ctor(), Object.prototype),
+            Object.setPrototypeOf(new ctor("en"), Object.prototype),
         ])),
     ];
 }

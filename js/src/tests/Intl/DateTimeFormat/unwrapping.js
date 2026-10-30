@@ -21,15 +21,16 @@ function IsObject(o) {
 }
 
 function intlObjects(ctor) {
+    // Intl.Locale requires an explicit language tag.
     return [
         // Instance of an Intl constructor.
-        new ctor(),
+        new ctor("en"),
 
         // Instance of a subclassed Intl constructor.
-        new class extends ctor {},
+        new (class extends ctor {})("en"),
 
         // Intl object not inheriting from its default prototype.
-        Object.setPrototypeOf(new ctor(), Object.prototype),
+        Object.setPrototypeOf(new ctor("en"), Object.prototype),
     ];
 }
 
