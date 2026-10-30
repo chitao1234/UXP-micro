@@ -13,12 +13,43 @@ const certdb = Cc["@mozilla.org/security/x509certdb;1"]
 
 do_register_cleanup(() => {
   Services.prefs.clearUserPref("security.OCSP.enabled");
+  Services.prefs.clearUserPref("security.tls.version.min");
+  Services.prefs.clearUserPref("security.tls.version.max");
 });
 
 Services.prefs.setIntPref("security.OCSP.enabled", 1);
 
 addCertFromFile(certdb, "bad_certs/evroot.pem", "CTu,,");
 addCertFromFile(certdb, "bad_certs/ev-test-intermediate.pem", ",,");
+
+function check_tls13_offered(securityInfo) {
+  let socket = securityInfo.QueryInterface(Ci.nsISSLSocketControl);
+  equal(socket.SSLVersionOffered, Ci.nsISSLSocketControl.TLS_VERSION_1_3,
+        "Certificate errors must not mark a TLS 1.3 server version-intolerant");
+}
+
+function check_tls13_used(securityInfo) {
+  check_tls13_offered(securityInfo);
+  let status = securityInfo.QueryInterface(Ci.nsISSLStatusProvider).SSLStatus;
+  equal(status.protocolVersion, Ci.nsISSLStatus.TLS_VERSION_1_3,
+        "The TLS helper negotiates TLS 1.3 after a certificate error");
+}
+
+function add_certificate_error_retry_tests() {
+  for (let [host, error] of [["expired.example.com", SEC_ERROR_EXPIRED_CERTIFICATE],
+                            ["unknownissuer.example.com", SEC_ERROR_UNKNOWN_ISSUER]]) {
+    // The first failure must retain its certificate error and must not make
+    // the second socket offer TLS 1.2 instead. Do not clear intolerance state
+    // or the session cache between these attempts: that would hide the bug.
+    add_connection_test(host, error, null, check_tls13_offered);
+    add_connection_test(host, error, null, check_tls13_offered);
+  }
+  add_cert_override_test("unknownissuer.example.com",
+                         Ci.nsICertOverrideService.ERROR_UNTRUSTED,
+                         SEC_ERROR_UNKNOWN_ISSUER);
+  add_connection_test("unknownissuer.example.com", PRErrorCodeSuccess,
+                      null, check_tls13_used);
+}
 
 // For expired.example.com, the platform will make a connection that will fail.
 // Using information gathered at that point, an override will be added and
@@ -44,6 +75,7 @@ function add_resume_non_ev_with_override_test() {
       let sslStatus = transportSecurityInfo
                         .QueryInterface(Ci.nsISSLStatusProvider)
                         .SSLStatus;
+      check_tls13_used(transportSecurityInfo);
       ok(!sslStatus.isDomainMismatch,
          "expired.example.com should not have isDomainMismatch set");
       ok(sslStatus.isNotValidAtThisTime,
@@ -145,7 +177,11 @@ function add_origin_attributes_test(originAttributes1, originAttributes2,
 }
 
 function run_test() {
+  // Leave TLS 1.2 available so an accidental downgrade remains observable.
+  Services.prefs.setIntPref("security.tls.version.min", 3);
+  Services.prefs.setIntPref("security.tls.version.max", 4);
   add_tls_server_setup("BadCertServer", "bad_certs");
+  add_certificate_error_retry_tests();
   add_resume_non_ev_with_override_test();
   add_resume_ev_test();
   add_origin_attributes_test({}, {}, true);

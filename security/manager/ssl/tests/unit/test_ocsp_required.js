@@ -15,6 +15,12 @@ function run_test() {
   do_get_profile();
   Services.prefs.setBoolPref("security.OCSP.require", true);
   Services.prefs.setIntPref("security.OCSP.enabled", 1);
+  Services.prefs.setIntPref("security.tls.version.min", 3);
+  Services.prefs.setIntPref("security.tls.version.max", 4);
+  do_register_cleanup(() => {
+    Services.prefs.clearUserPref("security.tls.version.min");
+    Services.prefs.clearUserPref("security.tls.version.max");
+  });
 
   // We don't actually make use of stapling in this test. This is just how we
   // get a TLS connection.
@@ -42,10 +48,17 @@ function run_test() {
 
 function add_tests()
 {
+  function check_tls_version(securityInfo) {
+    let socket = securityInfo.QueryInterface(Ci.nsISSLSocketControl);
+    equal(socket.SSLVersionOffered, Ci.nsISSLSocketControl.TLS_VERSION_1_3,
+          "OCSP signature failures must not cause TLS version fallback");
+  }
+  // Both connections must fail for the OCSP signature, not a subsequent
+  // downgrade-protection error after the first failure changed cached state.
   add_connection_test("ocsp-stapling-none.example.com",
-                      SEC_ERROR_OCSP_BAD_SIGNATURE);
+                      SEC_ERROR_OCSP_BAD_SIGNATURE, null, check_tls_version);
   add_connection_test("ocsp-stapling-none.example.com",
-                      SEC_ERROR_OCSP_BAD_SIGNATURE);
+                      SEC_ERROR_OCSP_BAD_SIGNATURE, null, check_tls_version);
   add_test(function () {
     equal(gOCSPRequestCount, 1,
           "OCSP request count should be 1 due to OCSP response caching");

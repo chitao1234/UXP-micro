@@ -1028,6 +1028,34 @@ class SSLErrorRunnable : public SyncRunnableBase
 namespace {
 
 bool
+IsTLSIntoleranceError(PRErrorCode err)
+{
+  // These protocol/transport errors can indicate a version-intolerant server.
+  // Certificate and OCSP verification failures cannot: falling back after
+  // those errors poisons the next connection's version choice and can trigger
+  // the server's downgrade protection. Keep the behavior independent of any
+  // logging or telemetry classification (as in ESR52 and current Firefox).
+  switch (err) {
+    case SSL_ERROR_BAD_MAC_ALERT:
+    case SSL_ERROR_BAD_MAC_READ:
+    case SSL_ERROR_HANDSHAKE_FAILURE_ALERT:
+    case SSL_ERROR_HANDSHAKE_UNEXPECTED_ALERT:
+    case SSL_ERROR_ILLEGAL_PARAMETER_ALERT:
+    case SSL_ERROR_NO_CYPHER_OVERLAP:
+    case SSL_ERROR_UNSUPPORTED_VERSION:
+    case SSL_ERROR_PROTOCOL_VERSION_ALERT:
+    case SSL_ERROR_BAD_HANDSHAKE_HASH_VALUE:
+    case SSL_ERROR_DECODE_ERROR_ALERT:
+    case PR_CONNECT_RESET_ERROR:
+    case PR_END_OF_FILE_ERROR:
+    case SSL_ERROR_INTERNAL_ERROR_ALERT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool
 retryDueToTLSIntolerance(PRErrorCode err, nsNSSSocketInfo* socketInfo)
 {
   // This function is supposed to decide which error codes should
@@ -1083,6 +1111,10 @@ retryDueToTLSIntolerance(PRErrorCode err, nsNSSSocketInfo* socketInfo)
   // EOF.
   if ((err == PR_CONNECT_RESET_ERROR || err == PR_END_OF_FILE_ERROR)
       && socketInfo->GetForSTARTTLS()) {
+    return false;
+  }
+
+  if (!IsTLSIntoleranceError(err)) {
     return false;
   }
 
