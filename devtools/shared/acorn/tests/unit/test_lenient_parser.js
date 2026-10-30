@@ -8,7 +8,9 @@
 const acorn_loose = require("acorn/acorn_loose");
 
 function run_test() {
-  let actualAST = acorn_loose.parse_dammit("let x = 10", {});
+  // The recovery oracle below uses ES5, where `let` is an identifier. Keep
+  // that grammar explicit; the parser's default is now ES6.
+  let actualAST = acorn_loose.parse_dammit("let x = 10", {ecmaVersion: 5});
 
   do_print("Actual AST:");
   do_print(JSON.stringify(actualAST, null, 2));
@@ -16,6 +18,21 @@ function run_test() {
   do_print(JSON.stringify(expectedAST, null, 2));
 
   checkEquivalentASTs(expectedAST, actualAST);
+
+  // Under the default ES6 grammar this input is valid and must remain a
+  // lexical declaration, rather than being split into recovery statements.
+  let defaultAST = acorn_loose.parse_dammit("let x = 10", {});
+  do_check_eq(defaultAST.body.length, 1);
+  let declaration = defaultAST.body[0];
+  do_check_eq(declaration.type, "VariableDeclaration");
+  do_check_eq(declaration.kind, "let");
+  do_check_eq(declaration.declarations.length, 1);
+  let declarator = declaration.declarations[0];
+  do_check_eq(declarator.type, "VariableDeclarator");
+  do_check_eq(declarator.id.type, "Identifier");
+  do_check_eq(declarator.id.name, "x");
+  do_check_eq(declarator.init.type, "Literal");
+  do_check_eq(declarator.init.value, 10);
 }
 
 const expectedAST = {

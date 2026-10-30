@@ -3,8 +3,6 @@
 
 "use strict";
 
-const Profiler = Cc["@mozilla.org/tools/profiler;1"].getService(Ci.nsIProfiler);
-
 function check_actors(expect) {
   do_check_eq(expect, DebuggerServer.tabActorFactories.hasOwnProperty("registeredActor1"));
   do_check_eq(expect, DebuggerServer.tabActorFactories.hasOwnProperty("registeredActor2"));
