@@ -5,6 +5,8 @@
 
 DIRS += ['tlsserver']
 
+PYTHON_UNIT_TESTS += ['test_pycert.py']
+
 if not CONFIG['MOZ_NO_SMART_CARDS']:
     DIRS += ['pkcs11testmodule']
 

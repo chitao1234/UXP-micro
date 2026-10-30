@@ -60,6 +60,18 @@ if (!gRevocations.exists()) {
 var certDB = Cc["@mozilla.org/security/x509certdb;1"]
                .getService(Ci.nsIX509CertDB);
 
+// Regenerating a fixture changes its automatically generated serial number.
+// Use the actual fixture bytes while retaining the separate malformed-data and
+// persistence checks below.
+function serialNumberBase64(filename) {
+  let cert = constructCertFromFile(filename);
+  let serial = cert.serialNumber.replace(/:/g, "");
+  return btoa(serial.replace(/../g, byte =>
+    String.fromCharCode(parseInt(byte, 16))));
+}
+const TEST_INT_SERIAL = serialNumberBase64("bad_certs/test-int.pem");
+const OTHER_TEST_CA_SERIAL = serialNumberBase64("bad_certs/other-test-ca.pem");
+
 // set up a test server to serve the blocklist.xml
 var testserver = new HttpServer();
 
@@ -77,12 +89,12 @@ var initialBlocklist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
     // to test-int.pem in bad_certs/
     "<certItem issuerName='MBIxEDAOBgNVBAMMB1Rlc3QgQ0E='>" +
     "<serialNumber>oops! more nonsense.</serialNumber>" +
-    "<serialNumber>BVio/iQ21GCi2iUven8oJ/gae74=</serialNumber></certItem>" +
+    "<serialNumber>" + TEST_INT_SERIAL + "</serialNumber></certItem>" +
     // ... and some good
     // In this case, the issuer name and the valid serialNumber correspond
     // to other-test-ca.pem in bad_certs/ (for testing root revocation)
     "<certItem issuerName='MBgxFjAUBgNVBAMMDU90aGVyIHRlc3QgQ0E='>" +
-    "<serialNumber>exJUIJpq50jgqOwQluhVrAzTF74=</serialNumber></certItem>" +
+    "<serialNumber>" + OTHER_TEST_CA_SERIAL + "</serialNumber></certItem>" +
     // This item corresponds to an entry in sample_revocations.txt where:
     // isser name is "another imaginary issuer" base-64 encoded, and
     // serialNumbers are:
@@ -123,6 +135,11 @@ for (var path in blocklists) {
 // start the test server
 testserver.start(-1);
 var port = testserver.identity.primaryPort;
+do_register_cleanup(() => {
+  if (!testserver.isStopped()) {
+    return new Promise(resolve => testserver.stop(resolve));
+  }
+});
 
 // Setup the addonManager
 var addonManager = Cc["@mozilla.org/addons/integration;1"]
@@ -207,12 +224,50 @@ function check_revocations_txt_contents(expected) {
   inputStream.QueryInterface(Ci.nsILineInputStream);
   let contents = "";
   let hasmore = false;
-  do {
-    let line = {};
-    hasmore = inputStream.readLine(line);
-    contents += (contents.length == 0 ? "" : "\n") + line.value;
-  } while (hasmore);
-  equal(contents, expected, "revocations.txt should be as expected");
+  try {
+    do {
+      let line = {};
+      hasmore = inputStream.readLine(line);
+      contents += (contents.length == 0 ? "" : "\n") + line.value;
+    } while (hasmore);
+  } finally {
+    inputStream.close();
+  }
+
+  // SaveEntries groups records through hash tables; neither group order nor
+  // serial order is part of the format. Regenerating a certificate changes its
+  // hash bucket. Compare complete records, keeping each DN/value association
+  // and duplicate entry, rather than depending on the old serials' iteration
+  // order or sorting individual lines away from their DN.
+  function records(text) {
+    let lines = text.split("\n");
+    equal(lines.shift(), "# Auto generated contents. Do not edit.",
+          "revocations.txt retains its expected header");
+    let dn = null;
+    let valuesForDN = 0;
+    let result = [];
+    for (let line of lines) {
+      if (!line) {
+        continue;
+      }
+      if (line[0] == " " || line[0] == "\t") {
+        ok(dn !== null, "persisted revocation value must follow a DN");
+        ok(line.length > 1, "persisted revocation value must not be empty");
+        result.push(JSON.stringify([line[0], dn, line.substring(1)]));
+        valuesForDN++;
+      } else {
+        ok(dn === null || valuesForDN > 0,
+           "persisted DN must have at least one revocation value");
+        dn = line;
+        valuesForDN = 0;
+      }
+    }
+    ok(dn === null || valuesForDN > 0,
+       "last persisted DN must have at least one revocation value");
+    return result.sort();
+  }
+  deepEqual(records(contents), records(expected),
+            "revocations.txt should contain exactly the expected revocation records");
 }
 
 function run_test() {
@@ -228,9 +283,9 @@ function run_test() {
                  "MCIxIDAeBgNVBAMMF0Fub3RoZXIgVGVzdCBFbmQtZW50aXR5\n" +
                  "\tVCIlmPM9NkgFQtrs4Oa5TeFcDu6MWRTKSNdePEhOgD8=\n" +
                  "MBIxEDAOBgNVBAMMB1Rlc3QgQ0E=\n" +
-                 " BVio/iQ21GCi2iUven8oJ/gae74=\n" +
+                 " " + TEST_INT_SERIAL + "\n" +
                  "MBgxFjAUBgNVBAMMDU90aGVyIHRlc3QgQ0E=\n" +
-                 " exJUIJpq50jgqOwQluhVrAzTF74=\n" +
+                 " " + OTHER_TEST_CA_SERIAL + "\n" +
                  "YW5vdGhlciBpbWFnaW5hcnkgaXNzdWVy\n" +
                  " YW5vdGhlciBzZXJpYWwu\n" +
                  " c2VyaWFsMi4=";

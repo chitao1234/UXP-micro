@@ -37,7 +37,7 @@ from ecc import encoding
 from ecc import Key
 import base64
 import binascii
-import mock
+from unittest import mock
 import rsa
 import sys
 
@@ -588,7 +588,7 @@ def longToEvenLengthHexString(val):
     return h
 
 def notRandom(n):
-    return n * '\x04'
+    return n * b'\x04'
 
 class ECCKey(object):
     secp256k1Encoded = str('08fd87b04fba98090100004035ee7c7289d8fef7a8'

@@ -354,11 +354,13 @@ class Certificate(object):
     """Utility class for reading a certificate specification and
     generating a signed x509 certificate"""
 
-    def __init__(self, paramStream):
+    def __init__(self, paramStream, now=None):
         self.versionValue = 2 # a value of 2 is X509v3
         self.signature = 'sha256WithRSAEncryption'
         self.issuer = 'Default Issuer'
-        actualNow = datetime.datetime.utcnow()
+        # Allow the fixture-maintenance command to reproduce a chosen year's
+        # rolling validity without changing the process or machine clock.
+        actualNow = now if now is not None else datetime.datetime.utcnow()
         self.now = datetime.datetime.strptime(str(actualNow.year), '%Y')
         aYearAndAWhile = datetime.timedelta(days=400)
         self.notBefore = self.now - aYearAndAWhile

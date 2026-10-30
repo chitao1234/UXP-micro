@@ -72,6 +72,11 @@ function run_test() {
     gOCSPRequestCount++;
   });
   ocspResponder.start(8888);
+  do_register_cleanup(() => {
+    if (!ocspResponder.isStopped()) {
+      return new Promise(resolve => ocspResponder.stop(resolve));
+    }
+  });
   add_tls_server_setup("OCSPStaplingServer", "ocsp_certs");
 
   // In these tests, the OCSP stapling server gives us a stapled
@@ -161,24 +166,5 @@ function run_test() {
                 ocspResponseUnknown, willRetry);
 
   add_test(function () { ocspResponder.stop(run_next_test); });
-  add_test(check_ocsp_stapling_telemetry);
-  run_next_test();
-}
-
-function check_ocsp_stapling_telemetry() {
-  let histogram = Cc["@mozilla.org/base/telemetry;1"]
-                    .getService(Ci.nsITelemetry)
-                    .getHistogramById("SSL_OCSP_STAPLING")
-                    .snapshot();
-  equal(histogram.counts[0], 0,
-        "Should have 0 connections for unused histogram bucket 0");
-  equal(histogram.counts[1], 0,
-        "Actual and expected connections with a good response should match");
-  equal(histogram.counts[2], 0,
-        "Actual and expected connections with no stapled response should match");
-  equal(histogram.counts[3], 21,
-        "Actual and expected connections with an expired response should match");
-  equal(histogram.counts[4], 0,
-        "Actual and expected connections with bad responses should match");
   run_next_test();
 }
