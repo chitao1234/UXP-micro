@@ -30,6 +30,8 @@ def add_common_arguments(parser):
     parser.add_argument("--sequential",
                         action="store_true", dest="sequential", default=False,
                         help="Run all tests sequentially")
+    parser.add_argument("--thread-count", type=int, dest="threadCount", default=None,
+                        help="Maximum number of concurrent test processes")
     parser.add_argument("--temp-dir",
                         dest="tempDir", default=None,
                         help="Directory to use for temporary files")

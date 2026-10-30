@@ -604,12 +604,16 @@ class XPCShellTestThread(Thread):
 
         # By default self.appPath will equal the gre dir. If specified in the
         # xpcshell.ini file, set a different app dir for this test.
-        if self.app_dir_key and self.app_dir_key in self.test_object:
-            rel_app_dir = self.test_object[self.app_dir_key]
+        app_dir_key = self.app_dir_key
+        # Basilisk uses the Firefox browser/ application layout. The inherited
+        # platform manifests still name that layout with firefox-appdir.
+        if (app_dir_key == 'basilisk-appdir' and app_dir_key not in self.test_object
+                and 'firefox-appdir' in self.test_object):
+            app_dir_key = 'firefox-appdir'
+        if app_dir_key and app_dir_key in self.test_object:
+            rel_app_dir = self.test_object[app_dir_key]
             rel_app_dir = os.path.join(self.xrePath, rel_app_dir)
             self.appPath = os.path.abspath(rel_app_dir)
-        else:
-            self.appPath = None
 
         test_dir = os.path.dirname(path)
 
@@ -1090,7 +1094,7 @@ class XPCShellTests(object):
                  interactive=False, verbose=False, keepGoing=False, logfiles=True,
                  thisChunk=1, totalChunks=1, debugger=None,
                  debuggerArgs=None, debuggerInteractive=False,
-                 profileName=None, mozInfo=None, sequential=False, shuffle=False,
+                 profileName=None, mozInfo=None, sequential=False, shuffle=False, threadCount=None,
                  testingModulesDir=None, pluginsPath=None,
                  testClass=XPCShellTestThread, failureManifest=None,
                  log=None, stream=None, jsDebugger=False, jsDebuggerPort=0,
@@ -1335,10 +1339,13 @@ class XPCShellTests(object):
             else:
                 tests_queue.append(test)
 
+        max_threads = NUM_THREADS if threadCount is None else threadCount
+        if max_threads < 1:
+            raise ValueError("threadCount must be positive")
         if self.sequential:
             self.log.info("Running tests sequentially.")
         else:
-            self.log.info("Using at most %d threads." % NUM_THREADS)
+            self.log.info("Using at most %d threads." % max_threads)
 
         # keep a set of NUM_THREADS running tests and start running the
         # tests in the queue at most NUM_THREADS at a time
@@ -1355,7 +1362,7 @@ class XPCShellTests(object):
                 break
 
             # if there's room to run more tests, start running them
-            while keep_going and tests_queue and (len(running_tests) < NUM_THREADS):
+            while keep_going and tests_queue and (len(running_tests) < max_threads):
                 test = tests_queue.popleft()
                 running_tests.add(test)
                 test.start()
