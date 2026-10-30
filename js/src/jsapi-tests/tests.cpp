@@ -121,8 +121,12 @@ int main(int argc, char* argv[])
         total += 1;
 
         printf("%s\n", name);
+        // Keep the active test visible when stdout is redirected to a CI log.
+        // A long-running test must not look like a hang in an earlier test.
+        fflush(stdout);
         if (!test->init()) {
             printf("TEST-UNEXPECTED-FAIL | %s | Failed to initialize.\n", name);
+            fflush(stdout);
             failures++;
             test->uninit();
             continue;
@@ -138,6 +142,7 @@ int main(int argc, char* argv[])
             if (!test->knownFail)
                 failures++;
         }
+        fflush(stdout);
         test->uninit();
     }
 
