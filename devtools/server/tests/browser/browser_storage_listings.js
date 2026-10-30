@@ -19,13 +19,22 @@ const storeMap = {
         isSecure: false,
       },
       {
+        name: "cs2",
+        value: "sessionCookie",
+        path: "/",
+        host: ".example.org",
+        expires: 0,
+        isDomain: true,
+        isSecure: false,
+      },
+      {
         name: "c3",
         value: "foobar-2",
         expires: 2000000001000,
         path: "/",
         host: "test1.example.org",
         isDomain: false,
-        isSecure: false,
+        isSecure: true,
       },
       {
         name: "uc1",
@@ -363,9 +372,19 @@ var testCookiesObjects = Task.async(function* (index, hosts, cookiesActor) {
         ++cookiesLength;
       }
     }
-    // Any secure cookies did not get stored in the database.
+    // These Secure cookies were attempted from HTTP fixture documents, so
+    // they must not be stored. Keep their attributes in the expected map to
+    // distinguish rejected attempts from the domain session cookie cs2.
     is(data.total, storeMap.cookies[host].length - cookiesLength,
        "Number of cookies in host " + host + " matches");
+    for (let toMatch of storeMap.cookies[host]) {
+      if (toMatch.isSecure) {
+        ok(!data.data.some(item => item.name === toMatch.name &&
+                                  item.host === toMatch.host &&
+                                  item.path === toMatch.path),
+           "Secure cookie " + toMatch.name + " set over HTTP was rejected");
+      }
+    }
     for (let item of data.data) {
       let found = false;
       for (let toMatch of storeMap.cookies[host]) {
