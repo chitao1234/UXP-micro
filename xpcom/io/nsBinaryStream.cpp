@@ -33,6 +33,7 @@
 #include "nsComponentManagerUtils.h"
 #include "nsIURI.h" // for NS_IURI_IID
 #include "nsIX509Cert.h" // for NS_IX509CERT_IID
+#include "nsISSLStatus.h" // for legacy serialized security information
 
 #include "jsfriendapi.h"
 
@@ -948,6 +949,16 @@ nsBinaryInputStream::ReadObject(bool aIsStrongRef, nsISupports** aObject)
   if (iid.Equals(oldCertIID)) {
     const nsIID newCertIID = NS_IX509CERT_IID;
     iid = newCertIID;
+  }
+  // The cipherSuite attribute changed this interface's IID without changing
+  // nsSSLStatus's on-disk format. Query the current interface after reading
+  // legacy service-worker security information.
+  static const nsIID oldSSLStatusIID = {
+    0xfa9ba95b, 0xca3b, 0x498a,
+    { 0xb8, 0x89, 0x7c, 0x79, 0xcf, 0x28, 0xfe, 0xe8 }
+  };
+  if (iid.Equals(oldSSLStatusIID)) {
+    iid = NS_GET_IID(nsISSLStatus);
   }
   // END HACK
 

@@ -313,6 +313,12 @@ TransportSecurityInfo::GetInterface(const nsIID & uuid, void * *result)
 #define TRANSPORTSECURITYINFOMAGIC { 0xa9863a23, 0xa940, 0x4002, \
   { 0x94, 0x3c, 0x43, 0xc4, 0x67, 0x38, 0x8f, 0x3d } }
 static NS_DEFINE_CID(kTransportSecurityInfoMagic, TRANSPORTSECURITYINFOMAGIC);
+// The cipherSuite API addition changed the marker and nsISSLStatus IID,
+// but not the serialized fields. Keep reading the original Gecko format.
+static const nsID kGeckoTransportSecurityInfoMagic = {
+  0xa9863a23, 0x1faa, 0x4169,
+  { 0xb0, 0xd2, 0x81, 0x29, 0xec, 0x7c, 0xb1, 0xde }
+};
 
 NS_IMETHODIMP
 TransportSecurityInfo::Write(nsIObjectOutputStream* stream)
@@ -384,7 +390,8 @@ TransportSecurityInfo::Read(nsIObjectInputStream* stream)
   if (NS_FAILED(rv)) {
     return rv;
   }
-  if (!id.Equals(kTransportSecurityInfoMagic)) {
+  if (!id.Equals(kTransportSecurityInfoMagic) &&
+      !id.Equals(kGeckoTransportSecurityInfoMagic)) {
     return NS_ERROR_UNEXPECTED;
   }
 

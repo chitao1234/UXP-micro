@@ -7,6 +7,11 @@
 #include "nsCOMPtr.h"
 #include "nsString.h"
 #include "nsSerializationHelper.h"
+#include "nsISSLStatus.h"
+#include "nsISSLStatusProvider.h"
+#include "nsIX509Cert.h"
+#include "nsISerializable.h"
+#include "mozilla/Base64.h"
 
 // These tests verify that we can still deserialize old binary strings
 // generated for security info.  This is necessary because service workers
@@ -21,6 +26,47 @@
 //
 // We would like to move away from this binary compatibility requirement
 // in service workers.  See bug 1248628.
+
+static void
+CheckCertificateAndRoundTrip(nsISupports* aSecurityInfo)
+{
+  nsCOMPtr<nsISSLStatusProvider> provider = do_QueryInterface(aSecurityInfo);
+  ASSERT_TRUE(provider);
+  nsCOMPtr<nsISSLStatus> status;
+  ASSERT_EQ(NS_OK, provider->GetSSLStatus(getter_AddRefs(status)));
+  ASSERT_TRUE(status);
+  nsCOMPtr<nsIX509Cert> cert;
+  ASSERT_EQ(NS_OK, status->GetServerCert(getter_AddRefs(cert)));
+  ASSERT_TRUE(cert);
+
+  nsCOMPtr<nsISerializable> serializable = do_QueryInterface(aSecurityInfo);
+  ASSERT_TRUE(serializable);
+  nsAutoCString serialized;
+  ASSERT_EQ(NS_OK, NS_SerializeToString(serializable, serialized));
+  nsCOMPtr<nsISupports> roundTripped;
+  ASSERT_EQ(NS_OK, NS_DeserializeObject(serialized, getter_AddRefs(roundTripped)));
+  provider = do_QueryInterface(roundTripped);
+  ASSERT_TRUE(provider);
+  ASSERT_EQ(NS_OK, provider->GetSSLStatus(getter_AddRefs(status)));
+  ASSERT_TRUE(status);
+  nsCOMPtr<nsIX509Cert> roundTrippedCert;
+  ASSERT_EQ(NS_OK, status->GetServerCert(getter_AddRefs(roundTrippedCert)));
+  ASSERT_TRUE(roundTrippedCert);
+  bool equal = false;
+  ASSERT_EQ(NS_OK, cert->Equals(roundTrippedCert, &equal));
+  ASSERT_TRUE(equal);
+
+  nsAutoCString binary;
+  ASSERT_EQ(NS_OK, mozilla::Base64Decode(serialized, binary));
+  // The object CID and IID occupy 32 bytes, followed by the magic ID.
+  ASSERT_GT(binary.Length(), 48u);
+  binary.BeginWriting()[32] ^= 1;
+  ASSERT_EQ(NS_OK, mozilla::Base64Encode(binary, serialized));
+  roundTripped = nullptr;
+  ASSERT_EQ(NS_ERROR_UNEXPECTED,
+            NS_DeserializeObject(serialized, getter_AddRefs(roundTripped)));
+  ASSERT_FALSE(roundTripped);
+}
 
 TEST(psm_DeserializeCert, gecko33)
 {
@@ -56,6 +102,7 @@ TEST(psm_DeserializeCert, gecko33)
   nsresult rv = NS_DeserializeObject(base64Serialization, getter_AddRefs(cert));
   ASSERT_EQ(NS_OK, rv);
   ASSERT_TRUE(cert);
+  CheckCertificateAndRoundTrip(cert);
 }
 
 TEST(psm_DeserializeCert, gecko46)
@@ -92,6 +139,7 @@ TEST(psm_DeserializeCert, gecko46)
   nsresult rv = NS_DeserializeObject(base64Serialization, getter_AddRefs(cert));
   ASSERT_EQ(NS_OK, rv);
   ASSERT_TRUE(cert);
+  CheckCertificateAndRoundTrip(cert);
 }
 
 TEST(psm_DeserializeCert, gecko64)

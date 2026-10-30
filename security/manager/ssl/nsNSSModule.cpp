@@ -241,6 +241,13 @@ NS_DEFINE_NAMED_CID(NS_CERTOVERRIDE_CID);
 NS_DEFINE_NAMED_CID(NS_RANDOMGENERATOR_CID);
 NS_DEFINE_NAMED_CID(NS_NSSU2FTOKEN_CID);
 NS_DEFINE_NAMED_CID(NS_SSLSTATUS_CID);
+// The cipherSuite attribute changed the CID as well as the interface IID,
+// while preserving the serialized fields. Old service-worker entries still
+// instantiate this class by its original CID.
+static const nsCID kLegacySSLStatusCID = {
+  0xe2f14826, 0x9e70, 0x4647,
+  { 0xb2, 0x3f, 0x10, 0x10, 0xf5, 0x12, 0x46, 0x28 }
+};
 NS_DEFINE_NAMED_CID(TRANSPORTSECURITYINFO_CID);
 NS_DEFINE_NAMED_CID(NS_NSSERRORSSERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_NSSVERSION_CID);
@@ -274,6 +281,7 @@ static const mozilla::Module::CIDEntry kNSSCIDs[] = {
   { &kNS_RANDOMGENERATOR_CID, false, nullptr, nsRandomGeneratorConstructor },
   { &kNS_NSSU2FTOKEN_CID, false, nullptr, nsNSSU2FTokenConstructor },
   { &kNS_SSLSTATUS_CID, false, nullptr, nsSSLStatusConstructor },
+  { &kLegacySSLStatusCID, false, nullptr, nsSSLStatusConstructor },
   { &kTRANSPORTSECURITYINFO_CID, false, nullptr, TransportSecurityInfoConstructor },
   { &kNS_NSSERRORSSERVICE_CID, false, nullptr, NSSErrorsServiceConstructor },
   { &kNS_NSSVERSION_CID, false, nullptr, nsNSSVersionConstructor },
