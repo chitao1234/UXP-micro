@@ -3332,6 +3332,7 @@ nsStandardURL::Read(nsIObjectInputStream *stream)
     NS_PRECONDITION(!mHostA, "Shouldn't have cached ASCII host");
     NS_PRECONDITION(mSpecEncoding == eEncoding_Unknown,
                     "Shouldn't have spec encoding here");
+    auto clearOnExit = MakeScopeExit([&] { Clear(); });
     
     nsresult rv;
     
@@ -3437,7 +3438,11 @@ nsStandardURL::Read(nsIObjectInputStream *stream)
         mBasename.Merge(mSpec,  ';', old_param);
         mExtension.Merge(mSpec, ';', old_param);
     }
-    
+
+    if (!IsValid()) {
+        return NS_ERROR_MALFORMED_URI;
+    }
+    clearOnExit.release();
     return NS_OK;
 }
 
