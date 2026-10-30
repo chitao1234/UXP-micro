@@ -6,6 +6,7 @@
 
 const { FileUtils } = Cu.import("resource://gre/modules/FileUtils.jsm", {});
 const { OS } = Cu.import("resource://gre/modules/osfile.jsm", {});
+const Services = require("Services");
 
 const TEST_CONTENT = "aéd";
 
@@ -21,8 +22,10 @@ const ISO_8859_1_BUFFER = new Uint8Array([0x61, 0xe9, 0x64]);
  * file://l10n.js' should load 'file://l10n.js'.
  */
 add_task(function* test_arrow_urls() {
-  let { path } = createTemporaryFile(".js");
-  let url = "resource://gre/modules/XPIProvider.jsm -> file://" + path;
+  let file = createTemporaryFile(".js");
+  let { path } = file;
+  let url = "resource://gre/modules/XPIProvider.jsm -> " +
+            Services.io.newFileURI(file).spec;
 
   yield OS.File.writeAtomic(path, TEST_CONTENT, { encoding: "utf-8" });
   let { content } = yield DevToolsUtils.fetch(url);
@@ -34,8 +37,8 @@ add_task(function* test_arrow_urls() {
  * Tests that empty files are read correctly.
  */
 add_task(function* test_empty() {
-  let { path } = createTemporaryFile();
-  let { content } = yield DevToolsUtils.fetch("file://" + path);
+  let file = createTemporaryFile();
+  let { content } = yield DevToolsUtils.fetch(Services.io.newFileURI(file).spec);
   deepEqual(content, "", "The empty file was read correctly.");
 });
 
@@ -85,6 +88,23 @@ add_task(function* test_schemeless_files() {
 
   let { content } = yield DevToolsUtils.fetch(path);
   deepEqual(content, TEST_CONTENT, "The content was correct.");
+});
+
+add_task(function* test_native_paths_and_url_delimiters() {
+  let file = createTemporaryFile(" path # % \u00e9.js");
+  yield OS.File.writeAtomic(file.path, TEST_CONTENT, { encoding: "utf-8" });
+  let fileURL = Services.io.newFileURI(file).spec;
+  let paths = [file.path, fileURL,
+               "resource://gre/modules/XPIProvider.jsm -> " + file.path,
+               "resource://gre/modules/XPIProvider.jsm -> " + fileURL];
+  if (Services.appinfo.OS == "WINNT") {
+    // Both backslashes and forward slashes are accepted in drive paths.
+    paths.push(file.path.replace(/\\/g, "/"));
+  }
+  for (let path of paths) {
+    let { content } = yield DevToolsUtils.fetch(path);
+    equal(content, TEST_CONTENT, "Native/URL path reads the exact file: " + path);
+  }
 });
 
 /**

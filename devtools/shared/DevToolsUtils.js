@@ -529,13 +529,21 @@ function newChannelForURL(url, { policy, window, principal }) {
   var securityFlags = Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL;
 
   let uri;
-  try {
-    uri = Services.io.newURI(url, null, null);
-  } catch (e) {
-    // In the xpcshell tests, the script url is the absolute path of the test
-    // file, which will make a malformed URI error be thrown. Add the file
-    // scheme to see if it helps.
-    uri = Services.io.newURI("file://" + url, null, null);
+  // A Windows drive path parses as an external URI scheme (for example c:),
+  // so newURI() need not throw. Recognize native absolute paths first and let
+  // nsIFile escape URL delimiters instead of concatenating a file:// prefix.
+  if (/^[a-zA-Z]:[\\/]/.test(url) || url.startsWith("\\\\")) {
+    // nsLocalFileWin accepts only native backslashes, including when the
+    // debugger's source path used forward slashes after its drive letter.
+    uri = Services.io.newFileURI(new FileUtils.File(url.replace(/\//g, "\\")));
+  } else {
+    try {
+      uri = Services.io.newURI(url, null, null);
+    } catch (e) {
+      // In the xpcshell tests, the script url is the absolute path of the test
+      // file. Create a file URI without treating # or % in the path as syntax.
+      uri = Services.io.newFileURI(new FileUtils.File(url));
+    }
   }
 
   let channelOptions = {
