@@ -36,7 +36,8 @@ Object.defineProperty(src, 4, {
   }
 });
 
-a.set(src);
+// Detachment is reported after retrieving and converting the source element.
+assertThrowsInstanceOf(() => a.set(src), TypeError);
 
 // Not really needed
 Array.reverse(a_2);

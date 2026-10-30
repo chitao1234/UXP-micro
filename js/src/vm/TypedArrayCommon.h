@@ -433,7 +433,12 @@ class ElementSpecific
                    "use setFromTypedArray instead of this method");
 
         uint32_t i = 0;
-        if (source->isNative()) {
+        // Reading the source length can detach or resize the target buffer.
+        // Only use direct stores when the entire range is still accessible.
+        uint32_t targetLength = target->length();
+        if (source->isNative() && len > 0 && offset < targetLength &&
+            len <= targetLength - offset)
+        {
             // Attempt fast-path infallible conversion of dense elements up to
             // the first potentially side-effectful lookup or conversion.
             uint32_t bound = Min(source->as<NativeObject>().getDenseInitializedLength(), len);
@@ -464,9 +469,20 @@ class ElementSpecific
             if (!valueToNative(cx, v, &n))
                 return false;
 
-            len = Min(len, target->length());
-            if (i >= len)
-                break;
+            // Both the element lookup and its conversion can run script. Check
+            // detachment after these side effects, as in SetFromNonTypedArray.
+            if (target->hasDetachedBuffer()) {
+                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                          JSMSG_TYPED_ARRAY_DETACHED);
+                return false;
+            }
+
+            // Resizing can invalidate this index, including for a fixed-length
+            // view. Keep visiting the remaining source elements: later getters
+            // can grow the buffer and make subsequent indices accessible again.
+            targetLength = target->length();
+            if (offset >= targetLength || i >= targetLength - offset)
+                continue;
 
             // Compute every iteration in case getElement/valueToNative is wacky.
             SharedMem<T*> dest =
