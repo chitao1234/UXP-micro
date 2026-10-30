@@ -44,7 +44,7 @@ const tests = [
     {
         timeZone: "Africa/Casablanca",
         locale: "ar-MA-u-ca-islamicc", options: longFormatOptions,
-        result: "22 محرم، 1434 12:00:00",
+        result: "22 محرم 1434 في 12:00:00",
     },
     {
         timeZone: "Europe/Berlin",
@@ -58,7 +58,7 @@ const tests = [
     {
         timeZone: "Asia/Bangkok",
         locale: "th-th-u-nu-thai", options: longFormatOptions,
-        result: "๖ ธันวาคม ๒๕๕๕ ๑๙:๐๐:๐๐",
+        result: "๖ ธันวาคม ๒๕๕๕ เวลา ๑๙:๐๐:๐๐",
     },
     {
         timeZone: "Asia/Tokyo",
