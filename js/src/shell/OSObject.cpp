@@ -60,7 +60,7 @@ IsAbsolutePath(const JSAutoByteString& filename)
 {
     const char* pathname = filename.ptr();
 
-    if (pathname[0] == PathSeparator)
+    if (pathname[0] == PathSeparator || pathname[0] == '/')
         return true;
 
 #ifdef XP_WIN
@@ -76,7 +76,8 @@ IsAbsolutePath(const JSAutoByteString& filename)
     // for the last one here.
 
     if ((strlen(pathname) > 3 &&
-        isalpha(pathname[0]) && pathname[1] == ':' && pathname[2] == '\\'))
+        isalpha(pathname[0]) && pathname[1] == ':' &&
+        (pathname[2] == '\\' || pathname[2] == '/')))
     {
         return true;
     }
