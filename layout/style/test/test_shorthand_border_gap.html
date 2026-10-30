@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Border defaults, normal gaps, and logical pairs survive serialization</title>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+"use strict";
+
+const style = document.createElement("div").style;
+const copy = document.createElement("div").style;
+const shorthands = [
+  "border", "border-top", "border-right", "border-bottom", "border-left",
+  "border-inline-start", "border-inline-end",
+  "border-block-start", "border-block-end", "column-rule", "outline",
+];
+const cssWide = ["initial", "inherit", "unset", "revert", "revert-layer"];
+
+for (const property of shorthands) {
+  const prefix = property == "border" ? "border-top" : property;
+  const longhands = [prefix + "-width", prefix + "-style", prefix + "-color"];
+  const styles = property == "outline" ? ["none", "solid", "auto"] :
+                                          ["none", "solid"];
+  for (const width of ["medium", "thin"]) {
+    for (const borderStyle of styles) {
+      for (const color of ["currentcolor", "red"]) {
+        const input = width + " " + borderStyle + " " + color;
+        const description = property + ": " + input;
+        style.cssText = "";
+        style.setProperty(property, input);
+        const values = longhands.map(name => style.getPropertyValue(name));
+        is(values[0], width, description + " keeps specified width");
+        is(values[1], borderStyle, description + " keeps specified style");
+        ok(values[2], description + " keeps specified color");
+
+        const indices = property == "outline" ? [2, 1, 0] : [0, 1, 2];
+        const nondefault = [width != "medium", borderStyle != "none",
+                            color != "currentcolor"];
+        if (!nondefault.some(Boolean)) {
+          nondefault[property == "outline" ? 1 : 0] = true;
+        }
+        const expected = indices.filter(i => nondefault[i])
+                                .map(i => values[i]).join(" ");
+        const serialized = style.getPropertyValue(property);
+        if (property == "column-rule") {
+          ok(serialized, description + " has a shorthand representation");
+        } else {
+          is(serialized, expected, description + " omits only initial values");
+        }
+
+        copy.cssText = "";
+        copy.setProperty(property, serialized);
+        for (let i = 0; i < longhands.length; ++i) {
+          is(copy.getPropertyValue(longhands[i]), values[i],
+             description + " round-trips " + longhands[i]);
+        }
+        is(copy.getPropertyValue(property), serialized,
+           description + " has stable serialization");
+        copy.cssText = style.cssText;
+        is(copy.cssText, style.cssText, description + " has stable cssText");
+      }
+    }
+  }
+
+  for (const keyword of cssWide) {
+    style.cssText = "";
+    style.setProperty(property, keyword, "important");
+    is(style.getPropertyValue(property), keyword,
+       property + " preserves " + keyword);
+    is(style.getPropertyPriority(property), "important",
+       property + " preserves CSS-wide priority");
+  }
+
+  style.cssText = "";
+  style.setProperty(property, "thin solid red", "important");
+  ok(style.getPropertyValue(property), property + " serializes all-important");
+  is(style.getPropertyPriority(property), "important",
+     property + " preserves consistent priority");
+  style.setProperty(longhands[2], "blue");
+  is(style.getPropertyValue(property), "",
+     property + " rejects mixed longhand priorities");
+
+  style.setProperty(property, "thin solid red");
+  style.setProperty(longhands[0], "initial");
+  is(style.getPropertyValue(property), "",
+     property + " rejects mixed CSS-wide and ordinary longhands");
+  style.setProperty(property, "thin solid red");
+  style.removeProperty(longhands[0]);
+  is(style.getPropertyValue(property), "",
+     property + " rejects missing longhands");
+
+  style.setProperty(property, "var(--value)");
+  is(style.getPropertyValue(property), "var(--value)",
+     property + " preserves pending variable substitution");
+  style.setProperty(longhands[0], "thin");
+  is(style.getPropertyValue(property), "",
+     property + " rejects partially overwritten variable substitution");
+}
+
+style.cssText = "border: thin solid red";
+style.setProperty("border-image-source", "linear-gradient(red, blue)");
+is(style.getPropertyValue("border"), "",
+   "border cannot serialize a noninitial reset-only border-image longhand");
+
+for (const property of ["gap", "grid-gap"]) {
+  for (const test of [
+    ["normal", "normal", "normal", "normal"],
+    ["normal normal", "normal", "normal", "normal"],
+    ["normal 3px", "normal", "3px", "normal 3px"],
+    ["3px normal", "3px", "normal", "3px normal"],
+    ["0px normal", "0px", "normal", "0px normal"],
+    ["normal 0px", "normal", "0px", "normal 0px"],
+    ["10px", "10px", "10px", "10px"],
+    ["10% normal", "10%", "normal", "10% normal"],
+  ]) {
+    const [input, row, column, serialized] = test;
+    const description = property + ": " + input;
+    ok(CSS.supports(property, input), description + " parses");
+    style.cssText = "";
+    style.setProperty(property, input);
+    is(style.getPropertyValue("row-gap"), row, description + " sets row-gap");
+    is(style.getPropertyValue("column-gap"), column,
+       description + " sets column-gap");
+    is(style.getPropertyValue(property), serialized,
+       description + " serializes");
+    copy.cssText = style.cssText;
+    is(copy.cssText, style.cssText, description + " has stable cssText");
+  }
+
+  for (const keyword of cssWide) {
+    style.cssText = "";
+    style.setProperty(property, keyword);
+    is(style.getPropertyValue(property), keyword,
+       property + " preserves " + keyword);
+  }
+
+  for (const input of ["normal normal normal", "normal -1px", "-1px normal",
+                       "normal inherit", "inherit normal", "normal initial",
+                       "unset normal", "normal revert", "revert-layer normal"]) {
+    ok(!CSS.supports(property, input), property + ": " + input + " is invalid");
+    style.cssText = "";
+    style.setProperty(property, input);
+    is(style.getPropertyValue(property), "",
+       property + ": " + input + " does not create a declaration");
+  }
+}
+
+// Logical box pairs use the same grammar and numeric range as each longhand.
+// In particular, auto can appear in either inset/margin slot, and padding
+// must not inherit the auto or negative-value support of those shorthands.
+for (const property of ["inset-block", "inset-inline", "margin-block",
+                        "margin-inline", "padding-block", "padding-inline"]) {
+  const isPadding = property.indexOf("padding-") == 0;
+  const start = property + "-start";
+  const end = property + "-end";
+  const cases = [
+    ["32px", "32px"],
+    ["3px", "7px"],
+    ["12%", "32px"],
+    ["calc(25px*3)", "calc(25px*3)"],
+    ["calc(3*25px + 50%)", "12%"],
+    ["calc(-2px)", "calc(-2px)"],
+  ];
+  if (!isPadding) {
+    cases.push(["auto", "auto"], ["auto", "32px"], ["32px", "auto"],
+               ["-3em", "-3em"], ["auto", "-3em"], ["-3em", "auto"],
+               ["-12%", "32px"], ["auto", "calc(-2px)"],
+               ["auto", "calc(50%)"], ["auto", "calc(25px*3)"],
+               ["auto", "calc(3*25px + 50%)"]);
+  }
+
+  for (const [first, second] of cases) {
+    const inputs = [first + " " + second];
+    if (first == second) {
+      inputs.push(first);
+    }
+    for (const input of inputs) {
+      const description = property + ": " + input;
+      ok(CSS.supports(property, input), description + " parses");
+      style.cssText = "";
+      style.setProperty(property, input);
+      const serialized = style.getPropertyValue(property);
+      ok(serialized, description + " has a shorthand representation");
+
+      copy.cssText = "";
+      copy.setProperty(start, first);
+      copy.setProperty(end, second);
+      for (const longhand of [start, end]) {
+        ok(copy.getPropertyValue(longhand), description + " is a valid longhand");
+        is(style.getPropertyValue(longhand), copy.getPropertyValue(longhand),
+           description + " matches separately parsed " + longhand);
+      }
+
+      copy.cssText = "";
+      copy.setProperty(property, serialized);
+      for (const longhand of [start, end]) {
+        is(copy.getPropertyValue(longhand), style.getPropertyValue(longhand),
+           description + " round-trips " + longhand);
+      }
+      is(copy.getPropertyValue(property), serialized,
+         description + " has stable shorthand serialization");
+      copy.cssText = style.cssText;
+      is(copy.cssText, style.cssText, description + " has stable cssText");
+    }
+  }
+
+  for (const keyword of cssWide) {
+    style.cssText = "";
+    style.setProperty(property, keyword, "important");
+    is(style.getPropertyValue(property), keyword,
+       property + " preserves " + keyword);
+    is(style.getPropertyPriority(property), "important",
+       property + " preserves CSS-wide priority");
+  }
+
+  const invalid = ["none", "1px nonsense", "1px 2px 3px", "3",
+                   "initial 1px", "1px inherit", "revert-layer 1px"];
+  if (isPadding) {
+    invalid.push("auto", "auto auto", "1px auto", "auto 1px",
+                 "-3em", "1px -3em", "-3em 1px", "-12% 1px");
+  } else {
+    invalid.push("auto auto auto", "auto nonsense");
+  }
+  for (const input of invalid) {
+    const description = property + ": " + input;
+    ok(!CSS.supports(property, input), description + " is invalid");
+    style.cssText = "";
+    style.setProperty(property, "11px 13px");
+    const before = style.cssText;
+    style.setProperty(property, input);
+    is(style.cssText, before, description + " leaves both existing values intact");
+  }
+}
+</script>

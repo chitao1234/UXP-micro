@@ -824,55 +824,38 @@ Declaration::GetPropertyValueInternal(
       const nsCSSValue *styleValue = data->ValueFor(subprops[1]);
       const nsCSSValue *colorValue = data->ValueFor(subprops[2]);
 
-      bool isNoneStyle = 
+      bool isNoneStyle =
         styleValue->GetUnit() == eCSSUnit_Enumerated &&
         styleValue->GetIntValue() == NS_STYLE_BORDER_STYLE_NONE;
 
-      bool isMediumWidth = 
+      bool isMediumWidth =
         widthValue->GetUnit() == eCSSUnit_Enumerated &&
         widthValue->GetIntValue() == NS_STYLE_BORDER_WIDTH_MEDIUM;
 
       bool isCurrentColor = colorValue->GetUnit() == eCSSUnit_EnumColor &&
                             colorValue->GetIntValue() == NS_COLOR_CURRENTCOLOR;
 
-      if (isNoneStyle && isCurrentColor) {
-        // Case (1) above: some subproperties not specified.
-        return;
+      // All longhands are present (checked above), even when they have their
+      // initial values. Omit initial components, but always serialize at least
+      // one: border/column-rule use "medium", while outline uses "none".
+      bool isOutline = aProperty == eCSSProperty_outline;
+      bool serialize[3] = { !isMediumWidth, !isNoneStyle, !isCurrentColor };
+      if (isMediumWidth && isNoneStyle && isCurrentColor) {
+        serialize[isOutline ? 1 : 0] = true;
       }
 
-      isCurrentColor =
-        colorValue->GetUnit() == eCSSUnit_EnumColor &&
-        colorValue->GetIntValue() == NS_COLOR_CURRENTCOLOR;
-
-      // special case: if we have just color and all other values are default,
-      // output: color
-      if (!isCurrentColor && isNoneStyle && isMediumWidth) {
-        if (!AppendValueToString(subprops[2], aValue, aSerialization)) {
-          aValue.Truncate();
+      // Outline's canonical order is color, style, width; the other
+      // shorthands use width, style, color. In particular, outline-style:auto
+      // is not an initial value and must not be omitted.
+      for (uint32_t i = 0; i < 3; ++i) {
+        uint32_t index = isOutline ? 2 - i : i;
+        if (!serialize[index]) {
+          continue;
         }
-        break;
-      }
-
-      // normal case: output width unless medium and only have color
-      if (!(isMediumWidth && isNoneStyle && !isCurrentColor)) {
-        if (!AppendValueToString(subprops[0], aValue, aSerialization)) {
-          aValue.Truncate();
-          break;
+        if (!aValue.IsEmpty()) {
+          aValue.Append(char16_t(' '));
         }
-      }
-
-      // if style is not none, append style
-      if (!isNoneStyle) {
-        aValue.Append(char16_t(' '));
-        if (!AppendValueToString(subprops[1], aValue, aSerialization)) {
-          aValue.Truncate();
-          break;
-        }
-      }
-
-      if (!isCurrentColor) {
-        aValue.Append(char16_t(' '));
-        if (!AppendValueToString(subprops[2], aValue, aSerialization)) {
+        if (!AppendValueToString(subprops[index], aValue, aSerialization)) {
           aValue.Truncate();
           break;
         }

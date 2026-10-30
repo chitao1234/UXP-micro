@@ -11397,7 +11397,7 @@ bool
 CSSParserImpl::ParseGap()
 {
   return ParseBoxPairProperties(VARIANT_INHERIT,
-                                VARIANT_LPCALC,
+                                VARIANT_LPCALC | VARIANT_NORMAL,
                                 eCSSProperty_row_gap,
                                 eCSSProperty_column_gap);
 }
@@ -12845,12 +12845,17 @@ CSSParserImpl::ParseBoxPairProperties(int32_t aSingleVariantMask,
     AppendValue(aEnd, first);
     return true;
   }
-  if (ParseNonNegativeVariant(first, aPairVariantMask, nullptr) !=
+  // A pair must follow its longhands' range restrictions: inset and margin
+  // allow negative values, while padding and gap do not.
+  if (ParseVariantWithRestrictions(first, aPairVariantMask, nullptr,
+                                  nsCSSProps::ValueRestrictions(aStart)) !=
         CSSParseResult::Ok) {
     return false;
   }
   nsCSSValue second;
-  auto result = ParseNonNegativeVariant(second, aPairVariantMask, nullptr);
+  auto result =
+    ParseVariantWithRestrictions(second, aPairVariantMask, nullptr,
+                                 nsCSSProps::ValueRestrictions(aEnd));
   if (result == CSSParseResult::Error) {
     return false;
   }
@@ -17212,7 +17217,7 @@ CSSParserImpl::ParseInset()
 bool
 CSSParserImpl::ParseInsetBlock()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
                                 VARIANT_AUTO | VARIANT_LPCALC,
                                 eCSSProperty_inset_block_start,
                                 eCSSProperty_inset_block_end);
@@ -17221,7 +17226,7 @@ CSSParserImpl::ParseInsetBlock()
 bool
 CSSParserImpl::ParseInsetInline()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
                                 VARIANT_AUTO | VARIANT_LPCALC,
                                 eCSSProperty_inset_inline_start,
                                 eCSSProperty_inset_inline_end);
@@ -17258,7 +17263,7 @@ CSSParserImpl::ParseMargin()
 bool
 CSSParserImpl::ParseMarginBlock()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
                                 VARIANT_AUTO | VARIANT_LPCALC,
                                 eCSSProperty_margin_block_start,
                                 eCSSProperty_margin_block_end);
@@ -17267,7 +17272,7 @@ CSSParserImpl::ParseMarginBlock()
 bool
 CSSParserImpl::ParseMarginInline()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
                                 VARIANT_AUTO | VARIANT_LPCALC,
                                 eCSSProperty_margin_inline_start,
                                 eCSSProperty_margin_inline_end);
@@ -17395,8 +17400,8 @@ CSSParserImpl::ParsePadding()
 bool
 CSSParserImpl::ParsePaddingBlock()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
-                                VARIANT_AUTO | VARIANT_LPCALC,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
+                                VARIANT_LPCALC,
                                 eCSSProperty_padding_block_start,
                                 eCSSProperty_padding_block_end);
 }
@@ -17404,8 +17409,8 @@ CSSParserImpl::ParsePaddingBlock()
 bool
 CSSParserImpl::ParsePaddingInline()
 {
-  return ParseBoxPairProperties(VARIANT_AUTO | VARIANT_INHERIT,
-                                VARIANT_AUTO | VARIANT_LPCALC,
+  return ParseBoxPairProperties(VARIANT_INHERIT,
+                                VARIANT_LPCALC,
                                 eCSSProperty_padding_inline_start,
                                 eCSSProperty_padding_inline_end);
 }
