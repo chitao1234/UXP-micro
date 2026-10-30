@@ -12,7 +12,26 @@ var prefs = Cc["@mozilla.org/preferences-service;1"].
 // Since this test creates a TYPE_DOCUMENT channel via javascript, it will
 // end up using the wrong LoadInfo constructor. Setting this pref will disable
 // the ContentPolicyType assertion in the constructor.
-prefs.setBoolPref("network.loadinfo.skip_type_assertion", true);
+const SKIP_TYPE_PREF = "network.loadinfo.skip_type_assertion";
+const hadSkipTypePref = prefs.prefHasUserValue(SKIP_TYPE_PREF);
+const oldSkipTypePref = hadSkipTypePref ? prefs.getBoolPref(SKIP_TYPE_PREF) : false;
+prefs.setBoolPref(SKIP_TYPE_PREF, true);
+
+const UPGRADE_PREF = "network.http.upgrade-insecure-requests";
+const hadUpgradePref = prefs.prefHasUserValue(UPGRADE_PREF);
+const oldUpgradePref = prefs.getBoolPref(UPGRADE_PREF);
+do_register_cleanup(() => {
+  if (hadUpgradePref) {
+    prefs.setBoolPref(UPGRADE_PREF, oldUpgradePref);
+  } else {
+    prefs.clearUserPref(UPGRADE_PREF);
+  }
+  if (hadSkipTypePref) {
+    prefs.setBoolPref(SKIP_TYPE_PREF, oldSkipTypePref);
+  } else {
+    prefs.clearUserPref(SKIP_TYPE_PREF);
+  }
+});
 
 XPCOMUtils.defineLazyGetter(this, "URL", function() {
   return "http://localhost:" + httpserver.identity.primaryPort;
@@ -23,28 +42,40 @@ var channel = null;
 var curTest = null;
 var testpath = "/footpath";
 
-var tests = [
+var contentTypes = [
   {
-    description: "should not set request header for TYPE_OTHER",
-    expectingHeader: false,
-    contentType: Ci.nsIContentPolicy.TYPE_OTHER
+    name: "TYPE_OTHER",
+    contentType: Ci.nsIContentPolicy.TYPE_OTHER,
+    navigational: false
   },
   {
-    description: "should set request header for TYPE_DOCUMENT",
-    expectingHeader: true,
-    contentType: Ci.nsIContentPolicy.TYPE_DOCUMENT
+    name: "TYPE_DOCUMENT",
+    contentType: Ci.nsIContentPolicy.TYPE_DOCUMENT,
+    navigational: true
   },
   {
-    description: "should set request header for TYPE_SUBDOCUMENT",
-    expectingHeader: true,
-    contentType: Ci.nsIContentPolicy.TYPE_SUBDOCUMENT
+    name: "TYPE_SUBDOCUMENT",
+    contentType: Ci.nsIContentPolicy.TYPE_SUBDOCUMENT,
+    navigational: true
   },
   {
-    description: "should not set request header for TYPE_IMG",
-    expectingHeader: false,
-    contentType: Ci.nsIContentPolicy.TYPE_IMG
+    name: "TYPE_IMAGE",
+    contentType: Ci.nsIContentPolicy.TYPE_IMAGE,
+    navigational: false
   },
 ];
+
+var tests = [];
+for (let enabled of [true, false]) {
+  for (let type of contentTypes) {
+    tests.push({
+      description: type.name + " with upgrade pref " + enabled,
+      contentType: type.contentType,
+      enabled,
+      expectingHeader: enabled && type.navigational,
+    });
+  }
+}
 
 function ChannelListener() {
 }
@@ -55,18 +86,7 @@ ChannelListener.prototype = {
     do_throw("Should not get any data!");
   },
   onStopRequest: function(request, context, status) {
-    var upgrade_insecure_header = false;
-    try {
-      if (request.getRequestHeader("Upgrade-Insecure-Requests")) {
-        upgrade_insecure_header = true;
-      }
-    }
-    catch (e) {
-      // exception is thrown if header is not available on the request
-    }
-    // debug
-    // dump("executing test: " + curTest.description);
-    do_check_eq(upgrade_insecure_header, curTest.expectingHeader)
+    ok(Components.isSuccessCode(status), curTest.description + " load succeeds");
     run_next_test();
   },
 };
@@ -83,7 +103,15 @@ function setupChannel(aContentType) {
 }
 
 function serverHandler(metadata, response) {
-  // no need to perform anything here
+  // Check what was actually sent, as well as the channel's request headers.
+  const present = metadata.hasHeader("Upgrade-Insecure-Requests");
+  equal(present, curTest.expectingHeader, curTest.description);
+  if (present) {
+    equal(metadata.getHeader("Upgrade-Insecure-Requests"), "1",
+          curTest.description + " sends the expected preference token");
+    equal(channel.getRequestHeader("Upgrade-Insecure-Requests"), "1",
+          curTest.description + " exposes the sent header on the channel");
+  }
 }
 
 function run_next_test() {
@@ -92,6 +120,8 @@ function run_next_test() {
     httpserver.stop(do_test_finished);
     return;
   }
+  // This pref is captured when the channel is constructed.
+  prefs.setBoolPref(UPGRADE_PREF, curTest.enabled);
   channel = setupChannel(curTest.contentType);
   channel.asyncOpen2(new ChannelListener());
 }
@@ -102,6 +132,6 @@ function run_test() {
   httpserver.registerPathHandler(testpath, serverHandler);
   httpserver.start(-1);
 
-  run_next_test();
   do_test_pending();
+  run_next_test();
 }

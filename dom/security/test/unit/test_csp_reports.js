@@ -11,6 +11,18 @@ Cu.import('resource://gre/modules/NetUtil.jsm');
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://testing-common/httpd.js");
 
+const REPORTING_PREF = "security.csp.reporting.enabled";
+const hadReportingPref = Services.prefs.prefHasUserValue(REPORTING_PREF);
+const oldReportingPref = Services.prefs.getBoolPref(REPORTING_PREF);
+Services.prefs.setBoolPref(REPORTING_PREF, true);
+do_register_cleanup(() => {
+  if (hadReportingPref) {
+    Services.prefs.setBoolPref(REPORTING_PREF, oldReportingPref);
+  } else {
+    Services.prefs.clearUserPref(REPORTING_PREF);
+  }
+});
+
 var httpServer = new HttpServer();
 httpServer.start(-1);
 var testsToFinish = 0;
@@ -45,7 +57,8 @@ function makeReportHandler(testpath, message, expectedJSON) {
     var reportObj = JSON.parse(
           NetUtil.readInputStreamToString(
             request.bodyInputStream,
-            request.bodyInputStream.available()));
+            request.bodyInputStream.available(),
+            { charset: "UTF-8" }));
 
     // dump("GOT REPORT:\n" + JSON.stringify(reportObj) + "\n");
     // dump("TESTPATH:    " + testpath + "\n");
@@ -108,23 +121,25 @@ function run_test() {
                                "/foo/self");
 
   // test that inline script violations cause a report.
-  makeTest(0, {"blocked-uri": "self"}, false,
+  makeTest(0, {"blocked-uri": "inline"}, false,
       function(csp) {
         let inlineOK = true;
-        inlineOK = csp.getAllowsInline(Ci.nsIContentPolicy.TYPE_SCRIPT,
+        inlineOK = csp.getAllowsInline(Ci.nsIContentSecurityPolicy.SCRIPT_SRC_ELEM_DIRECTIVE,
                                        "", // aNonce
                                        false, // aParserCreated
                                        "", // aContent
-                                       0); // aLineNumber
+                                       0, // aLineNumber
+                                       0); // aColumnNumber
 
         // this is not a report only policy, so it better block inline scripts
         do_check_false(inlineOK);
       });
 
   // test that eval violations cause a report.
-  makeTest(1, {"blocked-uri": "self",
-               // JSON script-sample is UTF8 encoded
-               "script-sample" : "\xc2\xa3\xc2\xa5\xc2\xb5\xe5\x8c\x97\xf0\xa0\x9d\xb9"}, false,
+  makeTest(1, {"blocked-uri": "eval",
+               // Decode the report's UTF-8 bytes before comparing its sample.
+               "script-sample": "\u00a3\u00a5\u00b5\u5317\ud841\udf79",
+               "line-number": 1, "column-number": 2}, false,
       function(csp) {
         let evalOK = true, oReportViolation = {'value': false};
         evalOK = csp.getAllowsEval(oReportViolation);
@@ -142,7 +157,8 @@ function run_test() {
                                   // csp report in JSON is not cut-off, please
                                   // note that JSON is UTF8 encoded.
                                   "\u00a3\u00a5\u00b5\u5317\ud841\udf79",
-                                  1);
+                                  1, // line number
+                                  2); // column number
         }
       });
 
@@ -155,21 +171,23 @@ function run_test() {
       });
 
   // test that inline script violations cause a report in report-only policy
-  makeTest(3, {"blocked-uri": "self"}, true,
+  makeTest(3, {"blocked-uri": "inline"}, true,
       function(csp) {
         let inlineOK = true;
-        inlineOK = csp.getAllowsInline(Ci.nsIContentPolicy.TYPE_SCRIPT,
+        inlineOK = csp.getAllowsInline(Ci.nsIContentSecurityPolicy.SCRIPT_SRC_ELEM_DIRECTIVE,
                                        "", // aNonce
                                        false, // aParserCreated
                                        "", // aContent
-                                       0); // aLineNumber
+                                       0, // aLineNumber
+                                       0); // aColumnNumber
 
         // this is a report only policy, so it better allow inline scripts
         do_check_true(inlineOK);
       });
 
   // test that eval violations cause a report in report-only policy
-  makeTest(4, {"blocked-uri": "self"}, true,
+  makeTest(4, {"blocked-uri": "eval", "line-number": 4,
+               "column-number": 5}, true,
       function(csp) {
         let evalOK = true, oReportViolation = {'value': false};
         evalOK = csp.getAllowsEval(oReportViolation);
@@ -181,10 +199,11 @@ function run_test() {
 
         if (oReportViolation.value) {
           // force the logging, since the getter doesn't.
-          csp.logViolationDetails(Ci.nsIContentSecurityPolicy.VIOLATION_TYPE_INLINE_SCRIPT,
+          csp.logViolationDetails(Ci.nsIContentSecurityPolicy.VIOLATION_TYPE_EVAL,
                                   selfuri.asciiSpec,
                                   "script sample",
-                                  4);
+                                  4, // line number
+                                  5); // column number
         }
       });
 
@@ -213,9 +232,8 @@ function run_test() {
   var selfSpec = REPORT_SERVER_URI + ":" + REPORT_SERVER_PORT + "/foo/self/foo.js";
   makeTest(7, {"blocked-uri": selfSpec}, false,
     function(csp) {
-      var uri = NetUtil
       // shouldLoad creates and sends out the report here.
-      csp.shouldLoad(Ci.nsIContentSecurityPolicy.SCRIPT_SRC_ELEM_DIRECTIVE,
+      csp.shouldLoad(Ci.nsIContentPolicy.TYPE_SCRIPT,
                      NetUtil.newURI(selfSpec + "#bar"),
                      null, null, null, null);
       });
@@ -224,7 +242,7 @@ function run_test() {
   makeTest(8, {"blocked-uri": "ftp://blocked.test"}, false,
     function(csp) {
       // shouldLoad creates and sends out the report here.
-      csp.shouldLoad(Ci.nsIContentSecurityPolicy.SCRIPT_SRC_ELEM_DIRECTIVE,
+      csp.shouldLoad(Ci.nsIContentPolicy.TYPE_SCRIPT,
                     NetUtil.newURI("ftp://blocked.test/profile.png"),
                     null, null, null, null);
     });

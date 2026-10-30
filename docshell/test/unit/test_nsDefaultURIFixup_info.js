@@ -613,8 +613,13 @@ function do_single_test_run() {
         }
       } else {
         // In these cases, we should never be doing a keyword lookup and
-        // the fixed URI should be preferred:
-        do_check_eq(info.preferredURI.spec, info.fixedURI.spec);
+        // the fixed URI should be preferred. Tab-separated input deliberately
+        // has neither URI when searching is disabled (bug 1435319).
+        if (info.fixedURI) {
+          do_check_eq(info.preferredURI.spec, info.fixedURI.spec);
+        } else {
+          do_check_eq(info.preferredURI, null);
+        }
       }
       do_check_eq(sanitize(testInput), info.originalInput);
     }
