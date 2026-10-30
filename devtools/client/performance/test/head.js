@@ -80,9 +80,11 @@ const key = (id, win = window) => {
     // avoid at least some leaks on OSX. Theoretically the module should never
     // be active at this point. We shouldn't have to do this, but rather
     // find and fix the leak in the module itself. Bug 1257439.
-    let nsIProfilerModule = Cc["@mozilla.org/tools/profiler;1"]
-      .getService(Ci.nsIProfiler);
-    nsIProfilerModule.StopProfiler();
+    if ("nsIProfiler" in Ci && "@mozilla.org/tools/profiler;1" in Cc) {
+      let nsIProfilerModule = Cc["@mozilla.org/tools/profiler;1"]
+        .getService(Ci.nsIProfiler);
+      nsIProfilerModule.StopProfiler();
+    }
 
     // Forces GC, CC and shrinking GC to get rid of disconnected docshells
     // and windows.
