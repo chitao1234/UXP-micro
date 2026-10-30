@@ -11,48 +11,38 @@ addIntlExtras(mozIntl);
 
 // Pattern
 
-var dtf = new Intl.DateTimeFormat("en-US", {pattern: "HH:mm MM/dd/YYYY"});
-var mozDtf = new mozIntl.DateTimeFormat("en-US", {pattern: "HH:mm MM/dd/YYYY"});
+var dtf = new Intl.DateTimeFormat("en-US", {pattern: "HH:mm MM/dd/YYYY", timeZone: "UTC"});
+var mozDtf = new mozIntl.DateTimeFormat("en-US", {pattern: "HH:mm MM/dd/YYYY", timeZone: "UTC"});
 
 assertEq(dtf.resolvedOptions().hasOwnProperty('pattern'), false);
 assertEq(mozDtf.resolvedOptions().pattern, "HH:mm MM/dd/YYYY");
 
-// Date style
+const date = new Date(Date.UTC(2020, 5, 17, 13, 14, 15));
+assertEq(mozDtf.format(date), "13:14 06/17/2020");
+assertEq(dtf.format(date), new Intl.DateTimeFormat("en-US", {timeZone: "UTC"}).format(date));
 
-var dtf = new Intl.DateTimeFormat("en-US", {dateStyle: 'long'});
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('dateStyle'), false);
+// Styles are standard options now. Both constructors report the requested
+// styles, without exposing the individual fields chosen by ICU's pattern.
+for (let options of [{dateStyle: "long"}, {timeStyle: "long"},
+                     {dateStyle: "medium", timeStyle: "medium"}]) {
+    options.timeZone = "UTC";
+    let standard = new Intl.DateTimeFormat("en-US", options);
+    let extended = new mozIntl.DateTimeFormat("en-US", options);
+    assertEq(standard.format(date), extended.format(date));
+    for (let formatter of [standard, extended]) {
+        let resolved = formatter.resolvedOptions();
+        for (let style of ["dateStyle", "timeStyle"]) {
+            assertEq(resolved.hasOwnProperty(style), options.hasOwnProperty(style));
+            assertEq(resolved[style], options[style]);
+        }
+        for (let field of ["year", "month", "day", "hour", "minute", "second"])
+            assertEq(resolved.hasOwnProperty(field), false);
+    }
+}
 
-var mozDtf = new mozIntl.DateTimeFormat("en-US", {dateStyle: 'long'});
-assertEq(mozDtf.resolvedOptions().dateStyle, 'long');
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('year'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('month'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('day'), true);
-
-// Time style
-
-var dtf = new Intl.DateTimeFormat("en-US", {timeStyle: 'long'});
-assertEq(dtf.resolvedOptions().hasOwnProperty('dateStyle'), false);
-
-var mozDtf = new mozIntl.DateTimeFormat("en-US", {timeStyle: 'long'});
-assertEq(mozDtf.resolvedOptions().timeStyle, 'long');
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('hour'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('minute'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('second'), true);
-
-// Date/Time style
-
-var dtf = new Intl.DateTimeFormat("en-US", {timeStyle: 'medium', dateStyle: 'medium'});
-assertEq(dtf.resolvedOptions().hasOwnProperty('dateStyle'), false);
-assertEq(dtf.resolvedOptions().hasOwnProperty('timeStyle'), false);
-
-var mozDtf = new mozIntl.DateTimeFormat("en-US", {dateStyle: 'medium', timeStyle: 'medium'});
-assertEq(mozDtf.resolvedOptions().timeStyle, 'medium');
-assertEq(mozDtf.resolvedOptions().dateStyle, 'medium');
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('hour'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('minute'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('second'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('year'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('month'), true);
-assertEq(mozDtf.resolvedOptions().hasOwnProperty('day'), true);
+for (let Constructor of [Intl.DateTimeFormat, mozIntl.DateTimeFormat]) {
+    assertThrowsInstanceOf(() => new Constructor("en-US", {dateStyle: "long", year: "numeric"}), TypeError);
+    assertThrowsInstanceOf(() => new Constructor("en-US", {timeStyle: "long", hour: "numeric"}), TypeError);
+}
 
 reportCompare(0, 0, 'ok');
