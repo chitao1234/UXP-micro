@@ -132,6 +132,9 @@ RootActor.prototype = {
     storageInspectorReadOnly: true,
     // Whether conditional breakpoints are supported
     conditionalBreakpoints: true,
+    // Whether clientEvaluate can return public and watch-expression values
+    // from the same pause lifetime.
+    clientEvaluateWithWatchExpressions: true,
     // Whether the server supports full source actors (breakpoints on
     // eval scripts, etc)
     debuggerSourceActors: true,

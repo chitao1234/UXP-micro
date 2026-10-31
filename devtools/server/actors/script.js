@@ -1213,6 +1213,12 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
                message: "cannot access the environment of this frame." };
     }
 
+    if ("watchExpressions" in aRequest &&
+        typeof aRequest.watchExpressions !== "string") {
+      return { error: "badParameterType",
+               message: "watchExpressions must be a string." };
+    }
+
     let youngest = this.youngestFrame;
 
     // Put ourselves back in the running state and inform the client.
@@ -1223,10 +1229,24 @@ const ThreadActor = ActorClassWithSpec(threadSpec, {
     // XXX: test syntax errors
     let completion = frame.eval(aRequest.expression);
 
+    // Refresh watches after the public expression, so mutations are visible.
+    // Keep both raw completion values alive until the final pause pool exists:
+    // a second clientEvaluate request would destroy the public result's actors.
+    // Watches have always been evaluated in the youngest frame, independently
+    // of the frame selected for the public expression.
+    let watchCompletion;
+    if ("watchExpressions" in aRequest) {
+      watchCompletion = youngest.eval(aRequest.watchExpressions);
+    }
+
     // Put ourselves back in the pause state.
     let packet = this._paused(youngest);
     packet.why = { type: "clientEvaluated",
                    frameFinished: this.createProtocolCompletionValue(completion) };
+    if ("watchExpressions" in aRequest) {
+      packet.why.watchExpressionsFinished =
+        this.createProtocolCompletionValue(watchCompletion);
+    }
 
     // Return back to our previous pause's event loop.
     return packet;

@@ -48,18 +48,68 @@ function test() {
     let failScroll = () => ok(false, "The editor has got unexpectedly scrolled.");
     tooltip.addEventListener("popuphiding", failPopup);
     editorContainer.addEventListener("scroll", failScroll);
-    editor.on("scroll", () => {
+    let failBreakpointScroll = () => {
       if (editor.getScrollInfo().top > topmostScrollPosition) {
         ok(false, "The editor scrolled back to the breakpoint location.");
       }
-    });
+    };
+    editor.on("scroll", failBreakpointScroll);
+    let removeFailureListeners = () => {
+      tooltip.removeEventListener("popuphiding", failPopup);
+      editorContainer.removeEventListener("scroll", failScroll);
+      editor.off("scroll", failBreakpointScroll);
+    };
+    registerCleanupFunction(removeFailureListeners);
 
     expressionsEvaluated = waitForDebuggerEvents(panel, events.FETCHED_WATCH_EXPRESSIONS);
-    yield openVarPopup(panel, { line: 14, ch: 15 });
+    yield openVarPopup(panel, { line: 14, ch: 15 }, true);
+    yield expressionsEvaluated;
+    ok(bubble.contentsShown(), "The popup remains visible after watches refresh.");
+    is(editor.getScrollInfo().top, topmostScrollPosition,
+      "Refreshing watches preserves the editor scroll position.");
+
+    removeFailureListeners();
+    yield hideVarPopup(panel);
+
+    // Normally each watch catches its own error. Exercise the recovery path
+    // for an entire watch evaluation failing without returning a stale public
+    // result, and then prove subsequent public/watch evaluations still work.
+    let frames = win.DebuggerController.StackFrames;
+    expressionsEvaluated = waitForDebuggerEvents(panel, events.FETCHED_WATCH_EXPRESSIONS);
+    expressions.addExpression("aArg");
+    editor.focus();
+    yield expressionsEvaluated;
+    frames._syncedWatchExpressions = "throw 'watch failure'";
+    let recoveredScopes = waitForDebuggerEvents(panel, events.FETCHED_SCOPES);
+    expressionsEvaluated = waitForDebuggerEvents(panel, events.FETCHED_WATCH_EXPRESSIONS);
+    try {
+      yield frames.evaluate("aArg");
+      ok(false, "A failed watch refresh must reject the public evaluation.");
+    } catch (error) {
+      is(error.message, "Watch expression evaluation failed.",
+        "Watch failure is distinct from a public expression throwing.");
+    }
+    yield recoveredScopes;
+    yield expressionsEvaluated;
+    is(expressions.itemCount, 1, "Recovery removes only the failed watch expression.");
+    is(expressions.getString(0), "this", "Recovery re-evaluates the remaining watch.");
+
+    expressionsEvaluated = waitForDebuggerEvents(panel, events.FETCHED_WATCH_EXPRESSIONS);
+    expressions.addExpression("aArg");
+    editor.focus();
     yield expressionsEvaluated;
 
-    tooltip.removeEventListener("popuphiding", failPopup);
-    editorContainer.removeEventListener("scroll", failScroll);
+    let updatedScopes = waitForDebuggerEvents(panel, events.FETCHED_SCOPES);
+    expressionsEvaluated = waitForDebuggerEvents(panel, events.FETCHED_WATCH_EXPRESSIONS);
+    let result = yield frames.evaluate("aArg.a += 1; aArg");
+    yield updatedScopes;
+    yield expressionsEvaluated;
+    let properties = yield new Promise(resolve => {
+      win.gThreadClient.pauseGrip(result.return).getPrototypeAndProperties(resolve);
+    });
+    ok(!properties.error, "The next public result has a live object actor.");
+    is(properties.ownProperties.a.value, 2,
+      "The public mutation ran exactly once after watch recovery.");
 
     yield resumeDebuggerThenCloseAndFinish(panel);
   });

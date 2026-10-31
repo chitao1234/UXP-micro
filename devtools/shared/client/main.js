@@ -1955,6 +1955,30 @@ ThreadClient.prototype = {
   }),
 
   /**
+   * Evaluate a public expression and refresh watches before creating their
+   * pause-lifetime grips. Call only when the server advertises
+   * clientEvaluateWithWatchExpressions; the original eval API is unchanged.
+   */
+  evalWithWatchExpressions: DebuggerClient.requester({
+    type: "clientEvaluate",
+    frame: args(0),
+    expression: args(1),
+    watchExpressions: args(2)
+  }, {
+    before: function (aPacket) {
+      this._assertPaused("evalWithWatchExpressions");
+      this._state = "resuming";
+      return aPacket;
+    },
+    after: function (aResponse) {
+      if (aResponse.error) {
+        this._state = "paused";
+      }
+      return aResponse;
+    }
+  }),
+
+  /**
    * Detach from the thread actor.
    *
    * @param function aOnResponse

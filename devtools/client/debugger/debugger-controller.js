@@ -626,6 +626,7 @@ StackFrames.prototype = {
   _currentFrameDescription: FRAME_TYPE.NORMAL,
   _syncedWatchExpressions: null,
   _currentWatchExpressions: null,
+  _currentWatchExpressionsResult: null,
   _currentBreakpointLocation: null,
   _currentEvaluation: null,
   _currentException: null,
@@ -691,6 +692,10 @@ StackFrames.prototype = {
       // If paused by a client evaluation, store the evaluated value.
       case "clientEvaluated":
         this._currentEvaluation = aPacket.why.frameFinished;
+        if ("watchExpressionsFinished" in aPacket.why) {
+          this._currentWatchExpressions = null;
+          this._currentWatchExpressionsResult = aPacket.why.watchExpressionsFinished;
+        }
         break;
       // If paused by an exception, store the exception value.
       case "exception":
@@ -728,6 +733,7 @@ StackFrames.prototype = {
    * Handler for the thread client's resumed notification.
    */
   _onResumed: function () {
+    this._currentWatchExpressionsResult = null;
     // Prepare the watch expression evaluation string for the next pause.
     if (this._currentFrameDescription != FRAME_TYPE.WATCH_EXPRESSIONS_EVAL) {
       this._currentWatchExpressions = this._syncedWatchExpressions;
@@ -747,11 +753,17 @@ StackFrames.prototype = {
       return;
     }
 
+    // Internal evaluations must not erase a public evaluation's reason before
+    // selectFrame decides whether to move the editor caret.
+    let frameDescription = this._currentFrameDescription;
+
     // TODO: remove all of this deprecated code: Bug 990137.
     yield this._handleConditionalBreakpoint();
 
     // TODO: handle all of this server-side: Bug 832470, comment 14.
     yield this._handleWatchExpressions();
+
+    this._currentFrameDescription = frameDescription;
 
     // Make sure the debugger view panes are visible, then refill the frames.
     DebuggerView.showInstrumentsPane();
@@ -978,18 +990,41 @@ StackFrames.prototype = {
 
     let deferred = promise.defer();
 
-    this.activeThread.addOneTimeListener("paused", (aEvent, aPacket) => {
-      let { type, frameFinished } = aPacket.why;
+    let onPaused = (aEvent, aPacket) => {
+      this.activeThread.removeListener("paused", onPaused);
+      let { type, frameFinished, watchExpressionsFinished } = aPacket.why;
       if (type == "clientEvaluated") {
-        deferred.resolve(frameFinished);
+        if (watchExpressionsFinished &&
+            ("throw" in watchExpressionsFinished || watchExpressionsFinished.terminated)) {
+          // Recovery re-evaluates the remaining watches, expiring this pause
+          // pool. Never hand a caller an object grip that is about to expire.
+          let reason = watchExpressionsFinished.terminated ? "terminated" : "failed";
+          deferred.reject(new Error("Watch expression evaluation " + reason + "."));
+        } else {
+          deferred.resolve(frameFinished);
+        }
       } else {
         deferred.reject(new Error("Active thread paused unexpectedly."));
       }
-    });
+    };
+    this.activeThread.addListener("paused", onPaused);
+
+    let onResponse = aResponse => {
+      if (aResponse.error) {
+        this.activeThread.removeListener("paused", onPaused);
+        deferred.reject(new Error(aResponse.message || aResponse.error));
+      }
+    };
 
     let meta = "meta" in aOptions ? aOptions.meta : FRAME_TYPE.PUBLIC_CLIENT_EVAL;
     this._currentFrameDescription = meta;
-    this.activeThread.eval(frame.actor, aExpression);
+    if (meta == FRAME_TYPE.PUBLIC_CLIENT_EVAL && this._syncedWatchExpressions &&
+        gClient.mainRoot.traits.clientEvaluateWithWatchExpressions) {
+      this.activeThread.evalWithWatchExpressions(
+        frame.actor, aExpression, this._syncedWatchExpressions, onResponse);
+    } else {
+      this.activeThread.eval(frame.actor, aExpression, onResponse);
+    }
 
     return deferred.promise;
   },
@@ -1085,24 +1120,34 @@ StackFrames.prototype = {
       return;
     }
 
-    let watchExpressions = this._currentWatchExpressions;
-    if (!watchExpressions) {
-      return;
-    }
+    let completion = this._currentWatchExpressionsResult;
+    this._currentWatchExpressionsResult = null;
+    while (true) {
+      if (!completion) {
+        let watchExpressions = this._currentWatchExpressions;
+        if (!watchExpressions) {
+          return;
+        }
 
-    // Evaluation causes the stack frames to be cleared and active thread to
-    // pause, sending a 'clientEvaluated' packet and adding the frames again.
-    let evaluationOptions = { depth: 0, meta: FRAME_TYPE.WATCH_EXPRESSIONS_EVAL };
-    yield this.evaluate(watchExpressions, evaluationOptions);
-    this._currentFrameDescription = FRAME_TYPE.NORMAL;
+        // Old peers and ordinary pauses still evaluate watches separately.
+        let frameDescription = this._currentFrameDescription;
+        let evaluationOptions = { depth: 0, meta: FRAME_TYPE.WATCH_EXPRESSIONS_EVAL };
+        completion = yield this.evaluate(watchExpressions, evaluationOptions);
+        this._currentFrameDescription = frameDescription;
+      }
+      this._currentEvaluation = completion;
 
-    // If an error was thrown during the evaluation of the watch expressions
-    // or the evaluation was terminated from the slow script dialog, then at
-    // least one expression evaluation could not be performed. So remove the
-    // most recent watch expression and try again.
-    if (this._currentEvaluation.throw || this._currentEvaluation.terminated) {
+      if (!("throw" in completion) && !completion.terminated) {
+        return;
+      }
+
+      // Remove the newest watch after an unhandled error or termination, then
+      // retry within this update. A nested _onFrames would publish scopes before
+      // the original update finishes and could repaint an obsolete completion
+      // after a listener has already changed the watch list.
       DebuggerView.WatchExpressions.removeAt(0);
-      yield DebuggerController.StackFrames.syncWatchExpressions();
+      this.syncWatchExpressions({ noEvaluation: true });
+      completion = null;
     }
   }),
 
@@ -1148,8 +1193,9 @@ StackFrames.prototype = {
   /**
    * Updates a list of watch expressions to evaluate on each pause.
    * TODO: handle all of this server-side: Bug 832470, comment 14.
+   * Pass noEvaluation only when recovering inside an existing frame update.
    */
-  syncWatchExpressions: function () {
+  syncWatchExpressions: function (aOptions = {}) {
     let list = DebuggerView.WatchExpressions.getAllStrings();
 
     // Sanity check all watch expressions before syncing them. To avoid
@@ -1188,6 +1234,9 @@ StackFrames.prototype = {
     }
 
     this.currentFrameDepth = -1;
+    if (aOptions.noEvaluation) {
+      return;
+    }
     return this._onFrames();
   }
 };
