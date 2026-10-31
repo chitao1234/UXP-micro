@@ -12,3 +12,5 @@ EXTRA_COMPONENTS += [
     'nsAsyncShutdown.js',
     'nsAsyncShutdown.manifest',
 ]
+
+XPCSHELL_TESTS_MANIFESTS += ['tests/xpcshell/xpcshell.ini']
