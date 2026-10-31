@@ -230,7 +230,7 @@ AppCacheUtils.prototype = {
 
           result.requestHeaders = {};
           request.visitRequestHeaders(function (header, value) {
-            result.responseHeaders[header.toLowerCase()] = value;
+            result.requestHeaders[header.toLowerCase()] = value;
           });
 
           result.responseHeaders = {};
