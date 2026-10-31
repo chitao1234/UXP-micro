@@ -9167,7 +9167,8 @@ nsDocShell::CreateContentViewer(const nsACString& aContentType,
     aOpenedChannel->SetNotificationCallbacks(this);
   }
 
-  NS_ENSURE_SUCCESS(Embed(viewer, "", nullptr), NS_ERROR_FAILURE);
+  rv = Embed(viewer, "", nullptr);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   mSavedRefreshURIList = nullptr;
   mSavingOldViewer = false;
@@ -9364,14 +9365,21 @@ nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer)
 
   mContentViewer->SetNavigationTiming(mTiming);
 
-  if (NS_FAILED(mContentViewer->Init(widget, bounds))) {
+  // Init may run DOMWindowCreated handlers when its script blocker unwinds.
+  // They can destroy this docshell and its viewer even when Init succeeds.
+  nsresult rv = mContentViewer->Init(widget, bounds);
+  if (mIsBeingDestroyed) {
+    return NS_ERROR_DOCSHELL_DYING;
+  }
+
+  if (NS_FAILED(rv)) {
     nsCOMPtr<nsIContentViewer> viewer = mContentViewer;
     viewer->Close(nullptr);
     viewer->Destroy();
     mContentViewer = nullptr;
     mCurrentURI = nullptr;
     NS_WARNING("ContentViewer Initialization failed");
-    return NS_ERROR_FAILURE;
+    return rv;
   }
 
   // If we have old state to copy, set the old state onto the new content

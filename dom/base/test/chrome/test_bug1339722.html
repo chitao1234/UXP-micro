@@ -40,6 +40,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1339722
   let docShell = SpecialPowers.wrap(window)
                               .QueryInterface(Ci.nsIInterfaceRequestor)
                               .getInterface(Ci.nsIDocShell);
+  let rootDocShell = docShell.rootTreeItem;
+  let initialRootChildCount = rootDocShell.childCount;
 
   function stopObserving() {
     if (observerRegistered) {
@@ -98,6 +100,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1339722
     setTimeout($ => {
       ok(queryReturned && windowProxy, 'the observer window-proxy query completed');
       ok(!document.getElementById('testFrame'), 'verify iframe removed');
+      is(rootDocShell.childCount, initialRootChildCount,
+         'removing a loading iframe must not open a sibling top-level docshell');
       SimpleTest.finish();
     }, 0);
   }
