@@ -48,9 +48,14 @@ function test() {
       {key: "VK_F11", keyRepeat: 2, caretLine: 18},
       {key: "VK_F11", keyRepeat: 2, caretLine: 27},
       {key: "VK_F10", keyRepeat: 1, caretLine: 27},
-      {key: "VK_F11", keyRepeat: 1, caretLine: 18},
-      {key: "VK_F11", keyRepeat: 5, caretLine: 32},
-      {key: "VK_F11", modifier:"Shift", keyRepeat: 1, caretLine: 29},
+      // After the return, F11 enters the next call with the original argument.
+      {key: "VK_F11", keyRepeat: 1, caretLine: 19,
+       functionName: "squareUntil", argument: 10},
+      // Five executable entry points reach the third recursive invocation.
+      {key: "VK_F11", keyRepeat: 5, caretLine: 29,
+       functionName: "squareUntil", argument: 10000},
+      {key: "VK_F11", modifier:"Shift", keyRepeat: 1, caretLine: 32,
+       functionName: "squareUntil", argument: 10000},
       {key: "VK_F11", modifier:"Shift", keyRepeat: 2, caretLine: 34},
       {key: "VK_F11", modifier:"Shift", keyRepeat: 2, caretLine: 34}
     ];
@@ -69,12 +74,13 @@ function test() {
       "Should be paused at debugger statement.");
     // As long as we have test work to do..
     for (let i = 0, thisTest; thisTest = stepTests[i]; i++) {
+      let pause;
       // First we send another key event if required by the test
       while (thisTest.keyRepeat > 0) {
         thisTest.keyRepeat --;
         let keyMods = thisTest.modifier === "Shift" ? {shiftKey:true} : {};
         executeSoon(() => {EventUtils.synthesizeKey(thisTest.key, keyMods);});
-        yield waitForPause(gThreadClient);
+        pause = yield waitForPause(gThreadClient);
       }
 
       // We've sent the required number of keys
@@ -86,6 +92,14 @@ function test() {
       //  "Test " + i + ": CaretPos at line " + thisTest.caretLine);
       ok(isDebugPos(gPanel, thisTest.caretLine),
         "Test " + i + ": DebugPos at line " + thisTest.caretLine);
+      if (thisTest.functionName) {
+        is(pause.frame.callee.name, thisTest.functionName,
+           "The shortcut stops in the expected function");
+      }
+      if ("argument" in thisTest) {
+        is(pause.frame.arguments[0], thisTest.argument,
+           "The shortcut stops at the expected recursive argument");
+      }
     }
     // Did focus go missing while we were stepping?
     is(consoleLostFocus, false, "Console input should not lose focus");

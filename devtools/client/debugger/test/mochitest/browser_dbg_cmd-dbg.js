@@ -22,6 +22,9 @@ function test() {
     let gDebugger = gPanel.panelWin;
     let gThreadClient = gDebugger.gThreadClient;
 
+    // Opening a toolbox for an existing tab does not wait for the source UI.
+    // The command lists that UI's items synchronously.
+    yield waitForSourceLoaded(gPanel, TEST_URI);
     yield helpers.audit(options, [{
       setup: "dbg list",
       exec: { output: /doc_cmd-dbg.html/ }

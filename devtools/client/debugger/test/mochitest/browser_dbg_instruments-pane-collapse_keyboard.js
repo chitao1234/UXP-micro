@@ -31,9 +31,15 @@ function test() {
 }
 
 function* togglePane(button, message, pane, keycode) {
-  let onTransitionEnd = once(pane, "transitionend");
+  let onTransitionEnd = BrowserTestUtils.waitForEvent(pane, "transitionend", false,
+    event => event.target === pane);
   info(message);
   button.focus();
-  EventUtils.synthesizeKey(keycode, {});
+  EventUtils.synthesizeKey(keycode, {}, button.ownerDocument.defaultView);
   yield onTransitionEnd;
+  // The product's listener is installed after this waiter, and applies the
+  // final collapsed state while removing the animation guard. Let that same
+  // event finish dispatching before asserting state or sending the next key.
+  yield waitForTick();
+  ok(!pane.hasAttribute("animated"), "The pane toggle has finished animating");
 }
