@@ -113,12 +113,11 @@ define(function (require, exports, module) {
    */
   function getRep(object, defaultRep = Obj) {
     let type = typeof object;
-    if (type == "object") {
-      if (object instanceof String) {
-        type = "string";
-      } else if (["symbol", "BigInt"].includes(object.type)) {
-        type = object.type;
-      }
+    if (type == "object" && object instanceof String) {
+      type = "string";
+    } else if (object && type == "object" && object.type) {
+      // Primitive protocol values carry a type tag without an actor ID.
+      type = object.type;
     }
 
     if (isGrip(object)) {

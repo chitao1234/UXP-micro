@@ -37,7 +37,7 @@ window.onload = Task.async(function* () {
     is(renderedRep.type, InfinityRep.rep,
       `Rep correctly selects ${InfinityRep.rep.displayName} for Infinity value`);
 
-    const renderedComponent = renderComponent(InfinityRep.rep, { object: stub });
+    const renderedComponent = renderComponent(Rep, { object: stub });
     is(renderedComponent.textContent, "Infinity",
       "Infinity rep has expected text content for Infinity");
   }
@@ -48,7 +48,7 @@ window.onload = Task.async(function* () {
     is(renderedRep.type, InfinityRep.rep,
       `Rep correctly selects ${InfinityRep.rep.displayName} for negative Infinity value`);
 
-    const renderedComponent = renderComponent(InfinityRep.rep, { object: stub });
+    const renderedComponent = renderComponent(Rep, { object: stub });
     is(renderedComponent.textContent, "-Infinity",
       "Infinity rep has expected text content for negative Infinity");
   }

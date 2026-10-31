@@ -25,13 +25,17 @@ window.onload = Task.async(function* () {
       "type": "null"
     };
 
-    // Test that correct rep is chosen
-    const renderedRep = shallowRenderComponent(Rep, { object: gripStub });
-    is(renderedRep.type, Null.rep, `Rep correctly selects ${Null.rep.displayName}`);
+    for (let [name, object] of [["null grip", gripStub], ["native null", null]]) {
+      // Test that correct rep is chosen.
+      const renderedRep = shallowRenderComponent(Rep, { object });
+      is(renderedRep.type, Null.rep,
+         `Rep correctly selects ${Null.rep.displayName} for ${name}`);
 
-    // Test rendering
-    const renderedComponent = renderComponent(Null.rep, { object: gripStub });
-    is(renderedComponent.textContent, "null", "Null rep has expected text content");
+      // Render through the dispatcher, including its null guard.
+      const renderedComponent = renderComponent(Rep, { object });
+      is(renderedComponent.textContent, "null",
+         `Null rep has expected text content for ${name}`);
+    }
   } catch(e) {
     ok(false, "Got an error: " + DevToolsUtils.safeErrorString(e));
   } finally {

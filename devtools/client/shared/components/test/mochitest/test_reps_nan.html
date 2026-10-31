@@ -38,7 +38,7 @@ window.onload = Task.async(function* () {
     is(renderedRep.type, NaNRep.rep,
       `Rep correctly selects ${NaNRep.rep.displayName} for NaN value`);
 
-    const renderedComponent = renderComponent(NaNRep.rep, {object: stub});
+    const renderedComponent = renderComponent(Rep, {object: stub});
     is(renderedComponent.textContent, "NaN", "NaN rep has expected text content");
   }
 });

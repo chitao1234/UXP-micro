@@ -55,10 +55,10 @@ window.onload = Task.async(function* () {
     const renderedRep = shallowRenderComponent(Rep, { object: getGripStub("testNegZeroGrip") });
     is(renderedRep.type, Number.rep, `Rep correctly selects ${Number.rep.displayName} for negative zero value`);
 
-    let renderedComponent = renderComponent(Number.rep, { object: getGripStub("testNegZeroGrip") });
+    let renderedComponent = renderComponent(Rep, { object: getGripStub("testNegZeroGrip") });
     is(renderedComponent.textContent, "-0", "Number rep has expected text content for negative zero grip");
 
-    renderedComponent = renderComponent(Number.rep, { object: getGripStub("testNegZeroValue") });
+    renderedComponent = renderComponent(Rep, { object: getGripStub("testNegZeroValue") });
     is(renderedComponent.textContent, "-0", "Number rep has expected text content for negative zero value");
   }
 
