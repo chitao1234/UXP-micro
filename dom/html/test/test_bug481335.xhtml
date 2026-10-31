@@ -62,7 +62,7 @@ function checkLinkColor(aElmId, aExpectedColor, aMessage) {
   return true;
 }
 
-function testIterator() {
+function* testIterator() {
   // After first load
   $("newparent").appendChild($("t"));
   is($("t").href, "http://www.example.com/" + rand,
