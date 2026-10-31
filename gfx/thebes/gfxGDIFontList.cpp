@@ -259,10 +259,10 @@ GDIFontEntry::FillLogFont(LOGFONTW *aLogFont,
     }
 
     // If a non-zero weight is passed in, use this to override the original
-    // weight in the entry's logfont. This is used to control synthetic bolding
-    // for installed families with no bold face, and for downloaded fonts
-    // (but NOT for local user fonts, because it could cause a different,
-    // glyph-incompatible face to be used)
+    // weight in the entry's logfont. This controls synthetic bolding for
+    // downloaded fonts and installed color/SVG fonts. Ordinary installed and
+    // local() fonts preserve the selected physical face and use gfxFont's
+    // multi-striking; rematching by weight can change glyph IDs (bug 724231).
     if (aWeight) {
         aLogFont->lfWeight = aWeight;
     }

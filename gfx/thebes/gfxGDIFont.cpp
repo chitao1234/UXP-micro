@@ -53,6 +53,18 @@ gfxGDIFont::gfxGDIFont(GDIFontEntry *aFontEntry,
       mNeedsBold(aNeedsBold),
       mScriptCache(nullptr)
 {
+    // Preserve the selected physical face when synthesizing bold for local()
+    // fonts (bug 724231), and use the same multi-striking for ordinary installed
+    // outlines. Color and SVG glyph painting bypasses the generic strike loop,
+    // so installed fonts using those tables retain their GDI simulation.
+    // Compute this before Initialize: font-size-adjust creates a temporary font
+    // through FillLogFont before the final metrics and font are initialized.
+    mApplySyntheticBold = mNeedsBold &&
+        (aFontEntry->IsLocalUserFont() ||
+         (!aFontEntry->mIsDataUserFont &&
+          !aFontEntry->TryGetColorGlyphs() &&
+          !aFontEntry->HasFontTable(TRUETYPE_TAG('S', 'V', 'G', ' '))));
+
     Initialize();
 }
 
@@ -228,13 +240,6 @@ gfxGDIFont::Initialize()
         } else if (mStyle.sizeAdjust == 0.0) {
             mAdjustedSize = 0.0;
         }
-    }
-
-    // (bug 724231) for local user fonts, we don't use GDI's synthetic bold,
-    // as it could lead to a different, incompatible face being used
-    // but instead do our own multi-striking
-    if (mNeedsBold && GetFontEntry()->IsLocalUserFont()) {
-        mApplySyntheticBold = true;
     }
 
     // this may end up being zero
@@ -479,7 +484,10 @@ gfxGDIFont::FillLogFont(LOGFONTW& aLogFont, gfxFloat aSize,
             weight = mNeedsBold ? 700 : 200;
         }
     } else {
-        weight = mNeedsBold ? 700 : fe->Weight();
+        // Preserve the selected outline face when gfxFont applies synthetic
+        // bold. Color/SVG fonts retain the existing GDI simulation because their
+        // special painting paths do not perform multi-striking.
+        weight = mNeedsBold && !mApplySyntheticBold ? 700 : 0;
     }
 
     fe->FillLogFont(&aLogFont, weight, aSize);
