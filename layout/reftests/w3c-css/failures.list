@@ -15,8 +15,8 @@
 needs-focus selectors-4/focus-within-00*.html
 pref(dom.webcomponents.enabled,true) needs-focus selectors-4/focus-within-shadow-*.html
 
-# Bug 1208113
-fails needs-focus selectors-4/focus-within-shadow-001.html
+# The migrated Shadow DOM v1 fixture passes with the normal feature defaults.
+needs-focus selectors-4/focus-within-shadow-001.html
 
 # Fuzzy
 fuzzy-if(OSX,40,6) css-values-3/ch-unit-001.html
