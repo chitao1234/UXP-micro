@@ -21,6 +21,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=565541
   /** Test for Bug 565541 **/
   var previousX, previousY, previousWidth, previousHeight;
 
+  function rootDocShellId(aWindow)
+  {
+    return aWindow.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+      .getInterface(Components.interfaces.nsIWebNavigation)
+      .QueryInterface(Components.interfaces.nsIDocShell)
+      .rootTreeItem.QueryInterface(Components.interfaces.nsIDocShell).historyID;
+  }
+
   function backValues()
   {
     previousX = window.top.screenX;
@@ -215,7 +223,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=565541
   }
 
   SimpleTest.waitForExplicitFinish();
-  SimpleTest.waitForFocus(function() {
+  // These cases require a featureful new window followed by a featureless tab.
+  // Pin the Firefox routing policy they assume instead of Basilisk's policy
+  // that normally diverts both into tabs. The harness restores this pref scope.
+  SpecialPowers.pushPrefEnv({set: [
+    ["browser.link.open_newwindow", 3],
+    ["browser.link.open_newwindow.restriction", 2]
+  ]}, () => SimpleTest.waitForFocus(function() {
     if (screen.width <= 200 || screen.height <= 200) {
       todo(false, "The screen is too small to run this test.");
       SimpleTest.finish();
@@ -241,6 +255,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=565541
         'width=170,height=170,screenX=25,screenY=25');
 
       SimpleTest.waitForFocus(function() {
+        isnot(rootDocShellId(w), rootDocShellId(window),
+              "Size and position features create a separate browser window");
         // This test relies on passing cross-origin windows to a chrome function,
         // which is generally forbidden if we don't twiddle the knob below.
         Components.utils.forcePermissiveCOWs();
@@ -260,6 +276,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=565541
               "} <\/script>", '', '');
 
             SimpleTest.waitForFocus(function() {
+              is(rootDocShellId(w), rootDocShellId(window),
+                 "Empty features create a tab in the existing browser window");
                w.wrappedJSObject.checkChangeIsEnabled = window.checkChangeIsEnabled;
                w.wrappedJSObject.check(function() {
                 // The current window can change the size and position of the new tab.
@@ -276,7 +294,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=565541
         });
       }, w, false);
     });
-  });
+  }));
   ]]>
   </script>
 </window>
