@@ -247,7 +247,7 @@ fails-if(OSX==1006) == menclose-3-radical.html menclose-3-radical-ref.html # Bug
 == menclose-3-invalid.html menclose-3-invalid-ref.html
 == menclose-3-multiple.html menclose-3-multiple-ref.html
 == menclose-3-unknown.html menclose-3-unknown.html
-== menclose-4.html data:text/html,<body>Pass
+== menclose-4.html data:text/html,<meta%20charset=utf-8><body>Pass
 == menclose-5-actuarial.html menclose-5-actuarial-ref.html
 == menclose-5-bottom.html menclose-5-bottom-ref.html
 == menclose-5-box.html menclose-5-box-ref.html
