@@ -16,6 +16,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
   Cu.import("resource://testing-common/TestUtils.jsm");
   Cu.import("resource://testing-common/ContentTask.jsm");
   Cu.import("resource://testing-common/BrowserTestUtils.jsm");
+  Cu.import("resource://gre/modules/Services.jsm");
   Cu.import("resource://gre/modules/Task.jsm");
   ContentTask.setTestScope(window.opener.wrappedJSObject);
 
@@ -33,17 +34,131 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
     .then(() => {
       window.close();
       SimpleTest.finish();
+    }, error => {
+      ok(false, "Grouped history fixture failed: " + error + "\n" + (error && error.stack || ""));
+      window.close();
+      SimpleTest.finish();
     });
   }
 
   function test(remote) {
     let act, bg1, bg2;
-    return Promise.resolve()
+    let retainedLoader, forwardLoader;
+    let expectedClose = null;
+    let closeRequests = [];
+    let cancellations = [];
+    let cleanupPromise = null;
+    let owner = {
+      browsers: new Set(),
+      phase: "navigation",
+      // These are standalone browsers, not tabs. Implement their real owner
+      // callback rather than sending close requests to a nonexistent tabbrowser.
+      closeBrowser(browser) {
+        ok(this.browsers.has(browser), "Native close targets a browser owned by this fixture");
+        if (this.phase == "purge") {
+          closeRequests.push(browser);
+          is(browser, expectedClose.browser, "Native purge closes the forward-history owner");
+          is(browser.frameLoader, forwardLoader, "Native purge closes the moved forward loader");
+          ok(browser != act, "Native purge does not close the active browser");
+        } else if (this.phase != "cleanup") {
+          ok(false, "Unexpected native close outside the forward-history purge");
+        }
+        if (!this.browsers.has(browser) || !browser.parentNode) {
+          throw new Error("Native close requested an unowned or already removed browser");
+        }
+        browser.parentNode.removeChild(browser);
+      },
+    };
+
+    function cancelObservations() {
+      for (let cancel of cancellations) {
+        cancel();
+      }
+      cancellations.length = 0;
+    }
+
+    function observeDisconnect(messageManager) {
+      if (!messageManager) {
+        throw new Error("The closing browser must have a message manager");
+      }
+      return new Promise(resolve => {
+        let active = true;
+        let observer = (subject, topic) => {
+          if (subject == messageManager) {
+            cancel();
+            resolve();
+          }
+        };
+        let cancel = () => {
+          if (active) {
+            active = false;
+            Services.obs.removeObserver(observer, "message-manager-disconnect");
+          }
+        };
+        cancellations.push(cancel);
+        Services.obs.addObserver(observer, "message-manager-disconnect", false);
+      });
+    }
+
+    function observeRemoval(browser) {
+      let parent = browser.parentNode;
+      return new Promise(resolve => {
+        let observer = new MutationObserver(records => {
+          if (records.some(record => Array.from(record.removedNodes).includes(browser))) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        cancellations.push(() => observer.disconnect());
+        observer.observe(parent, {childList: true});
+      });
+    }
+
+    function cleanup() {
+      if (cleanupPromise) {
+        return cleanupPromise;
+      }
+      // Cancel purge observations before removing anything. Teardown can never
+      // satisfy a missing native purge-close or its disconnect observation.
+      owner.phase = "cleanup";
+      expectedClose = null;
+      cancelObservations();
+      cleanupPromise = Task.spawn(function*() {
+        try {
+          let browsers = Array.from(owner.browsers).filter(browser => browser.parentNode);
+          let disconnects = [];
+          for (let browser of browsers) {
+            let messageManager = browser.messageManager;
+            if (messageManager) {
+              disconnects.push(observeDisconnect(messageManager));
+            }
+          }
+          for (let browser of browsers) {
+            if (browser.parentNode) {
+              browser.parentNode.removeChild(browser);
+            }
+          }
+          yield Promise.all(disconnects);
+        } finally {
+          cancelObservations();
+          owner.browsers.clear();
+          closeRequests.length = 0;
+          act = bg1 = bg2 = retainedLoader = forwardLoader = null;
+        }
+      });
+      return cleanupPromise;
+    }
+    SimpleTest.registerCleanupFunction(cleanup);
+
+    let scenario = Promise.resolve()
 
     // create first browser with 1 entry (which will always be the active one)
     .then(() => info('TEST-INFO | test create active browser, remote=' + remote))
-    .then(() => createBrowser('pen', remote))
-    .then(b => act = b)
+    .then(() => createBrowser('pen', remote, owner))
+    .then(b => {
+      act = b;
+      retainedLoader = b.frameLoader;
+    })
     .then(() => verifyBrowser(act, 'pen'       /* title */,
                                     0          /* index */,
                                     1          /* length */,
@@ -53,7 +168,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
 
     // create background browser 1 with 1 entry
     .then(() => info('TEST-INFO | test create background browser 1, remote=' + remote))
-    .then(() => createBrowser('pineapple', remote))
+    .then(() => createBrowser('pineapple', remote, owner))
     .then(b => bg1 = b)
     .then(() => verifyBrowser(bg1, 'pineapple' /* title */,
                                     0          /* index */,
@@ -64,8 +179,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
 
      // create background browser 2 with 2 entries
     .then(() => info('TEST-INFO | test create background browser 2, remote=' + remote))
-    .then(() => createBrowser('apple', remote))
-    .then(b => bg2 = b)
+    .then(() => createBrowser('apple', remote, owner))
+    .then(b => {
+      bg2 = b;
+      forwardLoader = b.frameLoader;
+    })
     .then(() => verifyBrowser(bg2, 'apple'     /* title */,
                                     0          /* index */,
                                     1          /* length */,
@@ -217,7 +335,42 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
                                     true       /* partial */,
                                     1          /* offset */,
                                     4          /* globalLength */ ))
-    .then(() => loadURI(act, getDummyHtml('banana')))
+    .then(() => {
+      // Swaps move frameLoader ownership between elements. Locate the original
+      // apple/pencil loader's current owner, not the element initially named bg2.
+      let browsers = Array.from(owner.browsers);
+      let forwardOwner = browsers.find(browser => browser.frameLoader == forwardLoader);
+      let retainedOwner = browsers.find(browser => browser.frameLoader == retainedLoader);
+      ok(forwardOwner && retainedOwner, "Both inactive histories have real current owners");
+      if (!forwardOwner || !retainedOwner) {
+        throw new Error("A history lost its fixture owner before the purge");
+      }
+      ok(forwardOwner != act && retainedOwner != act && forwardOwner != retainedOwner,
+         "The forward, retained and active histories have distinct owners");
+      is(forwardOwner.parentNode, document.getElementById("stack"),
+         "The forward-history owner is attached before the purge");
+      let activeLoader = act.frameLoader;
+      expectedClose = {browser: forwardOwner};
+      owner.phase = "purge";
+      let removed = observeRemoval(forwardOwner);
+      let disconnected = observeDisconnect(forwardOwner.messageManager);
+      // Register both observations before the native navigation triggers purge.
+      return Promise.all([removed, disconnected, loadURI(act, getDummyHtml('banana'))])
+        .then(() => {
+          is(closeRequests.length, 1, "Native purge requested exactly one browser close");
+          is(forwardOwner.parentNode, null, "The forward-history browser was really removed");
+          is(act.parentNode, document.getElementById("stack"), "The active owner remains attached");
+          is(act.frameLoader, activeLoader, "The active frameLoader survives the purge");
+          is(retainedOwner.parentNode, document.getElementById("stack"),
+             "The earlier retained-history owner remains attached");
+          is(retainedOwner.frameLoader, retainedLoader, "The earlier retained loader survives");
+          is(browsers.filter(browser => browser.parentNode).length, 2,
+             "Only the forward-history owner was removed");
+          owner.phase = "navigation";
+          expectedClose = null;
+          cancelObservations();
+        });
+    })
     .then(() => verifyBrowser(act, 'banana'    /* title */,
                                     1          /* index */,
                                     2          /* length */,
@@ -225,7 +378,15 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
                                     false      /* canGoForward */,
                                     true       /* partial */,
                                     1          /* offset */,
-                                    3          /* globalLength */ ))
+                                    3          /* globalLength */ ));
+
+    return Task.spawn(function*() {
+      try {
+        yield scenario;
+      } finally {
+        yield cleanup();
+      }
+    });
   }
 
   function getDummyHtml(title) {
@@ -233,12 +394,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1276553
      '<html><head><title>' + title + '</title></head></html>'
   }
 
-  function createBrowser(title, remote) {
+  function createBrowser(title, remote, owner) {
     let browser = document.createElement('browser');
     browser.setAttribute('type', 'content');
     browser.setAttribute('remote', remote);
     browser.setAttribute('src', getDummyHtml(title));
+    owner.browsers.add(browser);
     document.getElementById('stack').appendChild(browser);
+    // nsIBrowser calls this owner implementation from the native purge path.
+    // The test driver never invokes it to manufacture the close observation.
+    browser.closeBrowser = owner.closeBrowser.bind(owner, browser);
     return BrowserTestUtils.browserLoaded(browser)
            .then(() => {
              browser.messageManager.loadFrameScript('data:,' +
