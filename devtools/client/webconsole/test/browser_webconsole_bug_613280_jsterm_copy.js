@@ -58,6 +58,6 @@ function performTest(HUD, [result]) {
         "selection text includes 'foobarBazBug613280'");
 
   waitForClipboard((str) => {
-    return selectionText.trim() === str.trim().replace(/ /g, "");
+    return selectionText.trim() === str.trim().replace(/\r?\n|\r| /g, "");
   }, clipboardSetup, clipboardCopyDone, clipboardCopyDone);
 }

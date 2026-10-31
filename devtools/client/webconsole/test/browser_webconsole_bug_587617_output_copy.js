@@ -64,8 +64,9 @@ function consoleOpened(hud) {
           "selection text includes 'bug587617'");
 
     waitForClipboard((str) => {
-      // Strip out spaces for comparison ease
-      return selection.trim() == str.trim().replace(/ /g, "");
+      // Strip formatting whitespace for comparison ease. The rendered
+      // compatibility message may put its source location on a separate line.
+      return selection.trim() == str.trim().replace(/\r?\n|\r| /g, "");
     }, () => {
       goDoCommand("cmd_copy");
     }, deferred.resolve, deferred.resolve);
@@ -94,8 +95,9 @@ function testContextMenuCopy() {
   copyItem.doCommand();
 
   waitForClipboard((str) => {
-    // Strip out spaces for comparison ease
-    return selection.trim() == str.trim().replace(/ /g, "");
+    // Strip formatting whitespace for comparison ease. The rendered
+    // compatibility message may put its source location on a separate line.
+    return selection.trim() == str.trim().replace(/\r?\n|\r| /g, "");
   }, () => {
     goDoCommand("cmd_copy");
   }, deferred.resolve, deferred.resolve);
