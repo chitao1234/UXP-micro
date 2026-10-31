@@ -3139,7 +3139,10 @@ testVim('zb_to_bottom', function(cm, vim, helpers){
   cm.setCursor(lineNum, 0);
   helpers.doKeys('z', 'b');
   var scrollInfo = cm.getScrollInfo();
-  eq(scrollInfo.top + scrollInfo.clientHeight, cm.charCoords(Pos(lineNum, 0), 'local').bottom);
+  // Element.webidl declares scrollTop as long in this tree. Compare the
+  // native ToInt32 target, not the unrepresentable fractional character edge.
+  var target = cm.charCoords(Pos(lineNum, 0), 'local').bottom - scrollInfo.clientHeight;
+  eq(scrollInfo.top, target | 0, 'zb reaches the native long scrollTop target');
 }, { value: (function(){
   return new Array(500).join('\n');
 })()});
@@ -3148,7 +3151,9 @@ testVim('zt_to_top', function(cm, vim, helpers){
   cm.setSize(600, 35*cm.defaultTextHeight());
   cm.setCursor(lineNum, 0);
   helpers.doKeys('z', 't');
-  eq(cm.getScrollInfo().top, cm.charCoords(Pos(lineNum, 0), 'local').top);
+  // The setter converts this character coordinate through native WebIDL long.
+  var target = cm.charCoords(Pos(lineNum, 0), 'local').top;
+  eq(cm.getScrollInfo().top, target | 0, 'zt reaches the native long scrollTop target');
 }, { value: (function(){
   return new Array(500).join('\n');
 })()});

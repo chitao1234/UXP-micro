@@ -12,6 +12,9 @@ function test() {
   waitForExplicitFinish();
 
   addTab(URI).then(function (tab) {
-    runCodeMirrorTest(tab.linkedBrowser);
+    runCodeMirrorTest(tab.linkedBrowser, {
+      minimumTests: 594,
+      requiredTests: ["vim_zb_to_bottom", "vim_zt_to_top"]
+    });
   });
 }
