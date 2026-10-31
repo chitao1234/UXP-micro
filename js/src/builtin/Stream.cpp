@@ -1800,7 +1800,11 @@ ReadableStreamDefaultReader_releaseLock_impl(JSContext* cx, const CallArgs& args
     }
 
     // Step 4: Perform ! ReadableStreamReaderGenericRelease(this).
-    return ReadableStreamReaderGenericRelease(cx, reader);
+    if (!ReadableStreamReaderGenericRelease(cx, reader))
+        return false;
+
+    args.rval().setUndefined();
+    return true;
 }
 
 static bool
@@ -2015,7 +2019,11 @@ ReadableStreamBYOBReader_releaseLock_impl(JSContext* cx, const CallArgs& args)
     }
 
     // Step 4: Perform ! ReadableStreamReaderGenericRelease(this).
-    return ReadableStreamReaderGenericRelease(cx, reader);
+    if (!ReadableStreamReaderGenericRelease(cx, reader))
+        return false;
+
+    args.rval().setUndefined();
+    return true;
 }
 
 static bool
@@ -2131,24 +2139,35 @@ ReadableStreamReaderGenericRelease(JSContext* cx, HandleNativeObject reader)
 
     // Step 3: If reader.[[ownerReadableStream]].[[state]] is "readable", reject
     //         reader.[[closedPromise]] with a TypeError exception.
+    Rooted<PromiseObject*> closedPromise(cx);
     if (stream->readable()) {
-            Value val = reader->getFixedSlot(ReaderSlot_ClosedPromise);
-            Rooted<PromiseObject*> closedPromise(cx, &val.toObject().as<PromiseObject>());
-            if (!PromiseObject::reject(cx, closedPromise, exn))
-                return false;
+        Value val = reader->getFixedSlot(ReaderSlot_ClosedPromise);
+        closedPromise = &val.toObject().as<PromiseObject>();
+        if (!PromiseObject::reject(cx, closedPromise, exn))
+            return false;
     } else {
         // Step 4: Otherwise, set reader.[[closedPromise]] to a new promise rejected
         //         with a TypeError exception.
-        RootedObject closedPromise(cx, PromiseObject::unforgeableReject(cx, exn));
-        if (!closedPromise)
+        RootedObject promise(cx, PromiseObject::unforgeableReject(cx, exn));
+        if (!promise)
             return false;
+        closedPromise = &promise->as<PromiseObject>();
         reader->setFixedSlot(ReaderSlot_ClosedPromise, ObjectValue(*closedPromise));
     }
 
-    // Step 5: Set reader.[[ownerReadableStream]].[[reader]] to undefined.
+    // Step 5: Set reader.[[closedPromise]].[[PromiseIsHandled]] to true.
+    // This internal state rejection stays observable through reader.closed,
+    // but releasing a lock must not report it as an uncaught rejection.
+    if (closedPromise->isUnhandled()) {
+        closedPromise->setFixedSlot(PromiseSlot_Flags,
+            Int32Value(closedPromise->flags() | PROMISE_FLAG_HANDLED));
+        cx->runtime()->removeUnhandledRejectedPromise(cx, closedPromise);
+    }
+
+    // Step 6: Set reader.[[ownerReadableStream]].[[reader]] to undefined.
     stream->setFixedSlot(StreamSlot_Reader, UndefinedValue());
 
-    // Step 6: Set reader.[[ownerReadableStream]] to undefined.
+    // Step 7: Set reader.[[ownerReadableStream]] to undefined.
     reader->setFixedSlot(ReaderSlot_Stream, UndefinedValue());
 
     return true;
