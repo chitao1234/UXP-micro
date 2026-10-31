@@ -123,7 +123,7 @@ var SettingsActor = exports.SettingsActor = protocol.ActorClassWithSpec(settings
       }
       deferred.resolve(settings);
     };
-    req.onfailure = function () {
+    req.onerror = function () {
       deferred.reject(req.error);
     };
 
@@ -132,11 +132,7 @@ var SettingsActor = exports.SettingsActor = protocol.ActorClassWithSpec(settings
 
   clearUserSetting: function (name) {
     loadSettingsFile();
-    try {
-      this.setSetting(name, defaultSettings[name]);
-    } catch (e) {
-      console.log(e);
-    }
+    return this.setSetting(name, defaultSettings[name]);
   }
 });
 

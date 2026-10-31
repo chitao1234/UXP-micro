@@ -55,6 +55,13 @@ function runTests() {
         "app.someObject": {}
       };
 
+      function finish() {
+        return client.close().then(() => {
+          DebuggerServer.destroy();
+          SimpleTest.finish();
+        });
+      }
+
       function checkValues() {
         is(settings.allSettings["wifi.enabled"].hasUserValue, false, "original unchanged bool setting");
         is(settings.allSettings["audio.volume.alarm"].hasUserValue, false, "original unchanged int setting");
@@ -81,10 +88,7 @@ function runTests() {
         is(resetSettings["app.reportCrashes"], fakeSettings["app.reportCrashes"], "reset to original string setting");
         is(JSON.stringify(resetSettings["app.someObject"]), JSON.stringify(fakeSettings["app.someObject"]), "reset to original object setting");
 
-        client.close().then(() => {
-          DebuggerServer.destroy();
-          SimpleTest.finish();
-        });
+        return finish();
       }
 
       // settings.json doesn't exist outside of b2g so we will fake it.
@@ -104,18 +108,23 @@ function runTests() {
       .then(() => s.getSetting("app.reportCrashes")).then(value => settings["app.reportCrashes"] = value)
       .then(() => s.getSetting("app.someObject")).then(value => settings["app.someObject"] = value)
       .then(() => s.clearUserSetting("wifi.enabled")).then(() => {
-        s.getSetting("wifi.enabled").then(value => resetSettings["wifi.enabled"] = value);
+        return s.getSetting("wifi.enabled").then(value => resetSettings["wifi.enabled"] = value);
       })
       .then(() => s.clearUserSetting("audio.volume.alarm")).then(() => {
-        s.getSetting("audio.volume.alarm").then(value => resetSettings["audio.volume.alarm"] = value);
+        return s.getSetting("audio.volume.alarm").then(value => resetSettings["audio.volume.alarm"] = value);
       })
       .then(() => s.clearUserSetting("app.reportCrashes")).then(() => {
-        s.getSetting("app.reportCrashes").then(value => resetSettings["app.reportCrashes"] = value);
+        return s.getSetting("app.reportCrashes").then(value => resetSettings["app.reportCrashes"] = value);
       })
       .then(() => s.clearUserSetting("app.someObject")).then(() => {
-        s.getSetting("app.someObject").then(value => {
-          resetSettings["app.someObject"] = value
-        }).then(checkValues);
+        return s.getSetting("app.someObject").then(value => {
+          resetSettings["app.someObject"] = value;
+        });
+      })
+      .then(checkValues)
+      .then(null, error => {
+        ok(false, "Settings request failed: " + error);
+        return finish();
       });
     });
   });

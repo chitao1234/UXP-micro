@@ -1,0 +1,81 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Settings actor asynchronous error handling</title>
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="chrome://mochikit/content/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+"use strict";
+
+const { require } = Components.utils.import("resource://devtools/shared/Loader.jsm", {});
+const { SettingsActor, _setDefaultSettings } = require("devtools/server/actors/settings");
+const { Task } = require("devtools/shared/task");
+const promise = require("promise");
+
+SimpleTest.waitForExplicitFinish();
+window.onload = function() {
+  Task.spawn(function* () {
+    const expected = new Error("Settings request failed");
+    const request = { error: expected };
+    const actor = {
+      _getSettingsService() {
+        return { createLock: () => ({ get: () => request }) };
+      }
+    };
+    const allSettings = SettingsActor.prototype.getAllSettings.call(actor);
+    is(typeof request.onerror, "function", "Bulk reads listen to DOMRequest errors");
+    if (typeof request.onerror === "function") {
+      const rejected = allSettings.then(
+        () => ok(false, "A failed bulk read must reject"),
+        error => is(error, expected, "Bulk reads propagate their DOMRequest error"));
+      request.onerror();
+      yield rejected;
+    }
+
+    const name = "test.settings.reset";
+    _setDefaultSettings({ [name]: false });
+    try {
+      for (let fail of [false, true]) {
+        const completion = promise.defer();
+        actor.setSetting = function(key, value) {
+          is(key, name, "Reset writes the requested setting");
+          is(value, false, "Reset preserves a falsy default value");
+          return completion.promise;
+        };
+        const reset = SettingsActor.prototype.clearUserSetting.call(actor, name);
+        is(reset, completion.promise, "Reset returns the underlying write promise");
+        // Attach even on an unfixed actor so this regression fails immediately
+        // rather than leaving an unhandled rejection or waiting for a timeout.
+        const settled = completion.promise.then(
+          value => is(value, true, "A successful reset settles normally"),
+          error => is(error, expected, "Reset propagates asynchronous write failure"));
+        if (fail) {
+          completion.reject(expected);
+        } else {
+          completion.resolve(true);
+        }
+        yield settled;
+      }
+
+      actor.setSetting = function() { throw expected; };
+      let thrown;
+      try {
+        SettingsActor.prototype.clearUserSetting.call(actor, name);
+      } catch (error) {
+        thrown = error;
+      }
+      is(thrown, expected, "Reset propagates synchronous write failure");
+    } finally {
+      _setDefaultSettings();
+    }
+  }).then(SimpleTest.finish, error => {
+    ok(false, "Settings error regression failed: " + error + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+};
+</script>
+</body>
+</html>
