@@ -17,6 +17,7 @@ function createDOM(doc) {
 }
 
 var tests_done = 0;
+var ready_tests = [];
 var tests = [
   function(win,doc,sel) {
     doc.body.innerHTML = 'I<br>B<br>C'
@@ -215,16 +216,25 @@ var tests = [
   },
 ]
 
-function runTestInIframe(run,t) {
+function runTestInIframe(run,index) {
   let f = document.createElement('iframe');
   f.setAttribute('frameborder','0');
   f.setAttribute('height','100');
   f.setAttribute('width','200');
   f.src = 'data:text/html,<body style="margin:0;padding:0;font-family:monospace">';
   f.onload = function () {
-    try {
-      run(f.contentWindow, f.contentDocument, f.contentWindow.getSelection());
-    } finally { ++tests_done; }
+    ready_tests[index] = function () {
+      try {
+        run(f.contentWindow, f.contentDocument, f.contentWindow.getSelection());
+      } finally { ++tests_done; }
+    };
+    // Some cases append adopted nodes to the shared outer body. Load events
+    // can arrive out of order, but those mutations must follow matrix order.
+    while (ready_tests[tests_done]) {
+      let next = ready_tests[tests_done];
+      delete ready_tests[tests_done];
+      next();
+    }
   }
   return f;
 }
@@ -240,7 +250,7 @@ function checkFinished() {
 function runTest() {
   for (let i=0; i < tests.length; ++i) {
     let t = tests[i];
-    document.body.appendChild(runTestInIframe(t));
+    document.body.appendChild(runTestInIframe(t,i));
   }
   id = setInterval(checkFinished,500);
 }
