@@ -25,7 +25,8 @@ var oldWidth = 0, oldHeight = 0;
 var win = null;
 
 function openWindow() {
-  win = window.open("chrome://mochitests/content/chrome/dom/events/test/bug602962.xul", "_blank", "width=600,height=600");
+  // Resize the helper itself, not a browser window with its own minimum width.
+  win = window.open("chrome://mochitests/content/chrome/dom/events/test/bug602962.xul", "_blank", "chrome,resizable,width=600,height=600");
 }
 
 function doTest() {
@@ -51,6 +52,7 @@ function doTest() {
 function resize() {
   scrollX = sbo.positionX;
   scrollY = sbo.positionY;
+  is(scrollX, 200, "The initial viewport permits the requested 200-pixel scroll");
 
   win.addEventListener("resize", function() {
     content.style.width = (oldWidth + 400) + "px";
