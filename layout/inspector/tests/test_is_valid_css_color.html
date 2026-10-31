@@ -9,10 +9,19 @@
   let utils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"]
                            .getService(SpecialPowers.Ci.inIDOMUtils);
 
-  // Color names
+  // Property completions include CSS-wide values, which are valid color
+  // declarations but are not values of the <color> type this API parses.
+  let cssWideKeywords = ["inherit", "initial", "unset", "revert", "revert-layer"];
+  for (let keyword of cssWideKeywords) {
+    ok(!utils.isValidCSSColor(keyword), keyword + " is not a standalone color");
+    ok(CSS.supports("color", keyword), keyword + " is a valid color declaration");
+  }
+
+  // Keep the named-color iteration active. Firefox 78 and current Firefox
+  // disable it because their completion API omits most named colors; this
+  // tree still returns the complete list.
   let colors = utils.getCSSValuesForProperty("color");
-  let notColor = ["hsl", "hsla", "inherit", "initial", "rgb", "rgba",
-                  "unset", "transparent", "currentColor"];
+  let notColor = ["hsl", "hsla", "rgb", "rgba"].concat(cssWideKeywords);
   for (let color of colors) {
     if (notColor.indexOf(color) !== -1) {
       continue;
@@ -77,6 +86,11 @@
     ok(utils.isValidCSSColor("#" + hex + hex + hex), "#" + hex + hex + hex + " is a valid color");
   }
   ok(!utils.isValidCSSColor("#ggg"), "#ggg is not a valid color");
+
+  // Named-color assertions from current Firefox's test_is_valid_css_color.html.
+  ok(utils.isValidCSSColor("red"), "red is a valid color");
+  ok(utils.isValidCSSColor("transparent"), "transparent is a valid color");
+  ok(utils.isValidCSSColor("currentColor"), "currentColor is a valid color");
   </script>
 </head>
 <body>
