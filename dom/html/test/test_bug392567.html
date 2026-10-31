@@ -41,9 +41,9 @@ function runTests()
 
   // List of tests to run, each test consists of form action URL and expected result URL
   var tests = [
-    [jarUrl, jarUrl + "?$PARAMS"],
-    [jarUrl + "?jarTest1=jarTest2", jarUrl + "?$PARAMS"],
-    [jarUrl + "?jarTest3=jarTest4#jarTest5", jarUrl + "?$PARAMS#jarTest5"],
+    [jarUrl, null, "NS_ERROR_DOM_BAD_URI"],
+    [jarUrl + "?jarTest1=jarTest2", null, "NS_ERROR_DOM_BAD_URI"],
+    [jarUrl + "?jarTest3=jarTest4#jarTest5", null, "NS_ERROR_DOM_BAD_URI"],
     ["data:text/html,<html></html>", "data:text/html,<html></html>?$PARAMS"],
     ["data:text/html,<html>How%20about%20this?</html>", "data:text/html,<html>How%20about%20this?$PARAMS"],
     [httpUrl, httpUrl + "?$PARAMS"],
@@ -67,20 +67,39 @@ function runTests()
 
     form.setAttribute("action", tests[currentTest][0]);
     form.key.value = "value" + currentTest;
-    form.submit();
+    // UXP 1c261b24f15 marks jar: as a restricted local-file protocol.
+    // Preserve all three inputs as security rejection controls; the remaining
+    // cases still exercise actual data:/HTTP query replacement and fragments.
+    let error;
+    try {
+      form.submit();
+    } catch (exception) {
+      error = exception;
+    }
+    if (tests[currentTest][2]) {
+      is(error && error.name, tests[currentTest][2],
+         "Web content cannot submit to " + tests[currentTest][0]);
+      SimpleTest.executeSoon(runNextTest);
+    } else if (error) {
+      ok(false, "Unexpected submission error for " + tests[currentTest][0] + ": " + error);
+      SimpleTest.finish();
+    }
   }
 
   function processTestResult() {
+    // Initial about:blank is not the result of a form submission. Data URLs
+    // have opaque principals, so inspect their resulting URL via the harness;
+    // this test checks encoder/navigation output, not content origin access.
+    const actual = SpecialPowers.wrap(frame).location.href;
+    if (actual === "about:blank") return;
     var expected = tests[currentTest][1].replace(/\$PARAMS/, "key=value" + currentTest);
-    is(frame.location.href, expected, "Submitting to " + tests[currentTest][0]);
+    is(actual, expected, "Submitting to " + tests[currentTest][0]);
 
     setTimeout(runNextTest, 0);
   }
 }
 
-addLoadEvent(function() {
-   SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false]]}, runTests);
-});
+addLoadEvent(runTests);
 
 </script>
 </pre>
