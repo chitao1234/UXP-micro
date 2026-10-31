@@ -27,6 +27,7 @@ add_task(function* () {
   let item = childRows.pop();
   is(item.name, "length", "length property is correct");
   is(item.value, 26, "length property value is 26");
+  is(childRows.length, TEST_ARRAY.length, "All 26 array elements are displayed");
 
   let i = 0;
   for (let name in childRows) {

@@ -78,11 +78,15 @@ function initDOMPanel(tab) {
  * Synthesize asynchronous click event (with clean stack trace).
  */
 function synthesizeMouseClickSoon(panel, element) {
-  return new Promise(resolve => {
-    executeSoon(() => {
-      EventUtils.synthesizeMouse(element, 2, 2, {}, panel.panelWin);
-      resolve();
-    });
+  const clicked = once(element, "click");
+  return new Promise(resolve => executeSoon(resolve)).then(() => {
+    element.scrollIntoView({block: "center", inline: "nearest"});
+    const bounds = element.getBoundingClientRect();
+    const hit = panel.panelWin.document.elementFromPoint(bounds.left + 2,
+                                                       bounds.top + 2);
+    ok(hit && element.contains(hit), "The native click target is visible");
+    EventUtils.synthesizeMouse(element, 2, 2, {}, panel.panelWin);
+    return clicked;
   });
 }
 
@@ -170,11 +174,9 @@ function normalizeTreeValue(value) {
  */
 function expandRow(panel, labelText) {
   let row = getRowByLabel(panel, labelText);
-  return synthesizeMouseClickSoon(panel, row).then(() => {
-    // Wait till children (properties) are fetched
-    // from the backend.
-    return waitForDispatch(panel, "FETCH_PROPERTIES");
-  });
+  // Register before the native click can start or finish the request.
+  const fetched = waitForDispatch(panel, "FETCH_PROPERTIES");
+  return synthesizeMouseClickSoon(panel, row).then(() => fetched);
 }
 
 function evaluateJSAsync(panel, expression) {
@@ -188,11 +190,8 @@ function evaluateJSAsync(panel, expression) {
 function refreshPanel(panel) {
   let doc = panel.panelWin.document;
   let button = doc.querySelector(".btn.refresh");
-  return synthesizeMouseClickSoon(panel, button).then(() => {
-    // Wait till children (properties) are fetched
-    // from the backend.
-    return waitForDispatch(panel, "FETCH_PROPERTIES");
-  });
+  const fetched = waitForDispatch(panel, "FETCH_PROPERTIES");
+  return synthesizeMouseClickSoon(panel, button).then(() => fetched);
 }
 
 // Redux related API, use from shared location
@@ -223,7 +222,7 @@ function _afterDispatchDone(store, type) {
 }
 
 function waitForDispatch(panel, type, eventRepeat = 1) {
-  const store = panel.panelWin.view.mainFrame.store;
+  const store = panel.panelWin.view.store;
   const actionType = constants[type];
   let count = 0;
 
