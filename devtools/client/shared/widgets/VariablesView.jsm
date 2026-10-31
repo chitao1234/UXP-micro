@@ -3240,6 +3240,12 @@ VariablesView.prototype.isOverridden = function (aItem) {
  *        The variable's descriptor.
  */
 VariablesView.isPrimitive = function (aDescriptor) {
+  // Accessor descriptors have get/set grips instead of a value grip. They
+  // remain expandable so their getter and setter entries can be inspected.
+  if (aDescriptor.get || aDescriptor.set) {
+    return false;
+  }
+
   // As described in the remote debugger protocol, the value grip
   // must be contained in a 'value' property.
   let grip = aDescriptor.value;
