@@ -7,6 +7,9 @@ user_pref("gfx.color_management.mode", 2);
 user_pref("gfx.color_management.force_srgb", true);
 user_pref("gfx.logging.level", 1);
 user_pref("browser.dom.window.dump.enabled", true);
+// A modal default-browser check steals focus from needs-focus tests. Reftest
+// creates a generic mozprofile.Profile, which lacks FirefoxProfile's defaults.
+user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("ui.caretBlinkTime", -1);
 user_pref("dom.send_after_paint_to_content", true);
 // no slow script dialogs

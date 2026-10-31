@@ -264,6 +264,12 @@ class MachCommands(MachCommandBase):
 
     def _run_reftest(self, **kwargs):
         process_test_objects(kwargs)
+        # Like mochitest, refresh copied harness resources before running.
+        # A faster build does not install TEST_HARNESS_FILES into _tests, and
+        # stale profile preferences can leave startup dialogs over the tests.
+        from mozbuild.controller.building import BuildDriver
+        driver = self._spawn(BuildDriver)
+        driver.install_tests([])
         reftest = self._spawn(ReftestRunner)
         return reftest.run_desktop_test(**kwargs)
 
