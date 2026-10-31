@@ -52,7 +52,7 @@ function test(id,s,expected) {
   for(var i = 0; i < x.length; ++i) {
     var actual = eval('el.'+s+x[i]);
     if (expected[i] != -1 && s+x[i]!='scrollHeight')
-      is(actual, expected[i], id+"."+s+x[i]);
+      is(actual, Math.round(expected[i]), id+"."+s+x[i]);
   }
 }
 function t3(id,c,o,s,pid) {
@@ -63,15 +63,30 @@ function t3(id,c,o,s,pid) {
   is(p.id, pid, id+".offsetParent");
 }
 
+// Borders snap down to whole device pixels, with a one-device-pixel minimum.
+// These expectations use the specified geometry and that policy, independently
+// of the client/offset/scroll values under test.  Do not change the host DPI.
+function expectedBorder(cssPixels) {
+  if (!cssPixels) {
+    return 0;
+  }
+  return Math.max(1, Math.floor(cssPixels * window.devicePixelRatio)) /
+         window.devicePixelRatio;
+}
+
 function run_test() {
+   const b1 = expectedBorder(1), b10 = expectedBorder(10);
+   // Default cell padding (2), spacing (4), and content (200) are not borders.
+   const table3Client = 206 + 2*b1;
+   const table3Size = table3Client + 2*b10;
    // XXX how test clientWidth/clientHeight (the -1 below) in cross-platform manner
    // without hard-coding the scrollbar width?
    t3('div1',[20,20,-1,-1],[10,10,200,160],[0,0,230,20],'body');
    t3('abs1',[20,20,-1,-1],[500,170,200,160],[0,0,230,20],'body');
    t3('table1',[20,20,266,266],[10,170,306,306],[0,0,266,20],'body');
    t3('table2',[0,0,206,206],[0,0,206,206],[0,0,206,20],'table2parent');
-   t3('table3',[10,10,208,208],[0,0,228,228],[0,0,208,228],'table3parent');
-   t3('table3parent',[0,0,228,228],[300,100,228,228],[0,0,228,228],'body');
+   t3('table3',[b10,b10,table3Client,table3Client],[0,0,table3Size,table3Size],[0,0,table3Client,228],'table3parent');
+   t3('table3parent',[0,0,table3Size,table3Size],[300,100,table3Size,table3Size],[0,0,table3Size,228],'body');
 }
 </script>
 

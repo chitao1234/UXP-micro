@@ -28,7 +28,7 @@ function test(id,s,expected) {
   for(var i = 0; i < x.length; ++i) {
     var actual = eval('el.'+s+x[i]);
     if (expected[i] != -1 && s+x[i]!='scrollHeight')
-      is(actual, expected[i], id+"."+s+x[i]);
+      is(actual, Math.round(expected[i]), id+"."+s+x[i]);
   }
 }
 function t3(id,c,o,s,pid) {
@@ -39,15 +39,46 @@ function t3(id,c,o,s,pid) {
   is(p.id, pid, id+".offsetParent");
 }
 
-function run_test() {
-   t3('span1',[0,0,20,20],[12,12,20,20],[0,0,20,20],'td1');
-   t3('td1'  ,[1,1,69,44],[16,16,71,46],[0,0,69,46],'table1');
-   t3('tr1'  ,[0,0,71,46],[16,16,71,46],[0,0,71,44],'table1');
-   t3('span2',[10,0,20,20],[27,12,30,20],[0,0,20,20],'td2');
-   t3('table1',[9,9,85,113],[10,10,103,131],[0,0,85,50],'body');
-   t3('div1',[10,10,-1,131],[0,0,-1,151],[0,0,-1,85],'body');
+// Borders snap down to whole device pixels, with a one-device-pixel minimum.
+// These expectations use the specified geometry and that policy, independently
+// of the client/offset/scroll values under test.  Do not change the host DPI.
+function expectedBorder(cssPixels) {
+  if (!cssPixels) {
+    return 0;
+  }
+  return Math.max(1, Math.floor(cssPixels * window.devicePixelRatio)) /
+         window.devicePixelRatio;
+}
 
-   t3('span2b',[10,0,20,20],[25,-1,30,20],[0,0,20,20],'body');
+function run_test() {
+   const b1 = expectedBorder(1), b7 = expectedBorder(7);
+   const b9 = expectedBorder(9), b10 = expectedBorder(10);
+   const b13 = expectedBorder(13);
+   // Cell content/padding and table spacing retain their CSS-pixel dimensions.
+   // Keep fractional borders through all layout sums; round only the final API.
+   const c1w = 59 + b10 + 2*b1, c1h = 44 + 2*b1;
+   const t1w = 2*b9 + 14 + c1w, t1h = 2*b9 + 21 + 2*c1h;
+   const d1h = 2*b10 + t1h;
+   const d3h = 2*b10 + 40;
+   const c5 = 22 + 2*b7, t5w = 4 + c5, t5h = 6 + 2*c5;
+   // The relatively positioned second span can extend the scrollable width.
+   const t5scroll = Math.max(t5w, b7 + 33);
+   const d5y = d1h + d3h, d5h = 2*b10 + t5h;
+   const c7w = 37 + 2*b1, c7h = 22 + 2*b1;
+   const t7w = 2*b7 + 4 + c7w, t7h = 2*b7 + 6 + 2*c7h;
+   const d7y = d5y + d5h, d7h = 2*b10 + t7h;
+   const c9 = 22 + 2*b1, empty9 = 2 + 2*b1;
+   const t9w = 2*b13 + 4 + c9, t9h = 2*b13 + 6 + c9 + empty9;
+   const d9y = d7y + d7h, d11y = d9y + 2*b10;
+
+   t3('span1',[0,0,20,20],[12,12,20,20],[0,0,20,20],'td1');
+   t3('td1'  ,[b1,b1,69,44],[b9+7,b9+7,c1w,c1h],[0,0,69,46],'table1');
+   t3('tr1'  ,[0,0,c1w,c1h],[b9+7,b9+7,c1w,c1h],[0,0,c1w,44],'table1');
+   t3('span2',[b10,0,20,20],[27,12,20+b10,20],[0,0,20,20],'td2');
+   t3('table1',[b9,b9,t1w-2*b9,t1h-2*b9],[b10,b10,t1w,t1h],[0,0,t1w-2*b9,50],'body');
+   t3('div1',[b10,b10,-1,t1h],[0,0,-1,d1h],[0,0,-1,85],'body');
+
+   t3('span2b',[b10,0,20,20],[b10+15,-1,20+b10,20],[0,0,20,20],'body');
    // XXX not sure how to make reliable cross-platform tests for replaced-inline, inline
    // t3('span2c',[10,2,18,2],[25,-1,30,6],[0,0,30,20],'body');
    // t3('span2d',[0,0,0,0],[25,-1,10,19],[0,0,10,20],'body');
@@ -57,35 +88,35 @@ function run_test() {
    t3('tr3'  ,[0,0,35,20],[0,0,35,20],[0,0,35,22],'table3');
    t3('span4' ,[0,0,20,20],[0,0,20,20],[0,0,20,20],'td4');
    t3('table3',[0,0,35,40],[0,0,35,40],[0,0,35,50],'div3');
-   t3('div3',[10,10,-1,40],[0,151,-1,60],[0,0,-1,70],'body');
+   t3('div3',[b10,b10,-1,40],[0,d1h,-1,d3h],[0,0,-1,70],'body');
 
    t3('span5' ,[0,0,20,20],[1,1,20,20],[0,0,20,20],'td5');
-   t3('td5'   ,[7,7,22,22],[2,2,36,36],[0,0,22,36],'table5');
-   t3('tr5'  ,[0,0,36,36],[2,2,36,36],[0,0,36,22],'table5');
-   t3('span6' ,[0,0,20,20],[20,58,20,20],[0,0,20,20],'div5');
-   t3('table5',[0,0,40,78],[0,0,40,78],[0,0,40,78],'div5');
-   t3('div5',[10,10,-1,78],[0,211,-1,98],[0,0,-1,70],'body');
+   t3('td5'   ,[b7,b7,22,22],[2,2,c5,c5],[0,0,22,36],'table5');
+   t3('tr5'  ,[0,0,c5,c5],[2,2,c5,c5],[0,0,c5,22],'table5');
+   t3('span6' ,[0,0,20,20],[b7+13,c5+b7+15,20,20],[0,0,20,20],'div5');
+   t3('table5',[0,0,t5w,t5h],[0,0,t5w,t5h],[0,0,t5scroll,78],'div5');
+   t3('div5',[b10,b10,-1,t5h],[0,d5y,-1,d5h],[0,0,-1,70],'body');
 
    t3('span7' ,[0,0,20,20],[1,1,20,20],[0,0,20,20],'td7');
-   t3('td7'   ,[1,1,37,22],[9,9,39,24],[0,0,37,22],'table7');
-   t3('tr7'  ,[0,0,39,24],[9,9,39,24],[0,0,39,22],'table7');
-   t3('span8' ,[0,0,20,20],[26,37,20,20],[0,0,20,20],'table7');
-   t3('table7',[7,7,43,54],[10,319,57,68],[0,0,43,50],'body');
-   t3('div7',[10,10,-1,68],[0,309,-1,88],[0,0,-1,70],'body');
+   t3('td7'   ,[b1,b1,37,22],[b7+2,b7+2,c7w,c7h],[0,0,37,22],'table7');
+   t3('tr7'  ,[0,0,c7w,c7h],[b7+2,b7+2,c7w,c7h],[0,0,c7w,22],'table7');
+   t3('span8' ,[0,0,20,20],[b7+b1+18,b7+c7h+b1+5,20,20],[0,0,20,20],'table7');
+   t3('table7',[b7,b7,t7w-2*b7,t7h-2*b7],[b10,d7y+b10,t7w,t7h],[0,0,t7w-2*b7,50],'body');
+   t3('div7',[b10,b10,-1,t7h],[0,d7y,-1,d7h],[0,0,-1,70],'body');
 
    t3('span9' ,[0,0,20,20],[1,1,20,20],[0,0,20,20],'td9');
-   t3('td9'   ,[1,1,22,22],[15,15,24,24],[0,0,22,24],'table9');
-   t3('tr9'  ,[0,0,24,24],[15,15,24,24],[0,0,24,22],'table9');
-   t3('span10' ,[0,0,20,20],[17,43,20,20],[0,0,20,20],'table9');
-   t3('table9',[13,13,28,34],[10,407,54,60],[0,0,28,50],'body');
-   t3('div9',[10,10,-1,0],[0,397,-1,20],[0,0,-1,70],'body');
+   t3('td9'   ,[b1,b1,22,22],[b13+2,b13+2,c9,c9],[0,0,22,24],'table9');
+   t3('tr9'  ,[0,0,c9,c9],[b13+2,b13+2,c9,c9],[0,0,c9,22],'table9');
+   t3('span10' ,[0,0,20,20],[b13+b1+3,b13+c9+b1+5,20,20],[0,0,20,20],'table9');
+   t3('table9',[b13,b13,t9w-2*b13,t9h-2*b13],[b10,d9y+b10,t9w,t9h],[0,0,t9w-2*b13,50],'body');
+   t3('div9',[b10,b10,-1,0],[0,d9y,-1,2*b10],[0,0,-1,70],'body');
 
    t3('span11' ,[0,0,20,20],[1,1,20,20],[0,0,20,20],'td11');
    t3('td11'   ,[0,0,22,22],[2,2,22,22],[0,0,22,22],'table11');
    t3('tr11'  ,[0,0,22,22],[2,2,22,22],[0,0,22,22],'table11');
-   t3('span12' ,[0,0,20,20],[28,454,20,20],[0,0,20,20],'body');
-   t3('table11',[0,0,26,30],[10,427,26,30],[0,0,26,50],'body');
-   t3('div11',[10,10,-1,30],[0,417,-1,50],[0,0,-1,70],'body');
+   t3('span12' ,[0,0,20,20],[b10+18,d11y+b10+27,20,20],[0,0,20,20],'body');
+   t3('table11',[0,0,26,30],[b10,d11y+b10,26,30],[0,0,26,50],'body');
+   t3('div11',[b10,b10,-1,30],[0,d11y,-1,30+2*b10],[0,0,-1,70],'body');
 }
 </script>
 </head>
