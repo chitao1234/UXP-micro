@@ -12,6 +12,16 @@ XPIDL_MODULE = 'places'
 if CONFIG['MOZ_PLACES']:
     TESTING_JS_MODULES += ['tests/PlacesTestUtils.jsm']
 
+    # Retained expiration and history API coverage, restored from the parent of
+    # test-removal commit 0ddd00f195. Other Places groups remain separately scoped.
+    XPCSHELL_TESTS_MANIFESTS += [
+        'tests/expiration/xpcshell.ini',
+        'tests/history/xpcshell.ini',
+    ]
+    TEST_HARNESS_FILES.xpcshell.toolkit.components.places.tests += [
+        'tests/head_common.js',
+    ]
+
     XPIDL_SOURCES += [
         'mozIAsyncFavicons.idl',
         'mozIAsyncHistory.idl',
