@@ -374,6 +374,10 @@ partial interface Document {
 
   [ChromeOnly] readonly attribute nsILoadGroup? documentLoadGroup;
 
+  // Distinguish the automatically created initial document from an explicit
+  // navigation to about:blank.  The native flag follows the document lifetime.
+  [ChromeOnly] readonly attribute boolean isInitialDocument;
+
   // like documentURI, except that for error pages, it returns the URI we were
   // trying to load when we hit an error, rather than the error page's own URI.
   [ChromeOnly] readonly attribute URI? mozDocumentURIIfNotForErrorPages;

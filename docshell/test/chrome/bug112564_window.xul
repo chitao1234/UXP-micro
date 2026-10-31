@@ -13,6 +13,7 @@
         onload="onLoad();"
         title="112564 test">
 
+  <script src="docshell_bfcache_helpers.js" type="application/javascript"/>
   <script type="application/javascript"><![CDATA[
     const LISTEN_EVENTS = ["load", "unload", "pageshow", "pagehide"];
 
@@ -43,12 +44,13 @@
 
     function onLoad() {
       gBrowser = document.getElementById("content");
-      for (let eventType of LISTEN_EVENTS) {
-        gBrowser.addEventListener(eventType, eventListener, true);
-      }
-             
-      gTestsIterator = testsIterator();
-      nextTest();
+      waitForBFCacheReady(gBrowser).then(() => {
+        for (let eventType of LISTEN_EVENTS) {
+          gBrowser.addEventListener(eventType, eventListener, true);
+        }
+        gTestsIterator = testsIterator();
+        nextTest();
+      }, readinessFailed);
     }
 
     function eventListener(event) {
@@ -75,12 +77,19 @@
       }
     }
 
+    function readinessFailed(error) {
+      ok(false, String(error));
+      finish();
+    }
+
     function nextTest() {
-      try {
-        gTestsIterator.next();
-      } catch (err if err instanceof StopIteration) {
-        finish();
-      }
+      waitForBFCacheReady(gBrowser).then(() => {
+        try {
+          gTestsIterator.next();
+        } catch (err if err instanceof StopIteration) {
+          finish();
+        }
+      }, readinessFailed);
     }
 
     function testsIterator() {

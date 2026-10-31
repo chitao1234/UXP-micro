@@ -7,6 +7,10 @@ for (var name of imports) {
   window[name] = window.opener.wrappedJSObject[name];
 }
 
+Components.classes["@mozilla.org/moz/jssubscript-loader;1"]
+  .getService(Components.interfaces.mozIJSSubScriptLoader)
+  .loadSubScript(new URL("docshell_bfcache_helpers.js", location.href).href, window);
+
 /**
  * Define global constants and variables.
  */
@@ -158,40 +162,56 @@ function doPageNavigation(params) {
       true);
   }
 
-  // Perform the specified navigation.
-  if (back) {
-    gNavType = NAV_BACK;
-    TestWindow.getBrowser().goBack();
+  // Keep event listeners armed synchronously, including waitForPageEvents
+  // callers which initiate their own action immediately after returning.
+  // Navigation tests require the outgoing presentation to have finished its
+  // native requests; pageshow alone does not establish BFCache eligibility.
+  if (waitOnly) {
+    performNavigation();
+  } else {
+    waitForBFCacheReady(TestWindow.getBrowser()).then(performNavigation)
+      .then(null, error => {
+        ok(false, String(error));
+        finish();
+      });
   }
-  else if (forward) {
-    gNavType = NAV_FORWARD;
-    TestWindow.getBrowser().goForward();
-  }
-  else if (uri) {
-    gNavType = NAV_URI;
-    TestWindow.getBrowser().loadURI(uri);
-  }
-  else if (reload) {
-    gNavType = NAV_RELOAD;
-    TestWindow.getBrowser().reload();
-  }
-  else if (waitOnly) {
-    gNavType = NAV_NONE;
-  }
-  else {
-    throw "No valid navigation type passed to doPageNavigation!";
-  }
-  
-  // If we're listening for events and there is an .onNavComplete callback, 
-  // wait for all events to occur, and then call doPageNavigation_complete().
-  if (eventsToListenFor.length > 0 && params.onNavComplete)
-  {
-    waitForTrue(
-      function() { return gFinalEvent; },
-      function() { 
-        doPageNavigation_complete(eventsToListenFor, params.onNavComplete, 
-          preventBFCache);
-      } );
+
+  function performNavigation() {
+    // Perform the specified navigation.
+    if (back) {
+      gNavType = NAV_BACK;
+      TestWindow.getBrowser().goBack();
+    }
+    else if (forward) {
+      gNavType = NAV_FORWARD;
+      TestWindow.getBrowser().goForward();
+    }
+    else if (uri) {
+      gNavType = NAV_URI;
+      TestWindow.getBrowser().loadURI(uri);
+    }
+    else if (reload) {
+      gNavType = NAV_RELOAD;
+      TestWindow.getBrowser().reload();
+    }
+    else if (waitOnly) {
+      gNavType = NAV_NONE;
+    }
+    else {
+      throw "No valid navigation type passed to doPageNavigation!";
+    }
+
+    // If we're listening for events and there is an .onNavComplete callback,
+    // wait for all events to occur, and then call doPageNavigation_complete().
+    if (eventsToListenFor.length > 0 && params.onNavComplete)
+    {
+      waitForTrue(
+        function() { return gFinalEvent; },
+        function() {
+          doPageNavigation_complete(eventsToListenFor, params.onNavComplete,
+            preventBFCache);
+        } );
+    }
   }
 }
 
@@ -253,6 +273,14 @@ function waitForPageEvents(params) {
  * The event listener which listens for expectedEvents.
  */
 function pageEventListener(event) {
+  // Match the current Firefox docshell helper: an initial document may be
+  // materialized before a subframe's first navigation.  Its lifecycle events
+  // are not part of the test navigation.  Explicit about:blank loads remain.
+  if (isInitialDocumentEvent(event)) {
+    dump("TEST: ignoring a " + event.type + " event for an initial about:blank\n");
+    return;
+  }
+
   try {
     dump("TEST: eventListener received a " + event.type + " event for page " +
       event.originalTarget.title + ", persisted=" + event.persisted + "\n");

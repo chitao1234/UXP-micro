@@ -1,0 +1,151 @@
+<?xml version="1.0"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        width="500" height="400" onload="runTest();">
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+  <script src="docshell_bfcache_helpers.js"/>
+  <browser id="content" type="content" flex="1"
+           src="data:text/html,&lt;body&gt;Initial document lifecycle test"/>
+  <script><![CDATA[
+"use strict";
+const Cu = Components.utils;
+const { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
+const { Services } = Cu.import("resource://gre/modules/Services.jsm", {});
+const lifecycleEvents = ["load", "unload", "pageshow", "pagehide"];
+
+SimpleTest.waitForExplicitFinish();
+function runTest() {
+  Task.spawn(function* () {
+    const browser = document.getElementById("content");
+    yield waitForBFCacheReady(browser);
+    const frame = browser.contentDocument.createElement("iframe");
+    browser.contentDocument.body.appendChild(frame);
+    const initialDocument = frame.contentDocument;
+    is(initialDocument.documentURI, "about:blank", "The new subframe starts with about:blank");
+    ok(initialDocument.isInitialDocument, "The native flag identifies the automatically created document");
+    is(Cu.waiveXrays(initialDocument).isInitialDocument, undefined,
+       "The initial-document flag is not exposed to content");
+
+    function navigate(uri) {
+      return new Promise((resolve, reject) => {
+        const outgoing = frame.contentDocument;
+        const events = [];
+        const received = [];
+        const observedWindows = [];
+        const topics = ["content-document-global-created", "chrome-document-global-created"];
+        const observer = {
+          observe(subject) {
+            if (subject === frame.contentWindow) observeWindow(subject);
+          }
+        };
+        info("Initial-document navigation begins: " + outgoing.documentURI + " -> " + uri);
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("Timed out waiting for subframe pageshow: " + JSON.stringify({
+            requested: uri,
+            currentURI: frame.contentDocument.documentURI,
+            readyState: frame.contentDocument.readyState,
+            received: received
+          })));
+        }, 30000);
+        function cleanup() {
+          clearTimeout(timer);
+          for (let topic of topics) Services.obs.removeObserver(observer, topic);
+          frame.removeEventListener("load", onFrameLoad, true);
+          for (let record of observedWindows) {
+            for (let type of lifecycleEvents) record.window.removeEventListener(type, listener, true);
+          }
+        }
+        function observeWindow(win) {
+          const document = win.document;
+          if (observedWindows.some(record => record.document === document)) return;
+          observedWindows.push({window: win, document: document});
+          info("Initial-document observing frame window: " + document.documentURI);
+          for (let type of lifecycleEvents) win.addEventListener(type, listener, true);
+        }
+        function onFrameLoad(event) {
+          // A same-origin navigation may reuse the initial inner global and
+          // consequently send no document-global-created notification.
+          if (event.target === frame) observeWindow(frame.contentWindow);
+        }
+        function listener(event) {
+          const target = event.originalTarget;
+          const entry = {
+            type: event.type,
+            target: String(target),
+            targetURI: target && target.documentURI,
+            isDocument: target instanceof Document,
+            isOutgoing: target === outgoing,
+            isCurrent: target === frame.contentDocument
+          };
+          received.push(entry);
+          info("Initial-document raw event: " + JSON.stringify(entry));
+          if (!(event.originalTarget instanceof Document) ||
+              (event.originalTarget !== outgoing &&
+               event.originalTarget !== frame.contentDocument)) {
+            return;
+          }
+          events.push({
+            type: event.type,
+            document: event.originalTarget,
+            ignored: isInitialDocumentEvent(event)
+          });
+          if (event.type === "pageshow" && event.originalTarget !== outgoing) {
+            cleanup();
+            resolve(events);
+          }
+        }
+        // Dynamic subframe lifecycle events do not reach the embedding XUL
+        // browser in this tree. Observe their actual window dispatch targets.
+        for (let topic of topics) Services.obs.addObserver(observer, topic, false);
+        frame.addEventListener("load", onFrameLoad, true);
+        observeWindow(frame.contentWindow);
+        try {
+          frame.src = uri;
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      });
+    }
+
+    const initialEvents = yield navigate("data:text/html,<title>First real subframe</title>");
+    const initialHide = initialEvents.filter(event =>
+      event.document === initialDocument && event.type === "pagehide");
+    const initialUnload = initialEvents.filter(event =>
+      event.document === initialDocument && event.type === "unload");
+    is(initialHide.length, 1, "The materialized initial document sends one native pagehide");
+    is(initialUnload.length, 1, "The materialized initial document sends one native unload");
+    ok(initialEvents.filter(event => event.document === initialDocument)
+                    .every(event => event.ignored),
+       "The helper excludes all initial-document lifecycle events");
+    ok(initialEvents.filter(event => event.document !== initialDocument)
+                    .every(event => !event.ignored),
+       "The helper preserves the first real navigation's events");
+
+    yield waitForBFCacheReady(browser);
+    const blankEvents = yield navigate("about:blank");
+    const explicitBlank = frame.contentDocument;
+    is(explicitBlank.documentURI, "about:blank", "The explicit navigation uses the same URI");
+    ok(!explicitBlank.isInitialDocument, "An explicit about:blank navigation is not the initial document");
+    ok(blankEvents.every(event => !event.ignored),
+       "The helper preserves explicit about:blank load and pageshow events");
+    is(blankEvents.filter(event => event.document === explicitBlank && event.type === "load").length,
+       1, "The explicit blank sends one native load");
+    is(blankEvents.filter(event => event.document === explicitBlank && event.type === "pageshow").length,
+       1, "The explicit blank sends one native pageshow");
+
+    yield waitForBFCacheReady(browser);
+    const afterBlank = yield navigate("data:text/html,<title>After explicit blank</title>");
+    const blankHide = afterBlank.filter(event =>
+      event.document === explicitBlank && event.type === "pagehide");
+    is(blankHide.length, 1, "The explicit blank sends one native pagehide");
+    ok(afterBlank.every(event => !event.ignored),
+       "The helper preserves explicit about:blank teardown events too");
+    frame.remove();
+  }).then(SimpleTest.finish, error => {
+    ok(false, "Initial-document regression failed: " + error + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+}
+  ]]></script>
+</window>

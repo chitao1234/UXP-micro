@@ -6,6 +6,8 @@
   <hbox id="parent">
   </hbox>
 
+  <script src="docshell_bfcache_helpers.js" type="application/javascript"/>
+
   <!-- test code goes here -->
   <script type="application/javascript"><![CDATA[
     var imports = [ "SimpleTest", "is", "isnot", "ok", "onerror" ];
@@ -65,8 +67,12 @@
       yield undefined;
     })();
 
-    function testDriver() {
-      setTimeout(function() { tester.next() }, 0);
+    function testDriver(event) {
+      waitForBFCacheReady(event.currentTarget).then(() => tester.next(), error => {
+        ok(false, String(error));
+        window.close();
+        SimpleTest.finish();
+      });
     }
 
     function doTheTest() {

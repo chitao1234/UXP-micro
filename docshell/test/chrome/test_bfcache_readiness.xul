@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        width="500" height="400" onload="runTest();">
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+  <script src="docshell_bfcache_helpers.js"/>
+  <browser id="content" type="content" flex="1" src="data:text/html,BFCache readiness"/>
+  <script><![CDATA[
+"use strict";
+const Ci = Components.interfaces;
+const Cu = Components.utils;
+const { NetUtil } = Cu.import("resource://gre/modules/NetUtil.jsm", {});
+const { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
+const endpoint = "http://mochi.test:8888/chrome/docshell/test/chrome/file_bfcache_wait.sjs";
+
+SimpleTest.waitForExplicitFinish();
+function runTest() {
+  Task.spawn(function* () {
+    const browser = document.getElementById("content");
+    const group = browser.docShell.QueryInterface(Ci.nsIDocumentLoader).loadGroup;
+    yield waitForBFCacheReady(browser);
+    for (let background of [false, true]) {
+      let started;
+      const start = new Promise(resolve => { started = resolve; });
+      let stopped;
+      const stop = new Promise(resolve => { stopped = resolve; });
+      const channel = NetUtil.newChannel({
+        uri: endpoint + "?hold", loadUsingSystemPrincipal: true
+      });
+      channel.loadGroup = group;
+      if (background) channel.loadFlags |= Ci.nsIRequest.LOAD_BACKGROUND;
+      channel.asyncOpen2({
+        onStartRequest() { started(); },
+        onDataAvailable(request, context, stream, offset, count) {
+          NetUtil.readInputStreamToString(stream, count);
+        },
+        onStopRequest(request, context, status) {
+          ok(Components.isSuccessCode(status), "The held native channel completes successfully");
+          stopped();
+        }
+      });
+      yield start;
+
+      let ready = false;
+      const readiness = waitForBFCacheReady(browser).then(() => { ready = true; });
+      try {
+        yield new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        ok(group.requests.hasMoreElements(), "The native group contains the held request");
+        ok(!ready, "Readiness waits for a pending " + (background ? "background" : "foreground") + " request");
+      } finally {
+        yield new Promise((resolve, reject) => {
+          NetUtil.asyncFetch({ uri: endpoint + "?release", loadUsingSystemPrincipal: true },
+            (stream, status) => {
+              if (stream) stream.close();
+              if (Components.isSuccessCode(status)) resolve();
+              else reject(new Error("Could not release native request: " + status));
+            });
+        });
+      }
+      yield Promise.all([stop, readiness]);
+      ok(ready, "Readiness completes after the native request is released");
+      ok(!group.requests.hasMoreElements(), "No native requests remain");
+    }
+  }).then(SimpleTest.finish, error => {
+    ok(false, "BFCache readiness regression failed: " + error + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+}
+  ]]></script>
+</window>

@@ -13,6 +13,7 @@
         onload="onLoad();"
         title="364461 test">
 
+  <script src="docshell_bfcache_helpers.js" type="application/javascript"/>
   <script type="application/javascript"><![CDATA[
 
     const LISTEN_EVENTS = ["load", "unload", "pageshow", "pagehide"];
@@ -20,6 +21,8 @@
     var gBrowser;
     var gTestsIterator;
     var gExpected = [];
+    var gNextTestPending = false;
+    var gFinished = false;
 
     function ok(condition, message) {
       window.opener.wrappedJSObject.SimpleTest.ok(condition, message);
@@ -28,6 +31,8 @@
       window.opener.wrappedJSObject.SimpleTest.is(a, b, message);
     }
     function finish() {
+      if (gFinished) return;
+      gFinished = true;
       for (let eventType of LISTEN_EVENTS) {
         gBrowser.removeEventListener(eventType, eventListener, true);
       }
@@ -39,19 +44,20 @@
     function onLoad() {
       gBrowser = document.getElementById("content");
 
-      for (let eventType of LISTEN_EVENTS) {
-        gBrowser.addEventListener(eventType, eventListener, true);
-      }
-      
-      gTestsIterator = testsIterator();
-      nextTest();
+      waitForBFCacheReady(gBrowser).then(() => {
+        for (let eventType of LISTEN_EVENTS) {
+          gBrowser.addEventListener(eventType, eventListener, true);
+        }
+        gTestsIterator = testsIterator();
+        nextTest();
+      }, readinessFailed);
     }
 
     function eventListener(event) {
+      if (isInitialDocumentEvent(event)) return;
       ok(gExpected.length >= 1, "Unexpected event " + event.type);
       if (gExpected.length == 0) {
-        // in case of unexpected event, try to continue anyway
-        setTimeout(nextTest, 0);
+        // An unexpected event must not advance the generator a second time.
         return;
       }
 
@@ -71,12 +77,23 @@
       }
     }
 
+    function readinessFailed(error) {
+      ok(false, String(error));
+      finish();
+    }
+
     function nextTest() {
-      try {
-        gTestsIterator.next();
-      } catch (err if err instanceof StopIteration) {
-        finish();
-      }
+      if (gNextTestPending || gFinished) return;
+      gNextTestPending = true;
+      waitForBFCacheReady(gBrowser).then(() => {
+        if (gFinished) return;
+        gNextTestPending = false;
+        try {
+          gTestsIterator.next();
+        } catch (err if err instanceof StopIteration) {
+          finish();
+        }
+      }, readinessFailed);
     }
 
     function testsIterator() {

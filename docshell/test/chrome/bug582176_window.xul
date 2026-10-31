@@ -19,7 +19,12 @@
     // Execute the next test in the generator function.
     //
     function nextTestAsync() {
-      SimpleTest.executeSoon(tests.next.bind(tests));
+      waitForBFCacheReady(document.getElementById("content")).then(() => {
+        SimpleTest.executeSoon(tests.next.bind(tests));
+      }, error => {
+        ok(false, String(error));
+        finish();
+      });
     }
 
     ////
