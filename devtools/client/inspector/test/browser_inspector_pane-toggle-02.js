@@ -23,6 +23,12 @@ add_task(function* () {
     inspector.panelDoc.defaultView);
 
   yield onTransitionEnd;
+  // Our event listener runs before ViewHelpers' completion listener.
+  yield SimpleTest.promiseWaitForCondition(() =>
+    !panel.hasAttribute("animated") &&
+    panel.classList.contains("pane-collapsed") &&
+    button.classList.contains("pane-collapsed"),
+    "The sidebar finishes collapsing and updates its toggle button");
   ok(panel.classList.contains("pane-collapsed"), "The panel is in collapsed state");
   ok(!panel.hasAttribute("animated"),
     "The collapsed panel will not perform unwanted animations");
@@ -37,6 +43,11 @@ add_task(function* () {
   EventUtils.synthesizeMouseAtCenter(button, {},
     inspector.panelDoc.defaultView);
   yield onTransitionEnd;
+  yield SimpleTest.promiseWaitForCondition(() =>
+    !panel.hasAttribute("animated") &&
+    !panel.classList.contains("pane-collapsed") &&
+    !button.classList.contains("pane-collapsed"),
+    "The sidebar finishes expanding and updates its toggle button");
 
   ok(!panel.classList.contains("pane-collapsed"), "The panel is in expanded state");
 });

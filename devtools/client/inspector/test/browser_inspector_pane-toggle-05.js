@@ -15,18 +15,24 @@ add_task(function* () {
 
   ok(!panel.classList.contains("pane-collapsed"), "The panel is in expanded state");
 
-  yield togglePane(button, "Press on the toggle button", panel, "VK_RETURN");
+  yield togglePane(button, "Press on the toggle button", panel, "VK_RETURN", true);
   ok(panel.classList.contains("pane-collapsed"), "The panel is in collapsed state");
 
   yield togglePane(button, "Press on the toggle button to expand the panel again",
-    panel, "VK_SPACE");
+    panel, "VK_SPACE", false);
   ok(!panel.classList.contains("pane-collapsed"), "The panel is in expanded state");
 });
 
-function* togglePane(button, message, panel, keycode) {
+function* togglePane(button, message, panel, keycode, collapsed) {
   let onTransitionEnd = once(panel, "transitionend");
   info(message);
   button.focus();
   EventUtils.synthesizeKey(keycode, {});
   yield onTransitionEnd;
+  // Our event listener runs before ViewHelpers' completion listener.
+  yield SimpleTest.promiseWaitForCondition(() =>
+    !panel.hasAttribute("animated") &&
+    panel.classList.contains("pane-collapsed") === collapsed &&
+    button.classList.contains("pane-collapsed") === collapsed,
+    "The sidebar completes the requested keyboard toggle");
 }
