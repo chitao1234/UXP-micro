@@ -75,15 +75,38 @@
     check(153,193,0,0,0,0,[e.p5]);
     check(153,193,0,20,0,20, [e.p5, e.d2]);
 
-    // Precise pixel checks:
-    check(144, 183, 0, 0, 0, 0, []);
-    check(144, 183, 0, 0, 1, 0, [e.p5]);
-    check(144, 183, 0, 0, 0, 1, [e.d2]);
-    check(144, 183, 0, 0, 1, 1, [e.p5, e.d2]);
-    check(77,  240, 0, 0, 0, 0, [e.p2]);
-    check(77,  240, 1, 0, 0, 0, [e.p5, e.p2]);
-    check(77,  240, 0, 0, 1, 0, [e.span, e.p2]);
-    check(77,  240, 1, 0, 1, 0, [e.p5, e.span, e.p2]);
+    // Precise edge checks. Border widths snap to device pixels, so the
+    // declared 3px borders do not always occupy 3 CSS pixels. Use the actual
+    // edges, in integer appunits, without changing the hit-test node oracle.
+    let toAppUnits = value => Math.round(value * 60);
+    let d2Rect = e.d2.getBoundingClientRect();
+    let p2Rect = e.p2.getBoundingClientRect();
+    let p5Rect = e.p5.getBoundingClientRect();
+    let spanRect = e.span.getBoundingClientRect();
+    let edgeX = toAppUnits(d2Rect.right) / 60;
+    let edgeY = (toAppUnits(p5Rect.top) - 60) / 60;
+    ok(edgeX > p5Rect.left && edgeX < p5Rect.right,
+       "Right-edge probes overlap p5 horizontally");
+    ok(edgeY > d2Rect.top && edgeY + 1 < d2Rect.bottom,
+       "Right-edge probes stay inside d2 vertically");
+    check(edgeX, edgeY, 0, 0, 0, 0, []);
+    check(edgeX, edgeY, 0, 0, 1, 0, [e.p5]);
+    check(edgeX, edgeY, 0, 0, 0, 1, [e.d2]);
+    check(edgeX, edgeY, 0, 0, 1, 1, [e.p5, e.d2]);
+
+    let gapX = 77;
+    let gapY = toAppUnits(p5Rect.bottom) / 60;
+    let gapToSpan = (toAppUnits(spanRect.top) - toAppUnits(p5Rect.bottom)) / 60;
+    ok(gapX > Math.max(p2Rect.left, p5Rect.left, spanRect.left) &&
+       gapX < Math.min(p2Rect.right, p5Rect.right, spanRect.right),
+       "Gap probes share the horizontal interior of p2, p5 and span");
+    ok(gapToSpan > 0, "p5 ends before span begins");
+    ok(gapY - 1 > p5Rect.top && gapY + gapToSpan < p2Rect.bottom,
+       "Gap expansions enter p5 and span while remaining inside p2");
+    check(gapX, gapY, 0, 0, 0, 0, [e.p2]);
+    check(gapX, gapY, 1, 0, 0, 0, [e.p5, e.p2]);
+    check(gapX, gapY, 0, 0, gapToSpan, 0, [e.span, e.p2]);
+    check(gapX, gapY, 1, 0, gapToSpan, 0, [e.p5, e.span, e.p2]);
 
     // Expanding area checks:
     check(39, 212, 0,  0,  0,  0, []);
