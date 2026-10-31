@@ -6,8 +6,18 @@
 function* waitForSourceCount(dbg, i) {
   // We are forced to wait until the DOM nodes appear because the
   // source tree batches its rendering.
+  let lastCount = -1;
   yield waitUntil(() => {
-    return findAllElements(dbg, "sourceNodes").length === i;
+    let nodes = findAllElements(dbg, "sourceNodes");
+    if (nodes.length !== lastCount) {
+      info("Waiting for rendered source rows: " + JSON.stringify({
+        expected: i,
+        actual: nodes.length,
+        rows: Array.from(nodes, node => node.textContent)
+      }));
+      lastCount = nodes.length;
+    }
+    return nodes.length === i;
   });
 }
 
@@ -16,12 +26,17 @@ add_task(function* () {
   const { selectors: { getSelectedSource }, getState } = dbg;
 
   // Expand nodes and make sure more sources appear.
+  yield waitForSources(dbg, "simple1.js", "simple2.js", "long.js",
+                       "doc-sources.html", "nested-source.js");
+  yield waitForSourceCount(dbg, 2);
   is(findAllElements(dbg, "sourceNodes").length, 2);
 
   clickElement(dbg, "sourceArrow", 2);
+  yield waitForSourceCount(dbg, 7);
   is(findAllElements(dbg, "sourceNodes").length, 7);
 
   clickElement(dbg, "sourceArrow", 3);
+  yield waitForSourceCount(dbg, 8);
   is(findAllElements(dbg, "sourceNodes").length, 8);
 
   // Select a source.

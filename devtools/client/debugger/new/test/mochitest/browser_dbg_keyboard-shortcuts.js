@@ -42,5 +42,21 @@ add_task(function*() {
   assertPausedLocation(dbg, "debugger-statements.html", 14);
 
   yield pressStepOver(dbg);
-  assertPausedLocation(dbg, "debugger-statements.html", 9);
+  // The caller's call-cleanup bytecode is not a source entry point. Stop at
+  // its next executable statement, as in the newer Firefox keyboard fixture.
+  assertPausedLocation(dbg, "debugger-statements.html", 10);
+  is(dbg.selectors.getSelectedFrame(dbg.getState()).displayName, "(global)",
+     "Stepping out reaches the caller's global frame");
+  yield ContentTask.spawn(gBrowser.selectedBrowser, null, function* () {
+    Assert.ok(!content.wrappedJSObject.shortcutTestDone,
+              "The caller's next statement has not run at the step stop");
+  });
+
+  const resumed = waitForThreadEvents(dbg, "resumed");
+  pressKey(dbg, "resumeKey");
+  yield resumed;
+  yield ContentTask.spawn(gBrowser.selectedBrowser, null, function* () {
+    Assert.equal(content.wrappedJSObject.shortcutTestDone, true,
+                 "The caller's next statement runs after resuming");
+  });
 });

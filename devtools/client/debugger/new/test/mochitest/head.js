@@ -36,8 +36,21 @@ Services.scriptloader.loadSubScript("chrome://mochitests/content/browser/devtool
 var { Toolbox } = require("devtools/client/framework/toolbox");
 const EXAMPLE_URL = "http://example.com/browser/devtools/client/debugger/new/test/mochitest/examples/";
 
+// Source-count and source-tree fixtures own the complete script population.
+// Keep application-supplied compatibility userscripts out of those documents,
+// without hiding any real page scripts from the debugger itself.
+const INTERNAL_USERSCRIPTS_PREF = "browser.internal-userscripts.enabled";
+const hadInternalUserscriptsPref = Services.prefs.prefHasUserValue(INTERNAL_USERSCRIPTS_PREF);
+const oldInternalUserscriptsEnabled = Services.prefs.getBoolPref(INTERNAL_USERSCRIPTS_PREF, true);
+Services.prefs.setBoolPref(INTERNAL_USERSCRIPTS_PREF, false);
+
 Services.prefs.setBoolPref("devtools.debugger.new-debugger-frontend", true);
 registerCleanupFunction(() => {
+  if (hadInternalUserscriptsPref) {
+    Services.prefs.setBoolPref(INTERNAL_USERSCRIPTS_PREF, oldInternalUserscriptsEnabled);
+  } else {
+    Services.prefs.clearUserPref(INTERNAL_USERSCRIPTS_PREF);
+  }
   Services.prefs.clearUserPref("devtools.debugger.new-debugger-frontend");
   delete window.resumeTest;
 });
