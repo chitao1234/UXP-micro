@@ -1,3 +1,5 @@
+# f828451e5f removed marquee support and its fixtures; their orphaned load
+# entries are omitted here rather than treating missing documents as coverage.
 load 43040-1.html
 load 90613-1.html
 load 116848-1.html
@@ -41,7 +43,6 @@ load 369219-1.xhtml
 load 369413-1.html
 load 371124-1.html
 load 371124-2.html
-load 371466-1.xhtml
 load 372554-1.html
 load 375399-1.html
 load 377360-1.xhtml
@@ -91,7 +92,6 @@ load 504224.html
 load 509536-1.html
 load 522516-1.html
 load 529670.html
-load 535926-1.html
 load 543645.html
 load 551631-1.html
 load 552651.html
@@ -206,7 +206,6 @@ HTTP(..) load xhr_abortinprogress.html
 load xhr_empty_datauri.html
 load xhr_html_nullresponse.html
 load 1230422.html
-load 1251361.html
 load 1304437.html
 pref(clipboard.autocopy,true) load 1385272-1.html
 load 1393806.html

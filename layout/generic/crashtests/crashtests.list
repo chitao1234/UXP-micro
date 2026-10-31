@@ -1,3 +1,5 @@
+# f828451e5f removed marquee support and its fixtures; their orphaned load
+# entries are omitted here rather than treating missing documents as coverage.
 load 25888-1.html
 load 25888-2.html
 load 37757-1.html
@@ -8,7 +10,6 @@ load 255982-2.html
 load 255982-3.html
 load 255982-4.html
 load 264937-1.html
-load 265867-1.html
 load 265867-2.html
 skip-if(gtkWidget&&isDebugBuild) load 286491.html # Bug 1315855
 load 289864-1.html
@@ -48,8 +49,6 @@ load 343206-1.xhtml
 load 344557-1.html
 load 345139-1.xhtml
 load 345617-1.html
-load 348510-1.html
-load 348510-2.html
 load 348887-1.html
 load 348991-1.xhtml
 load 350370.html
@@ -60,8 +59,6 @@ load 359371-1.html
 load 359371-2.html
 load 360599.html
 load 363448.html
-load 363722-1.html
-load 363722-2.html
 load 363848-1.xhtml
 load 364220.html
 load 364407-1.html
@@ -90,7 +87,6 @@ load 370174-3.html
 load 370174-4.html
 load 370699-1.html
 load 370794-1.html
-load 370866-1.xhtml
 load 370884-1.xhtml
 load 371348-1.xhtml
 load 371561-1.html
@@ -106,7 +102,6 @@ load 376419.html
 load 377522.html
 load 379217-1.xhtml
 load 379217-2.xhtml
-load 379917-1.xhtml
 load 380012-1.html
 load 381152-1.html
 load 381786-1.html
@@ -177,7 +172,6 @@ load 398322-1.html
 load 398322-2.html
 load 398332-1.html
 load 398332-2.html
-asserts(0-2) load 398332-3.html # bug 436123 and bug 457397
 load 399407-1.xhtml
 load 399412-1.html
 load 399843-1.html
@@ -252,7 +246,6 @@ load 420000-1.html
 load 420718.html
 load 420785-1.xhtml
 load 421404-1.html
-load 421671.html
 load 422283-1.html
 load 422301-1.html
 load 423055-1.html
@@ -441,7 +434,6 @@ load 606642.xhtml
 load 613455-1.svg
 load 613629-1.xhtml
 load 616052-1.html
-load 619021.html
 load 621424-1.html
 load 621841-1.html
 load 622596.html
@@ -472,7 +464,6 @@ load 691210.html
 load 700031.xhtml
 load 718516.html
 load 723108.html
-load 724235.html
 load 724978.xhtml
 load 730559.html
 load 734777.html

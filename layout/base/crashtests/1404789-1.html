@@ -1,0 +1,34 @@
+<!doctype html>
+<html class="reftest-wait">
+<script>
+  // Restore bug 1404789's detached-host redistribution case using Shadow DOM
+  // slots. 00c570d27b removed the createShadowRoot/content-select fixture but
+  // left the hidden-iframe variant referring to it.
+  let host = document.createElement('div');
+  host.innerHTML = "<div id='foo' slot='foo'></div>";
+
+  let shadowRoot = host.attachShadow({mode: 'open'});
+  shadowRoot.innerHTML = "<slot name='foo'></slot>";
+  let slot = shadowRoot.firstElementChild;
+  let child = host.firstElementChild;
+  if (slot.assignedNodes().length !== 1 || child.assignedSlot !== slot) {
+    throw new Error('The detached host must initially distribute its child');
+  }
+
+  child.removeAttribute('slot');
+  if (slot.assignedNodes().length !== 0 || child.assignedSlot !== null) {
+    throw new Error('A detached host must update distribution after slot removal');
+  }
+
+  // Move to the document, then trigger redistribution in the opposite direction.
+  document.documentElement.appendChild(host);
+  child.setAttribute('slot', 'foo');
+  if (slot.assignedNodes().length !== 1 || slot.assignedNodes()[0] !== child ||
+      child.assignedSlot !== slot) {
+    throw new Error('The connected host must distribute the child again');
+  }
+
+  window.redistributionComplete = true;
+  document.documentElement.classList.remove('reftest-wait');
+</script>
+</html>

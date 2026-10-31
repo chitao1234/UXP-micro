@@ -5,10 +5,10 @@
 == min-height.html min-height-ref.html
 == overflow-areas-1.html overflow-areas-1-ref.html
 
+# d73c4c046d removed the child-2 fixtures for the obsolete inner-focus padding
+# model (3d954cb29c); child-1 tests retain percentage child-size coverage.
 == percent-height-child-1.html percent-height-child-1-ref.html
-pref(browser.display.focus_ring_width,1) == percent-height-child-2.html percent-height-child-2-ref.html
 == percent-width-child-1.html  percent-width-child-1-ref.html
-pref(browser.display.focus_ring_width,1) == percent-width-child-2.html  percent-width-child-2-ref.html
 
 == vertical-centering.html vertical-centering-ref.html
 
