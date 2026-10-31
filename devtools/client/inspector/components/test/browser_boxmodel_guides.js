@@ -42,15 +42,24 @@ add_task(function* () {
 });
 
 function* testGuideOnLayoutHover(elt, expectedRegion, inspector) {
+  // The highlighter mock can finish synchronously once the inspector is ready.
+  // Subscribe before dispatching the mouse event so later hovers cannot race it.
+  let onHighlighted = inspector.toolbox.once("node-highlight");
+
   info("Synthesizing mouseover on the boxmodel-view");
   EventUtils.synthesizeMouse(elt, 2, 2, {type: "mouseover"},
     elt.ownerDocument.defaultView);
 
   info("Waiting for the node-highlight event from the toolbox");
-  yield inspector.toolbox.once("node-highlight");
+  yield onHighlighted;
+
+  // Finish the event dispatch before hovering the next nested region.
+  yield new Promise(executeSoon);
 
   is(highlightedNodeFront, inspector.selection.nodeFront,
     "The right nodeFront was highlighted");
   is(highlighterOptions.region, expectedRegion,
     "Region " + expectedRegion + " was highlighted");
+  is(highlighterOptions.showOnly, expectedRegion,
+    "Only region " + expectedRegion + " was highlighted");
 }
