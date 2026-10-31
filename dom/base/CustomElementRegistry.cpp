@@ -7,12 +7,15 @@
 
 #include "mozilla/dom/CustomElementRegistryBinding.h"
 #include "mozilla/dom/HTMLElementBinding.h"
+#include "mozilla/dom/HTMLLinkElement.h"
+#include "mozilla/dom/ImportManager.h"
 #include "mozilla/dom/WebComponentsBinding.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Promise.h"
 #include "nsContentUtils.h"
 #include "nsHTMLTags.h"
 #include "nsInterfaceHashtable.h"
+#include "nsTArray.h"
 #include "jsapi.h"
 #include "ShadowRoot.h"
 
@@ -424,10 +427,13 @@ public:
   nsTArray<nsCOMPtr<Element>> OrderedCandidates();
 
 private:
+  bool TraverseDocument(nsIDocument* aDocument,
+                        nsTArray<nsCOMPtr<Element>>& aOrderedElements);
   bool Traverse(Element* aRoot, nsTArray<nsCOMPtr<Element>>& aOrderedElements);
 
   nsCOMPtr<nsIDocument> mDoc;
   nsInterfaceHashtable<nsPtrHashKey<Element>, Element> mCandidates;
+  AutoTArray<nsCOMPtr<nsIDocument>, 4> mVisitedDocuments;
 };
 
 CandidateFinder::CandidateFinder(nsTArray<nsWeakPtr>&& aCandidates,
@@ -460,13 +466,28 @@ CandidateFinder::OrderedCandidates()
   }
 
   nsTArray<nsCOMPtr<Element>> orderedElements(mCandidates.Count());
-  for (Element* child = mDoc->GetFirstElementChild(); child; child = child->GetNextElementSibling()) {
-    if (!Traverse(child->AsElement(), orderedElements)) {
-      break;
+  TraverseDocument(mDoc, orderedElements);
+  return orderedElements;
+}
+
+bool
+CandidateFinder::TraverseDocument(nsIDocument* aDocument,
+                                   nsTArray<nsCOMPtr<Element>>& aOrderedElements)
+{
+  // Follow current import links in tree order. Document identity prevents
+  // repeated references and cycles from visiting a document more than once.
+  if (mVisitedDocuments.Contains(aDocument)) {
+    return true;
+  }
+  mVisitedDocuments.AppendElement(aDocument);
+
+  for (Element* child = aDocument->GetFirstElementChild(); child;
+       child = child->GetNextElementSibling()) {
+    if (!Traverse(child, aOrderedElements)) {
+      return false;
     }
   }
-
-  return orderedElements;
+  return true;
 }
 
 bool
@@ -486,6 +507,27 @@ CandidateFinder::Traverse(Element* aRoot, nsTArray<nsCOMPtr<Element>>& aOrderedE
     for (Element* child = root->GetFirstElementChild(); child;
          child = child->GetNextElementSibling()) {
       if (!Traverse(child, aOrderedElements)) {
+        return false;
+      }
+    }
+  }
+
+  // Imports share the master's registry. Visit each imported document at
+  // its first link in the current tree, rather than a script-loading index.
+  if (aRoot->IsHTMLElement(nsGkAtoms::link)) {
+    auto* link = static_cast<HTMLLinkElement*>(aRoot);
+    nsAutoString rel;
+    link->GetAttr(kNameSpaceID_None, nsGkAtoms::rel, rel);
+    const bool isImport =
+      nsStyleLinkElement::ParseLinkTypes(rel, link->NodePrincipal()) &
+      nsStyleLinkElement::eHTMLIMPORT;
+    RefPtr<ImportLoader> loader = isImport ? link->GetImportLoader() : nullptr;
+    if (loader) {
+      // GetImport() hides a document until its load is complete. Definitions
+      // can run during an import's partial parse, so use GetDocument().
+      nsCOMPtr<nsIDocument> imported = loader->GetDocument();
+      if (imported && imported->MasterDocument() == mDoc &&
+          !TraverseDocument(imported, aOrderedElements)) {
         return false;
       }
     }

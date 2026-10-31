@@ -1,0 +1,190 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>V1 imported custom-element order and lifecycle</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+  <script>SimpleTest.waitForExplicitFinish();</script>
+</head>
+<body>
+<x-import-order id="master-before"></x-import-order>
+<link rel="import" id="outer" href="file_v1_upgrade_outer.html">
+<x-import-order id="master-after"></x-import-order>
+<link rel="import" id="duplicate" href="file_v1_upgrade_outer.html">
+<script>
+// Use the V1 constructor/define-after-parser-markup pattern from current WPT:
+// custom-elements/upgrading/upgrading-parser-created-element.html, revision
+// 309a5a01511293cd91f86d82c9c2f7130dd38ebc. HTML Imports is a retained fork
+// feature: import edges in the current DOM extend ordinary tree order.
+let outer = document.getElementById("outer").import;
+let nested = outer.getElementById("nested").import;
+is(document.getElementById("duplicate").import, outer,
+   "Duplicate links share the imported document");
+is(nested.getElementById("cycle").import, outer,
+   "The cyclic import refers to the same outer document");
+
+let constructed = [];
+let connected = [];
+class ImportedOrderElement extends HTMLElement {
+  constructor() {
+    super();
+    constructed.push(this.id);
+  }
+  connectedCallback() {
+    connected.push(this.id);
+  }
+}
+
+// Current WPT upgrading.html also checks that a document without a browsing
+// context is not automatically upgraded by another window's registry.
+let inertDocument = document.implementation.createHTMLDocument("");
+let inertElement = inertDocument.createElement("x-import-order");
+inertElement.id = "inert-control";
+inertDocument.body.appendChild(inertElement);
+customElements.define("x-import-order", ImportedOrderElement);
+const expectedOrder = ["master-before", "outer-first", "nested-first",
+                       "nested-last", "outer-last", "master-after"];
+is(JSON.stringify(constructed), JSON.stringify(expectedOrder),
+   "Upgrade once in current master/import link order, including nested imports");
+is(JSON.stringify(connected), JSON.stringify(expectedOrder),
+   "Connected callbacks use the same upgrade order");
+ok(!(inertElement instanceof ImportedOrderElement),
+   "An inert document stays outside the master's automatic upgrade traversal");
+
+for (let [doc, ids] of [[document, ["master-before", "master-after"]],
+                      [outer, ["outer-first", "outer-last"]],
+                      [nested, ["nested-first", "nested-last"]]]) {
+  for (let id of ids) {
+    let element = doc.getElementById(id);
+    ok(element instanceof ImportedOrderElement, id + " has the V1 prototype");
+    is(element.ownerDocument, doc, id + " retains its owner document");
+  }
+}
+
+// After loading, the script-order primary index can be stale. Candidate
+// ordering follows live links and must work after removing the original link.
+let originalLink = document.getElementById("outer");
+let duplicateLink = document.getElementById("duplicate");
+originalLink.remove();
+is(duplicateLink.import, outer, "Removing the original link retains the loaded duplicate");
+let dynamicOrder = [];
+function addDynamicCandidate(doc, name, id, before) {
+  let element = doc.createElement(name);
+  element.id = id;
+  doc.body.insertBefore(element, before || null);
+  return element;
+}
+let beforeRemoved = addDynamicCandidate(document, "x-import-primary-removed",
+                                       "master-before-removed", duplicateLink);
+let afterRemoved = addDynamicCandidate(document, "x-import-primary-removed",
+                                      "master-after-removed");
+addDynamicCandidate(outer, "x-import-primary-removed", "outer-removed");
+addDynamicCandidate(nested, "x-import-primary-removed", "nested-removed");
+class RemovedPrimaryElement extends HTMLElement {
+  constructor() {
+    super();
+    dynamicOrder.push(this.id);
+  }
+}
+customElements.define("x-import-primary-removed", RemovedPrimaryElement);
+is(dynamicOrder.join(","),
+   "master-before-removed,nested-removed,outer-removed,master-after-removed",
+   "Removing the original import link keeps the surviving duplicate usable");
+
+// Move the surviving loaded link ahead of all master candidates. Use a fresh
+// element name so definition performs a second independent discovery pass.
+document.body.insertBefore(duplicateLink, document.body.firstChild);
+is(duplicateLink.import, outer, "Reordering retains the same loaded import document");
+let reordered = [];
+addDynamicCandidate(document, "x-import-link-reordered", "master-reordered");
+addDynamicCandidate(outer, "x-import-link-reordered", "outer-reordered");
+addDynamicCandidate(nested, "x-import-link-reordered", "nested-reordered");
+class ReorderedImportElement extends HTMLElement {
+  constructor() {
+    super();
+    reordered.push(this.id);
+  }
+}
+customElements.define("x-import-link-reordered", ReorderedImportElement);
+is(reordered.join(","), "nested-reordered,outer-reordered,master-reordered",
+   "Reordered loaded import links determine current candidate tree order");
+
+// A loaded link can retain an internal loader after a nonempty rel change.
+// It is no longer an import edge; the remaining actual import determines order.
+originalLink.rel = "import";
+document.body.insertBefore(originalLink, document.body.firstChild);
+document.body.appendChild(duplicateLink);
+is(originalLink.import, outer, "Reinserted import uses the loaded document");
+originalLink.rel = "alternate";
+let relChangedOrder = [];
+addDynamicCandidate(document, "x-import-rel-changed", "master-before-rel", duplicateLink);
+addDynamicCandidate(document, "x-import-rel-changed", "master-after-rel");
+addDynamicCandidate(outer, "x-import-rel-changed", "outer-rel");
+addDynamicCandidate(nested, "x-import-rel-changed", "nested-rel");
+class RelChangedImportElement extends HTMLElement {
+  constructor() {
+    super();
+    relChangedOrder.push(this.id);
+  }
+}
+customElements.define("x-import-rel-changed", RelChangedImportElement);
+is(relChangedOrder.join(","), "master-before-rel,nested-rel,outer-rel,master-after-rel",
+   "A non-import rel does not contribute a stale import traversal edge");
+
+// A distinct tag gives this map exactly one candidate before removal. This
+// detects an incorrect unregister path even with the one-candidate fast path.
+let removed = outer.createElement("x-import-removed");
+let removedConstructors = 0;
+let lifecycle = [];
+let adoptions = [];
+outer.body.appendChild(removed);
+outer.body.removeChild(removed);
+class RemovedImportedElement extends HTMLElement {
+  constructor() {
+    super();
+    removedConstructors++;
+  }
+  connectedCallback() { lifecycle.push("connected"); }
+  disconnectedCallback() { lifecycle.push("disconnected"); }
+  adoptedCallback(oldDocument, newDocument) {
+    lifecycle.push("adopted");
+    adoptions.push([oldDocument, newDocument]);
+  }
+}
+customElements.define("x-import-removed", RemovedImportedElement);
+is(removedConstructors, 0, "A disconnected import candidate was unregistered");
+ok(!(removed instanceof RemovedImportedElement),
+   "Definition does not upgrade the removed candidate");
+outer.body.appendChild(removed);
+is(removedConstructors, 1, "Reinsertion automatically upgrades the import element");
+ok(removed instanceof RemovedImportedElement, "Reinserted element gets its V1 prototype");
+is(lifecycle.join(","), "connected", "Reinserted element receives connectedCallback");
+
+document.body.appendChild(removed);
+is(removedConstructors, 1, "Moving an upgraded element does not reconstruct it");
+is(removed.ownerDocument, document, "Adoption into the master updates ownerDocument");
+is(lifecycle.join(","), "connected,disconnected,adopted,connected",
+   "Moving from an import preserves disconnected/adopted/connected callback order");
+is(adoptions.length, 1, "One adoption callback ran");
+is(adoptions[0][0], outer, "Adopted callback receives the imported old document");
+is(adoptions[0][1], document, "Adopted callback receives the master new document");
+
+outer.body.appendChild(removed);
+is(removedConstructors, 1, "Moving back to an import does not reconstruct it");
+is(removed.ownerDocument, outer, "Adoption back retains the imported document");
+is(lifecycle.join(","), "connected,disconnected,adopted,connected,disconnected,adopted,connected",
+   "Moving back to an import preserves callback order");
+is(adoptions.length, 2, "The reverse move adds one adoption callback");
+is(adoptions[1][0], document, "Reverse adoption receives the master old document");
+is(adoptions[1][1], outer, "Reverse adoption receives the imported new document");
+
+document.body.appendChild(inertElement);
+ok(inertElement instanceof ImportedOrderElement,
+   "Adopting an inert element into the master automatically upgrades it");
+is(constructed.filter(id => id === "inert-control").length, 1,
+   "The inert element constructs only on insertion into the master");
+SimpleTest.finish();
+</script>
+</body>
+</html>

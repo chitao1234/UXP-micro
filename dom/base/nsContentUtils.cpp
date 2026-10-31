@@ -10041,7 +10041,8 @@ nsContentUtils::RegisterUnresolvedElement(Element* aElement, nsIAtom* aTypeName)
 {
   MOZ_ASSERT(aElement);
 
-  nsIDocument* doc = aElement->OwnerDoc();
+  // Imported documents use the master's registry, as definition lookup does.
+  nsCOMPtr<nsIDocument> doc = aElement->OwnerDoc()->MasterDocument();
   nsPIDOMWindowInner* window(doc->GetInnerWindow());
   if (!window) {
     return;
@@ -10062,7 +10063,8 @@ nsContentUtils::UnregisterUnresolvedElement(Element* aElement)
 
   RefPtr<nsIAtom> typeAtom =
     aElement->GetCustomElementData()->GetCustomElementType();
-  nsIDocument* doc = aElement->OwnerDoc();
+  // Imported documents use the master's registry, as definition lookup does.
+  nsCOMPtr<nsIDocument> doc = aElement->OwnerDoc()->MasterDocument();
   nsPIDOMWindowInner* window(doc->GetInnerWindow());
   if (!window) {
     return;

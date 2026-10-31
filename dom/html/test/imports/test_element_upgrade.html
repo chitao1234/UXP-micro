@@ -15,7 +15,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1081107
     SimpleTest.waitForExplicitFinish();
     var counter = 0;
     var fcounter = 0;
-    var createdCallbackCalled = false;
+    var constructorCalls = 0;
+    var upgradedImportedElement = null;
     function loaded() {
       counter++;
     }
@@ -27,7 +28,15 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1081107
   <script type="text/javascript">
     is(counter, 1, "Imports are loaded");
     is(fcounter, 0, "No error in imports");
-    ok(createdCallbackCalled, "custom element in import has been upgraded");
+    is(constructorCalls, 1, "custom element in import has been upgraded once");
+    var importedDocument = document.querySelector('link[rel="import"]').import;
+    var importedElement = importedDocument.querySelector('x-foo');
+    is(upgradedImportedElement, importedElement,
+       "upgrade constructs the parser-created imported element");
+    ok(importedElement instanceof customElements.get('x-foo'),
+       "imported element has the registered V1 prototype");
+    is(importedElement.ownerDocument, importedDocument,
+       "upgrade retains the imported owner document");
     SimpleTest.finish();
   </script>
 </body>

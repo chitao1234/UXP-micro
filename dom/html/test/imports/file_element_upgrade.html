@@ -5,11 +5,17 @@
 <body>
   <x-foo></x-foo>
   <script>
-    var prototype = Object.create(HTMLElement.prototype);
-    prototype.createdCallback = function() {
-      createdCallbackCalled = true;
+    // Use the V1 upgrade idiom from current WPT:
+    // custom-elements/upgrading/upgrading-parser-created-element.html.
+    // Keep definition after the existing element to exercise automatic upgrade.
+    class ImportedElement extends HTMLElement {
+      constructor() {
+        super();
+        constructorCalls++;
+        upgradedImportedElement = this;
+      }
     }
-    document.registerElement('x-foo', {prototype: prototype});
+    customElements.define('x-foo', ImportedElement);
   </script>
 </body>
 </html>
