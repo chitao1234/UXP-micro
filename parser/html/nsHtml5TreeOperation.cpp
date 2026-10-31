@@ -689,18 +689,24 @@ nsHtml5TreeOperation::CreateMathMLElement(nsIAtom* aName,
 }
 
 void
-nsHtml5TreeOperation::SetFormElement(nsIContent* aNode, nsIContent* aParent)
+nsHtml5TreeOperation::SetFormElement(nsIContent* aNode, nsIContent* aForm,
+                                     nsIContent* aIntendedParent)
 {
+  MOZ_ASSERT(aIntendedParent);
+  // The new control is not inserted yet. Compare the form with its intended
+  // parent, as required by the parser's form-association exception, rather
+  // than comparing the detached control's root with the form's root.
   // sFormSubtreeStrict is a pref to temporarily disable this check. See UXP #3197
   bool sFormSubtreeStrict = mozilla::Preferences::GetBool("html5.forms.standards_compliant", true);
-  if (sFormSubtreeStrict && aNode->SubtreeRoot() != aParent->SubtreeRoot()) {
+  if (sFormSubtreeStrict &&
+      aForm->SubtreeRoot() != aIntendedParent->SubtreeRoot()) {
     return;
   }
   nsCOMPtr<nsIFormControl> formControl(do_QueryInterface(aNode));
   nsCOMPtr<nsIDOMHTMLImageElement> domImageElement = do_QueryInterface(aNode);
   // NS_ASSERTION(formControl, "Form-associated element did not implement nsIFormControl.");
   // TODO: uncomment the above line when <keygen> (bug 101019) is supported by Gecko
-  nsCOMPtr<nsIDOMHTMLFormElement> formElement(do_QueryInterface(aParent));
+  nsCOMPtr<nsIDOMHTMLFormElement> formElement(do_QueryInterface(aForm));
   NS_ASSERTION(formElement, "The form element doesn't implement nsIDOMHTMLFormElement.");
   // avoid crashing on <keygen>
   if (formControl &&
@@ -987,8 +993,9 @@ nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
     case eTreeOpSetFormElement: {
       nsIContent* node = *(mOne.node);
-      nsIContent* parent = *(mTwo.node);
-      SetFormElement(node, parent);
+      nsIContent* form = *(mTwo.node);
+      nsIContent* intendedParent = *(mThree.node);
+      SetFormElement(node, form, intendedParent);
       return NS_OK;
     }
     case eTreeOpAppendText: {

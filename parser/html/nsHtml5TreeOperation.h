@@ -172,7 +172,8 @@ class nsHtml5TreeOperation {
                                            nsNodeInfoManager* aNodeInfoManager,
                                            nsHtml5DocumentBuilder* aBuilder);
 
-    static void SetFormElement(nsIContent* aNode, nsIContent* aParent);
+    static void SetFormElement(nsIContent* aNode, nsIContent* aForm,
+                               nsIContent* aIntendedParent);
 
     static nsresult AppendIsindexPrompt(nsIContent* parent,
                                         nsHtml5DocumentBuilder* aBuilder);

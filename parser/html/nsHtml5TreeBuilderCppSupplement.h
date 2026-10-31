@@ -447,11 +447,13 @@ nsHtml5TreeBuilder::createElement(int32_t aNamespace,
   if (aFormElement) {
     if (mBuilder) {
       nsHtml5TreeOperation::SetFormElement(static_cast<nsIContent*>(content),
-        static_cast<nsIContent*>(aFormElement));
+        static_cast<nsIContent*>(aFormElement),
+        static_cast<nsIContent*>(aIntendedParent));
     } else {
       nsHtml5TreeOperation* treeOp = mOpQueue.AppendElement();
       NS_ASSERTION(treeOp, "Tree op allocation failed.");
-      treeOp->Init(eTreeOpSetFormElement, content, aFormElement);
+      treeOp->Init(eTreeOpSetFormElement, content, aFormElement,
+                   aIntendedParent);
     }
   }
   return content;
