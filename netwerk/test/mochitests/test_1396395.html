@@ -6,7 +6,7 @@
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
 </head>
 <body>
-  <iframe id="f" src="http://example.com"></iframe>
+  <iframe id="f" src="about:blank"></iframe>
   <script type="text/javascript">
 SimpleTest.waitForExplicitFinish();
 
@@ -26,7 +26,7 @@ var script = SpecialPowers.loadChromeScript(() => {
     Promise.resolve().then(() => {
       channel.resume();
     });
-  }, 'http-on-examine-response');
+  }, 'http-on-examine-response', false);
 
   sendAsyncMessage('start-test');
 });
@@ -35,7 +35,8 @@ script.addMessageListener('start-test', () => {
   const iframe = document.getElementById('f');
 
   iframe.contentWindow.onunload = function () {
-    xhr = new XMLHttpRequest();
+    info('initiate sync XHR during the page loading');
+    let xhr = new XMLHttpRequest();
     xhr.open('GET', window.location, false);
     xhr.send(null);
     ok(true, 'complete without crash');
