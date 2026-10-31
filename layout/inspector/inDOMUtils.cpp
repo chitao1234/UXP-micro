@@ -587,8 +587,28 @@ static void GetKeywordsForProperty(const nsCSSPropertyID aProperty,
   const nsCSSProps::KTableEntry* keywordTable =
     nsCSSProps::kKeywordTableTable[aProperty];
   if (keywordTable) {
-    for (size_t i = 0; keywordTable[i].mKeyword != eCSSKeyword_UNKNOWN; ++i) {
+    for (size_t i = 0; ; ++i) {
       nsCSSKeyword word = keywordTable[i].mKeyword;
+      if (word == eCSSKeyword_UNKNOWN) {
+        // Prefs can disable entries in the middle of a table.  Only the
+        // UNKNOWN/-1 pair terminates it, as in nsCSSProps::FindIndexOfKeyword.
+        if (keywordTable[i].mValue == -1) {
+          break;
+        }
+        continue;
+      }
+      // ParseImageLayerPositionCoordItem uses the shared position table but
+      // rejects keywords from the other axis.
+      if ((aProperty == eCSSProperty_background_position_x ||
+           aProperty == eCSSProperty_mask_position_x) &&
+          (word == eCSSKeyword_top || word == eCSSKeyword_bottom)) {
+        continue;
+      }
+      if ((aProperty == eCSSProperty_background_position_y ||
+           aProperty == eCSSProperty_mask_position_y) &&
+          (word == eCSSKeyword_left || word == eCSSKeyword_right)) {
+        continue;
+      }
       InsertNoDuplicates(aArray,
                          NS_ConvertASCIItoUTF16(nsCSSKeywords::GetStringValue(word)));
     }
@@ -952,8 +972,12 @@ inDOMUtils::GetCSSValuesForProperty(const nsAString& aProperty,
     }
     GetOtherValuesForProperty(propertyParserVariant, array);
   } else {
-    // Property is shorthand.
-    CSSPROPS_FOR_SHORTHAND_SUBPROPERTIES(subproperty, propertyID,
+    // Property is shorthand.  Like PropertySupportsVariant, do not confuse
+    // border's reset-only longhands with values accepted by its parser.
+    // ParseBorderSide parses the same width/style/color triple as border-top.
+    nsCSSPropertyID valuesProperty = propertyID == eCSSProperty_border
+                                      ? eCSSProperty_border_top : propertyID;
+    CSSPROPS_FOR_SHORTHAND_SUBPROPERTIES(subproperty, valuesProperty,
                                          CSSEnabledState::eForAllContent) {
       // Get colors (once) first.
       uint32_t propertyParserVariant = nsCSSProps::ParserVariant(*subproperty);
@@ -962,7 +986,7 @@ inDOMUtils::GetCSSValuesForProperty(const nsAString& aProperty,
         break;
       }
     }
-    CSSPROPS_FOR_SHORTHAND_SUBPROPERTIES(subproperty, propertyID,
+    CSSPROPS_FOR_SHORTHAND_SUBPROPERTIES(subproperty, valuesProperty,
                                          CSSEnabledState::eForAllContent) {
       uint32_t propertyParserVariant = nsCSSProps::ParserVariant(*subproperty);
       if (propertyParserVariant & VARIANT_KEYWORD) {

@@ -1,260 +1,216 @@
 <!DOCTYPE HTML>
 <html>
-<!--
-https://bugzilla.mozilla.org/show_bug.cgi?id=877690
--->
+<!-- https://bugzilla.mozilla.org/show_bug.cgi?id=877690 -->
 <head>
 <meta charset="utf-8">
-<title>Test for Bug 877690</title>
-<script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
-<link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
-<script type="application/javascript">
+<title>Test for Inspector keyword completions</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css"/>
+<script>
 
-/** Test for Bug 877690 **/
-
-// Returns true if array contains item. False otherwise. Raises an exception if
-// array is not an Array object. If the item is found in array, remove item.
-function contains(array, item) {
-  if (!array.indexOf) {
-    throw new "First argument is not an array";
-  }
-  var index = array.indexOf(item);
-  if (index == -1) {
+// Strict comparison borrowed from Firefox 78's test_bug877690.html.  Missing,
+// extra, and duplicate values must all fail; the old forEach helper ignored
+// missing values by returning only from its callback.
+function testValues(values, expected) {
+  values = values.slice().sort();
+  expected = expected.slice().sort();
+  if (values.length !== expected.length) {
+    info("Expected values: " + JSON.stringify(expected));
+    info("Actual values: " + JSON.stringify(values));
     return false;
   }
-  array.splice(index, 1);
+  for (let i = 0; i < values.length; ++i) {
+    if (values[i] !== expected[i]) {
+      info("Expected values: " + JSON.stringify(expected));
+      info("Actual values: " + JSON.stringify(values));
+      return false;
+    }
+  }
   return true;
 }
 
-// Returns true if values contains all and only the expected values. False otherwise.
-function testValues(values, expected) {
-  expected.forEach(function (expectedValue) {
-      if (!contains(values, expectedValue)) {
-        return false;
-      }
-  });
-  return values.length === 0;
+// Use an independent literal oracle, following current Firefox's factored
+// CSS-wide keyword cases.  This tree has no getCSSWideKeywords API.
+const CSS_WIDE_KEYWORDS = [
+  "initial", "inherit", "unset", "revert", "revert-layer"
+];
+const utils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"]
+  .getService(SpecialPowers.Ci.inIDOMUtils);
+
+function getValues(prop) {
+  return Array.from(utils.getCSSValuesForProperty(prop));
 }
 
-function do_test() {
-  var utils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"]
-    .getService(SpecialPowers.Ci.inIDOMUtils);
+function checkValues(prop, expected) {
+  ok(testValues(getValues(prop), expected), prop + " has all and only its completions");
+}
 
-  var getCSSValuesForProperty = function(prop) {
-    return Array.from(utils.getCSSValuesForProperty(prop));
+function runTests() {
+  // Keep the named-color oracle from the ESR52 test: this API returns actual
+  // color names, whereas newer InspectorUtils returns a COLOR placeholder.
+  const allColors = [
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "currentColor", "cyan",
+    "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
+    "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon",
+    "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise",
+    "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick",
+    "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod",
+    "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred", "indigo",
+    "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
+    "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
+    "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray",
+    "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen",
+    "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple",
+    "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise",
+    "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite",
+    "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
+    "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink",
+    "plum", "powderblue", "purple", "rebeccapurple", "red", "rosybrown", "royalblue",
+    "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver",
+    "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen", "steelblue",
+    "tan", "teal", "thistle", "tomato", "transparent", "turquoise", "violet", "wheat",
+    "white", "whitesmoke", "yellow", "yellowgreen", "rgb", "hsl", "rgba", "hsla"
+  ];
+  // The local completion API reports these eight gradient functions.  The
+  // newer Firefox test also lists functions absent from this API.
+  const allGradients = [
+    "linear-gradient", "radial-gradient", "repeating-linear-gradient",
+    "repeating-radial-gradient", "-moz-linear-gradient", "-moz-radial-gradient",
+    "-moz-repeating-linear-gradient", "-moz-repeating-radial-gradient"
+  ];
+  const imageFunctions = ["-moz-element", "-moz-image-rect", "url", ...allGradients];
+  const borderValues = [
+    "thin", "medium", "thick", "none", "hidden", "dotted", "dashed", "solid",
+    "double", "groove", "ridge", "inset", "outset", ...allColors
+  ];
+
+  checkValues("color", [...CSS_WIDE_KEYWORDS, ...allColors]);
+  // Background and border-image expectations are adapted from Firefox 78.
+  checkValues("background", [
+    ...CSS_WIDE_KEYWORDS, ...allColors, "auto", "no-repeat", "repeat", "repeat-x",
+    "repeat-y", "space", "round", "fixed", "scroll", "local", "center", "top",
+    "bottom", "left", "right", "border-box", "padding-box", "content-box", "text",
+    "contain", "cover", "none", ...imageFunctions
+  ]);
+  // Firefox 78's border oracle excludes border-image values: the shorthand
+  // resets those longhands but accepts only border width, style, and color.
+  // Keep the calc function names accepted and exposed by this Gecko API.
+  checkValues("border", [
+    ...CSS_WIDE_KEYWORDS, ...borderValues, "calc", "-moz-calc"
+  ]);
+  const borderCompletions = getValues("border");
+  for (let [keyword, declaration] of [
+    ["auto", "auto"], ["fill", "fill"], ["repeat", "repeat"],
+    ["round", "round"], ["stretch", "stretch"], ["space", "space"],
+    ["url", 'url("x")'], ["linear-gradient", "linear-gradient(red, blue)"],
+    ["-moz-element", "-moz-element(#x)"]
+  ]) {
+    ok(!CSS.supports("border", declaration), "border rejects reset-only input " + declaration);
+    ok(!borderCompletions.includes(keyword), "border does not complete reset-only keyword " + keyword);
   }
+  for (let declaration of [
+    "1px solid red", "calc(1px + 1px) solid red", "-moz-calc(1px + 1px) solid red"
+  ]) {
+    ok(CSS.supports("border", declaration), "border accepts " + declaration);
+  }
+  checkValues("border-top", [
+    ...CSS_WIDE_KEYWORDS, ...borderValues, "calc", "-moz-calc"
+  ]);
+  checkValues("padding-bottom", [...CSS_WIDE_KEYWORDS, "calc", "-moz-calc"]);
 
-  // test a property with keywords and colors
-  var prop = "color";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
-      "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood",
-      "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "currentColor",
-      "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey",
-      "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred",
-      "darksalmon", "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey",
-      "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue",
-      "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold",
-      "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred",
-      "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
-      "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
-      "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey",
-      "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
-      "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen",
-      "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite",
-      "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen",
-      "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue",
-      "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen",
-      "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen",
-      "steelblue", "tan", "teal", "thistle", "tomato", "transparent", "turquoise", "violet", "wheat",
-      "white", "whitesmoke", "yellow", "yellowgreen", "rgb", "hsl", "rgba", "hsla" ];
-  ok(testValues(values, expected), "property color's values.");
+  const displayValues = [
+    "none", "inline", "block", "inline-block", "list-item", "table", "inline-table",
+    "table-row-group", "table-header-group", "table-footer-group", "table-row",
+    "table-column-group", "table-column", "table-cell", "table-caption", "-moz-box",
+    "-moz-inline-box", "-moz-grid", "-moz-inline-grid", "-moz-grid-group", "-moz-grid-line",
+    "-moz-stack", "-moz-inline-stack", "-moz-deck", "-moz-popup", "-moz-groupbox", "flex",
+    "inline-flex", "-webkit-box", "-webkit-inline-box", "-webkit-flex", "-webkit-inline-flex",
+    "grid", "inline-grid", "ruby", "ruby-base", "ruby-base-container", "ruby-text",
+    "ruby-text-container", "contents", "flow-root"
+  ];
+  checkValues("display", [...CSS_WIDE_KEYWORDS, ...displayValues]);
+  checkValues("float", [...CSS_WIDE_KEYWORDS, "none", "left", "right", "inline-start", "inline-end"]);
+  checkValues("margin", [...CSS_WIDE_KEYWORDS, "auto", "calc", "-moz-calc"]);
+  checkValues("font-style", [...CSS_WIDE_KEYWORDS, "italic", "normal", "oblique"]);
+  checkValues("-moz-transition", [
+    ...CSS_WIDE_KEYWORDS, "all", "cubic-bezier", "ease", "ease-in", "ease-in-out",
+    "ease-out", "linear", "none", "step-end", "step-start", "steps"
+  ]);
 
-  // test a shorthand property
-  var prop = "background";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
-      "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue",
-      "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "currentColor", "cyan", "darkblue",
-      "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta",
-      "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue",
-      "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray",
-      "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite",
-      "gold", "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred",
-      "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
-      "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink",
-      "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue",
-      "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue",
-      "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen",
-      "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin",
-      "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
-      "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum",
-      "powderblue", "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown",
-      "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey",
-      "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "transparent", "turquoise",
-      "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen", "no-repeat", "repeat",
-      "repeat-x", "repeat-y", "space", "round", "fixed", "scroll", "local", "center", "top", "bottom", "left", "right",
-      "border-box", "padding-box", "content-box", "border-box", "padding-box", "content-box", "text", "contain",
-      "cover", "rgb", "hsl", "rgba", "hsla", "none", "-moz-element", "-moz-image-rect", "url", "linear-gradient",
-      "radial-gradient", "repeating-linear-gradient", "repeating-radial-gradient", "-moz-linear-gradient",
-      "-moz-radial-gradient", "-moz-repeating-linear-gradient", "-moz-repeating-radial-gradient" ];
-  ok(testValues(values, expected), "Shorthand property values.");
-
-  var prop = "border";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "-moz-calc", "initial", "unset", "aliceblue",
-      "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet",
-      "brown", "burlywood", "cadetblue", "calc", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk",
-      "crimson", "currentColor", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
-      "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
-      "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "dashed", "deeppink",
-      "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "dotted", "double", "fill", "firebrick", "floralwhite",
-      "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow",
-      "groove", "hidden", "honeydew", "hotpink", "hsl", "hsla", "indianred", "indigo", "inherit", "inset", "ivory",
-      "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan",
-      "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen",
-      "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen",
-      "linen", "logical", "magenta", "maroon", "medium", "mediumaquamarine", "mediumblue", "mediumorchid",
-      "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise",
-      "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "none",
-      "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "outset", "palegoldenrod", "palegreen",
-      "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "physical", "pink", "plum", "powderblue",
-      "purple", "rebeccapurple", "red", "repeat", "rgb", "rgba", "ridge", "rosybrown", "round", "royalblue", "saddlebrown",
-      "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey",
-      "snow", "solid", "space", "springgreen", "steelblue", "stretch", "tan", "teal", "thick", "thin", "thistle", "tomato",
-      "transparent", "turquoise", "-moz-element", "-moz-image-rect", "url", "violet", "wheat", "white", "whitesmoke",
-      "yellow", "yellowgreen", "linear-gradient", "radial-gradient", "repeating-linear-gradient",
-      "repeating-radial-gradient", "-moz-linear-gradient", "-moz-radial-gradient", "-moz-repeating-linear-gradient",
-      "-moz-repeating-radial-gradient" ]
-  ok(testValues(values, expected), "Shorthand property values.");
-
-  // test keywords only
-  var prop = "border-top";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "thin", "medium", "thick", "none", "hidden", "dotted",
-      "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
-      "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
-      "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
-      "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "currentColor", "cyan", "darkblue", "darkcyan",
-      "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen",
-      "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue", "darkslategray",
-      "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey",
-      "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite",
-      "gold", "goldenrod", "gray", "grey", "green", "greenyellow", "honeydew", "hotpink", "indianred",
-      "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
-      "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
-      "lightpink", "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey",
-      "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
-      "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen",
-      "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite",
-      "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen",
-      "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue",
-      "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen",
-      "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen",
-      "steelblue", "tan", "teal", "thistle", "tomato", "transparent", "turquoise", "violet", "wheat", "white",
-      "whitesmoke", "yellow", "yellowgreen", "calc", "-moz-calc", "rgb", "hsl", "rgba", "hsla" ];
-  ok(testValues(values, expected), "property border-top's values.");
-
-  // tests no keywords or colors
-  var prop = "padding-bottom";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "calc", "-moz-calc" ];
-  ok(testValues(values, expected), "property padding-bottom's values.");
-
-  // test proprety
-  var prop = "display";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "none", "inline", "block", "inline-block", "list-item",
-      "table", "inline-table", "table-row-group", "table-header-group", "table-footer-group", "table-row",
-      "table-column-group", "table-column", "table-cell", "table-caption", "-moz-box", "-moz-inline-box",
-      "-moz-grid", "-moz-inline-grid", "-moz-grid-group", "-moz-grid-line", "-moz-stack", "-moz-inline-stack",
-      "-moz-deck", "-moz-popup", "-moz-groupbox",
-      "flex", "inline-flex", "-webkit-box", "-webkit-inline-box",
-      "-webkit-flex", "-webkit-inline-flex",
-      "grid", "inline-grid",
-      "ruby", "ruby-base", "ruby-base-container", "ruby-text", "ruby-text-container",
-      "contents" ];
-  ok(testValues(values, expected), "property display's values.");
-
-  // test property
-  var prop = "float";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "none", "left", "right", "inline-start", "inline-end" ];
-  ok(testValues(values, expected), "property float's values.");
-
-  // Test property with "auto"
-  var prop = "margin";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "-moz-calc", "initial", "unset", "auto", "calc", "inherit" ];
-  ok(testValues(values, expected), "property margin's values.");
-
-  // Test property with "normal"
-  var prop = "font-style";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "inherit", "unset", "italic", "normal", "oblique" ];
-  ok(testValues(values, expected), "property font-style's values.");
-
-  // Test property with "cubic-bezier" and "step".
-  var prop = "-moz-transition";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "initial", "all", "unset", "cubic-bezier", "ease", "ease-in", "ease-in-out",
-                   "ease-out", "inherit", "linear", "none", "step-end", "step-start",
-                   "steps" ];
-  ok(testValues(values, expected), "property -moz-transition's values.");
-
-  // test invalid property
-  var prop = "invalidProperty";
+  let threw = false;
   try {
-    getCSSValuesForProperty(prop);
-    ok(false, "invalid property should throw an exception");
+    getValues("invalidProperty");
+  } catch (e) {
+    threw = true;
   }
-  catch(e) {
-    // test passed
+  ok(threw, "an invalid property throws");
+
+  checkValues("border-image", [
+    ...CSS_WIDE_KEYWORDS, "auto", "repeat", "stretch", "fill", "none", "round",
+    "space", ...imageFunctions
+  ]);
+
+  // Function-parsed properties still have enumerable keyword tables.  The
+  // background-size case comes from Firefox 78; expand its direct-longhand
+  // coverage to the other tables used by the shorthand cases above.
+  const positionValues = ["left", "right", "top", "bottom", "center"];
+  const cases = [
+    ["background-position", positionValues],
+    ["background-position-x", ["left", "right", "center"]],
+    ["background-position-y", ["top", "bottom", "center"]],
+    ["background-size", ["auto", "contain", "cover"]],
+    ["mask-position", positionValues],
+    ["mask-position-x", ["left", "right", "center"]],
+    ["mask-position-y", ["top", "bottom", "center"]],
+    ["mask-size", ["auto", "contain", "cover"]],
+    ["border-image-repeat", ["stretch", "repeat", "round", "space"]],
+    ["border-image-slice", ["fill"]],
+    ["border-image-width", ["auto"]]
+  ];
+  for (let [prop, keywords] of cases) {
+    checkValues(prop, [...CSS_WIDE_KEYWORDS, ...keywords]);
+    for (let value of [...CSS_WIDE_KEYWORDS, ...keywords]) {
+      // 'fill' is a component of the slice grammar, not a whole slice value.
+      let declaration = prop === "border-image-slice" && value === "fill"
+                        ? "1 fill" : value;
+      ok(CSS.supports(prop, declaration), prop + ": " + declaration + " is accepted by the parser");
+    }
+  }
+  for (let [prop, value] of [
+    ["background-position", "contain"], ["background-position-x", "top"],
+    ["background-position-y", "left"], ["background-size", "fill"],
+    ["mask-position-x", "top"], ["mask-position-y", "left"], ["mask-size", "fill"],
+    ["border-image-repeat", "fill"], ["border-image-slice", "fill"],
+    ["border-image-width", "cover"]
+  ]) {
+    ok(!CSS.supports(prop, value), prop + ": " + value + " is rejected by the parser");
   }
 
-  // test border-image propery, for bug 973345
-  var prop = "border-image";
-  var values = getCSSValuesForProperty(prop);
-  var expected = [ "-moz-calc", "initial", "unset", "aliceblue",
-      "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet",
-      "brown", "burlywood", "cadetblue", "calc", "chartreuse", "chocolate", "coral", "cornflowerblue", "cornsilk",
-      "crimson", "currentColor", "cyan", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
-      "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
-      "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "dashed", "deeppink",
-      "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "dotted", "double", "fill", "firebrick", "floralwhite",
-      "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow",
-      "groove", "hidden", "honeydew", "hotpink", "hsl", "hsla", "indianred", "indigo", "inherit", "inset", "ivory",
-      "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan",
-      "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen",
-      "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen",
-      "linen", "logical", "magenta", "maroon", "medium", "mediumaquamarine", "mediumblue", "mediumorchid",
-      "mediumpurple", "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise",
-      "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "none",
-      "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "outset", "palegoldenrod", "palegreen",
-      "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "physical", "pink", "plum", "powderblue",
-      "purple", "rebeccapurple", "red", "repeat", "rgb", "rgba", "ridge", "rosybrown", "round", "royalblue", "saddlebrown",
-      "salmon", "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey",
-      "snow", "solid", "springgreen", "steelblue", "stretch", "tan", "teal", "thick", "thin", "thistle", "tomato",
-      "transparent", "turquoise", "-moz-element", "-moz-image-rect", "url", "violet", "wheat", "white", "whitesmoke",
-      "yellow", "yellowgreen", "linear-gradient", "radial-gradient", "repeating-linear-gradient",
-      "repeating-radial-gradient", "-moz-linear-gradient", "-moz-radial-gradient", "-moz-repeating-linear-gradient",
-      "-moz-repeating-radial-gradient" ]
-  ok(testValues(values, expected), "property border-image's values.");
-
-  SimpleTest.finish();
+  // A disabled entry is a hole, not the end of a keyword table.  In the display
+  // table the enabled contents/flow-root entries follow the WebKit entries.
+  SpecialPowers.pushPrefEnv({set: [["layout.css.prefixes.webkit", false]]}, function() {
+    const noWebkit = displayValues.filter(value => !value.startsWith("-webkit-"));
+    checkValues("display", [...CSS_WIDE_KEYWORDS, ...noWebkit]);
+    ok(!CSS.supports("display", "-webkit-box"), "disabled WebKit value is rejected");
+    ok(CSS.supports("display", "contents"), "contents remains enabled after a table hole");
+    SpecialPowers.pushPrefEnv({set: [["layout.css.display-contents.enabled", false]]}, function() {
+      checkValues("display", [
+        ...CSS_WIDE_KEYWORDS, ...noWebkit.filter(value => value !== "contents")
+      ]);
+      ok(!CSS.supports("display", "contents"), "disabled contents value is rejected");
+      ok(CSS.supports("display", "flow-root"), "flow-root remains enabled after a table hole");
+      SimpleTest.finish();
+    });
+  });
 }
 
 SimpleTest.waitForExplicitFinish();
-addLoadEvent(do_test);
-
+addLoadEvent(runTests);
 </script>
 </head>
 <body>
 <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=877690">Mozilla Bug 877690</a>
-<p id="display"></p>
-<div id="content" style="display: none">
-</div>
-<pre id="test">
-</pre>
 </body>
 </html>

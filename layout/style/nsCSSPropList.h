@@ -595,7 +595,7 @@ CSS_PROP_BACKGROUND(
         CSS_PROPERTY_VALUE_LIST_USES_COMMAS |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerPositionKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -609,7 +609,7 @@ CSS_PROP_BACKGROUND(
         CSS_PROPERTY_VALUE_LIST_USES_COMMAS |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerPositionKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -637,7 +637,7 @@ CSS_PROP_BACKGROUND(
         CSS_PROPERTY_VALUE_NONNEGATIVE |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_AUTO | VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerSizeKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -944,7 +944,7 @@ CSS_PROP_BORDER(
     CSS_PROPERTY_PARSE_FUNCTION |
         CSS_PROPERTY_APPLIES_TO_FIRST_LETTER,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kBorderImageRepeatKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete)
@@ -955,7 +955,7 @@ CSS_PROP_BORDER(
     CSS_PROPERTY_PARSE_FUNCTION |
         CSS_PROPERTY_APPLIES_TO_FIRST_LETTER,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kBorderImageSliceKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete)
@@ -978,7 +978,7 @@ CSS_PROP_BORDER(
     CSS_PROPERTY_PARSE_FUNCTION |
         CSS_PROPERTY_APPLIES_TO_FIRST_LETTER,
     "",
-    0,
+    VARIANT_AUTO, // used by Inspector keyword completion
     nullptr,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete)
@@ -2822,7 +2822,7 @@ CSS_PROP_SVGRESET(
         CSS_PROPERTY_VALUE_LIST_USES_COMMAS |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerPositionKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -2834,7 +2834,7 @@ CSS_PROP_SVGRESET(
         CSS_PROPERTY_VALUE_LIST_USES_COMMAS |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerPositionKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -2858,7 +2858,7 @@ CSS_PROP_SVGRESET(
         CSS_PROPERTY_VALUE_NONNEGATIVE |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_AUTO | VARIANT_KEYWORD, // used by Inspector keyword completion
     kImageLayerSizeKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
