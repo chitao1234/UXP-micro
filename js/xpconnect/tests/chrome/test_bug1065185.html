@@ -25,7 +25,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1065185
 
   var gLoadCount = 0;
   function loaded() {
-    switch(++gLoadCount) {
+    switch(gLoadCount++) {
       case 0:
         doMonitor([]);
         window[0].wrappedJSObject.probe = { a: 2, __exposedProps__: { 'a': 'r' } };
