@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Matching CSSOM rules exclude SVG presentation-attribute declarations</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<style id="author-style">
+  #svg-target { stroke: rgb(0, 0, 255); }
+</style>
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40">
+  <rect id="svg-target" width="20" height="20" fill="red" style="opacity: 0.5"/>
+  <rect id="attribute-only" x="30" width="20" height="20" fill="green"/>
+</svg>
+<script>
+"use strict";
+// Supplement to the borrowed bug-1359217 matching-rule matrix. Firefox 78
+// exposes stylesheet CSSStyleRules only; current Firefox's typed pres-hints
+// InspectorDeclaration API is intentionally not claimed by inIDOMUtils.
+// Keep SVG hints live while excluding their selectorless internal StyleRules.
+const domUtils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"]
+                  .getService(SpecialPowers.Ci.inIDOMUtils);
+const target = document.getElementById("svg-target");
+const attributeOnly = document.getElementById("attribute-only");
+const sheet = document.getElementById("author-style").sheet;
+const authorRule = sheet.cssRules[0];
+
+function matchingRules(element) {
+  let nativeRules = domUtils.getCSSStyleRules(element);
+  ok(nativeRules, "Connected SVG elements have a matching-rule list");
+  let authorRules = [];
+  for (let i = 0; i < nativeRules.Count(); i++) {
+    let rule = nativeRules.GetElementAt(i).QueryInterface(SpecialPowers.Ci.nsIDOMCSSStyleRule);
+    ok(rule.parentStyleSheet, "Every returned matching CSSOM rule has a stylesheet");
+    if (SpecialPowers.unwrap(rule.parentStyleSheet) === sheet) {
+      authorRules.push(SpecialPowers.unwrap(rule));
+    }
+  }
+  return authorRules;
+}
+
+let rules = matchingRules(target);
+is(rules.length, 1, "The matching author stylesheet rule is preserved");
+is(rules[0], authorRule, "The inspector returns the actual CSSOM rule");
+is(matchingRules(attributeOnly).length, 0,
+   "SVG presentation attributes do not create fake author stylesheet rules");
+is(getComputedStyle(target).fill, "rgb(255, 0, 0)", "Presentation fill still applies");
+is(getComputedStyle(target).stroke, "rgb(0, 0, 255)", "Author stroke still applies");
+is(getComputedStyle(target).opacity, "0.5", "Inline styles still apply separately");
+
+target.setAttribute("fill", "green");
+is(getComputedStyle(target).fill, "rgb(0, 128, 0)", "Presentation attributes remain live");
+is(matchingRules(target).length, 1, "Updating presentation attributes preserves CSSOM rules");
+
+authorRule.style.setProperty("fill", "blue");
+is(getComputedStyle(target).fill, "rgb(0, 0, 255)", "Author rules override presentation attributes");
+is(matchingRules(target)[0], authorRule, "A live CSSOM edit preserves rule identity");
+authorRule.style.removeProperty("fill");
+is(getComputedStyle(target).fill, "rgb(0, 128, 0)", "Removing the author property restores the hint");
+
+sheet.deleteRule(0);
+is(matchingRules(target).length, 0, "A removed stylesheet rule stops matching");
+is(authorRule.parentStyleSheet, null, "The retained CSSOM rule is detached");
+is(authorRule.style.stroke, "rgb(0, 0, 255)", "Detached CSSOM declarations remain readable");
+</script>

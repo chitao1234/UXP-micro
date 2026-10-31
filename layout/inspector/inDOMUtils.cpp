@@ -249,7 +249,10 @@ inDOMUtils::GetCSSStyleRules(nsIDOMElement *aElement,
     RefPtr<Declaration> decl = do_QueryObject(ruleNode->GetRule());
     if (decl) {
       css::Rule* owningRule = decl->GetOwningRule();
-      if (owningRule) {
+      // SVG presentation attributes and other internal declarations can own a
+      // StyleRule without a stylesheet. They are not CSSOM matching rules;
+      // GetDOMRule() excluded them before the DOMCSSStyleRule refactor.
+      if (owningRule && owningRule->GetStyleSheet()) {
         rules->AppendElement(owningRule, /*weak =*/ false);
       }
     }
