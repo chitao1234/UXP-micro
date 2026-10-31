@@ -9,6 +9,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=744830
   <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/EventUtils.js"></script>
 -->
   <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SpawnTask.js"></script>
+  <script src="mathml_disabled_parser.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
@@ -47,6 +48,13 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=744830
     ok(chromeIframeEl.contentDocument.getElementById('svgel').hasExtension("http://www.w3.org/1998/Math/MathML"), 'SVG namespace support is enabled in chrome iframe');
 
     SpecialPowers.setBoolPref("mathml.disabled", initialPrefValue);
+  });
+
+  add_task(function* () {
+    yield checkMathMLParserPolicy(
+      "chrome://mochitests/content/chrome/layout/mathml/tests/", true);
+    yield checkMathMLParserPolicy(
+      "http://mochi.test:8888/chrome/layout/mathml/tests/", false);
   });
 </script>
 </pre>

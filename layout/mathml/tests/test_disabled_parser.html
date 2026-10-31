@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MathML policy in HTML/XML parsing and DOM creation</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script src="/tests/SimpleTest/SpawnTask.js"></script>
+<script src="mathml_disabled_parser.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+add_task(function* () {
+  yield checkMathMLParserPolicy("/tests/layout/mathml/tests/", false);
+});
+</script>

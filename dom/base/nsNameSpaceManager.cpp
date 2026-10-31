@@ -179,19 +179,7 @@ NS_NewElement(Element** aResult,
     return NS_NewXULElement(aResult, ni.forget());
   }
   if (ns == kNameSpaceID_MathML) {
-    // If the mathml.disabled pref. is true, convert all MathML nodes into
-    // disabled MathML nodes by swapping the namespace.
-    nsNameSpaceManager* nsmgr = nsNameSpaceManager::GetInstance();
-    if ((nsmgr && !nsmgr->mMathMLDisabled) ||
-        nsContentUtils::IsChromeDoc(ni->GetDocument())) {
-      return NS_NewMathMLElement(aResult, ni.forget());
-    }
-
-    RefPtr<mozilla::dom::NodeInfo> genericXMLNI =
-      ni->NodeInfoManager()->
-      GetNodeInfo(ni->NameAtom(), ni->GetPrefixAtom(),
-        kNameSpaceID_disabled_MathML, ni->NodeType(), ni->GetExtraName());
-    return NS_NewXMLElement(aResult, genericXMLNI.forget());
+    return NS_NewMathMLElement(aResult, ni.forget());
   }
   if (ns == kNameSpaceID_SVG) {
     return NS_NewSVGElement(aResult, ni.forget(), aFromParser);
