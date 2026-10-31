@@ -49,6 +49,7 @@
   var Ci = Components.interfaces;
 
   function ok() { window.opener.ok.apply(window.opener, arguments); }
+  function is() { window.opener.is.apply(window.opener, arguments); }
   function done() { window.opener.done.apply(window.opener, arguments); }
 
   function dumpLn() {
@@ -81,7 +82,38 @@
     return null;
   }
 
-  function testCaretPosition(aDomWinUtils, aOffset, aRectDims) {
+  // The DOM geometry is in CSS pixels; query events return integer device
+  // pixels relative to the native widget. Mirror ToOutsidePixels on the
+  // engine's integer appunit grid, rather than comparing these coordinate sets.
+  function cssRectToDevicePixels(aRect, aAppUnitsPerDevPixel) {
+    let left = Math.floor(Math.round(aRect.left * 60) / aAppUnitsPerDevPixel);
+    let top = Math.floor(Math.round(aRect.top * 60) / aAppUnitsPerDevPixel);
+    let right = Math.ceil(Math.round(aRect.right * 60) / aAppUnitsPerDevPixel);
+    let bottom = Math.ceil(Math.round(aRect.bottom * 60) / aAppUnitsPerDevPixel);
+    return { left, top, width: right - left, height: bottom - top };
+  }
+
+  function expectedCaretPosition(aPosition, aSelection, aTransform) {
+    is(aPosition.offsetNode, document.getElementById("text"),
+       "The point resolves to the textarea");
+    ok(aSelection.isCollapsed && aSelection.rangeCount == 1,
+       "The editor has one collapsed selection");
+    is(aSelection.anchorOffset, aPosition.offset,
+       "The editor selection uses the point's offset");
+    let pointRect = aPosition.getClientRect();
+    let selectionRect = aSelection.getRangeAt(0).getBoundingClientRect();
+    ok(pointRect, "The caret position has CSS geometry");
+    is(Math.round(pointRect.left * 60), Math.round(selectionRect.left * 60),
+       "CaretPosition and the editor Range have the same CSS X appunit");
+    is(Math.round(pointRect.top * 60), Math.round(selectionRect.top * 60),
+       "CaretPosition and the editor Range have the same CSS Y appunit");
+    let expected = cssRectToDevicePixels(pointRect, aTransform.appUnitsPerDevPixel);
+    expected.left += aTransform.x;
+    expected.top += aTransform.y;
+    return expected;
+  }
+
+  function testCaretPosition(aDomWinUtils, aOffset, aExpected) {
     let rect = aDomWinUtils.sendQueryContentEvent(
                  aDomWinUtils.QUERY_CARET_RECT,
                  aOffset, 0, 0, 0,
@@ -91,10 +123,10 @@
 
     info("left:" + rect.left + " top:" + rect.top);
 
-    ok(rect.left > aRectDims.min.left, "rect.left > " + aRectDims.min.left);
-    ok(rect.left < aRectDims.max.left, "rect.left < " + aRectDims.max.left);
-    ok(rect.top > aRectDims.min.top, "rect.top > " + aRectDims.min.top);
-    ok(rect.top < aRectDims.max.top, "rect.top < " + aRectDims.max.top);
+    is(rect.left, aExpected.left, "The caret X matches the CSS Range in widget device pixels");
+    is(rect.top, aExpected.top, "The caret Y matches the CSS Range in widget device pixels");
+    ok(rect.width > 0, "The native caret rectangle has nonzero width");
+    ok(rect.height > 0, "The native caret rectangle has nonzero height");
   }
 
   function doTest() {
@@ -105,7 +137,47 @@
 
     text.focus();
 
-    let textrect = text.getBoundingClientRect();
+    let appUnitsPerDevPixel = Math.max(1, Math.round(60 / window.devicePixelRatio));
+    let editorRoot = text.QueryInterface(Ci.nsIDOMNSEditableElement).editor.rootElement;
+    let editorCSSRect = editorRoot.getBoundingClientRect();
+    let editorNativeRect = domWinUtils.sendQueryContentEvent(
+      domWinUtils.QUERY_EDITOR_RECT, 0, 0, 0, 0,
+      domWinUtils.QUERY_CONTENT_FLAG_USE_XP_LINE_BREAK);
+    ok(editorNativeRect.succeeded, "The editor rectangle query succeeds");
+    let editorDeviceRect = cssRectToDevicePixels(editorCSSRect, appUnitsPerDevPixel);
+    is(editorNativeRect.width, editorDeviceRect.width,
+       "Editor width verifies the CSS-to-device appunit conversion");
+    is(editorNativeRect.height, editorDeviceRect.height,
+       "Editor height verifies the CSS-to-device appunit conversion");
+    let transform = {
+      appUnitsPerDevPixel,
+      x: editorNativeRect.left - editorDeviceRect.left,
+      y: editorNativeRect.top - editorDeviceRect.top,
+    };
+    // This Windows helper is local and untransformed. At equal zoom and
+    // native scale, the screen origins independently locate its root widget;
+    // do not derive both editor and caret translation from query events alone.
+    let rootWindow = window.QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIDocShell).QueryInterface(Ci.nsIDocShellTreeItem)
+      .rootTreeItem.QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIDOMWindow);
+    let rootUtils = rootWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIDOMWindowUtils);
+    is(domWinUtils.fullZoom, rootUtils.fullZoom,
+       "The local helper and root widget use the same full zoom");
+    let nativeScale = domWinUtils.screenPixelsPerCSSPixel;
+    is(nativeScale, rootUtils.screenPixelsPerCSSPixel,
+       "The local helper and root widget use the same native scale");
+    let screenOffset = {
+      x: Math.round((window.mozInnerScreenX - rootWindow.mozInnerScreenX) * nativeScale),
+      y: Math.round((window.mozInnerScreenY - rootWindow.mozInnerScreenY) * nativeScale),
+    };
+    is(transform.x, screenOffset.x,
+       "The editor translation agrees with the independent native screen X offset");
+    is(transform.y, screenOffset.y,
+       "The editor translation agrees with the independent native screen Y offset");
+    info("Independent screen offset: " + JSON.stringify(screenOffset));
+    info("Caret coordinate transform: " + JSON.stringify(transform));
 
     let cp = document.caretPositionFromPoint(10, 395);
     let input = cp.offsetNode;
@@ -113,36 +185,19 @@
     input.selectionStart = input.selectionEnd = offset;
 
     let selection = getSelection(text);
+    let expected = expectedCaretPosition(cp, selection, transform);
 
-    testCaretPosition(domWinUtils, input.selectionStart, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, input.selectionStart, expected);
 
-    testCaretPosition(domWinUtils, input.selectionEnd, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, input.selectionEnd, expected);
 
-    testCaretPosition(domWinUtils, text.selectionStart, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, text.selectionStart, expected);
 
-    testCaretPosition(domWinUtils, text.selectionEnd, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, text.selectionEnd, expected);
 
-    testCaretPosition(domWinUtils, selection.anchorOffset, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, selection.anchorOffset, expected);
 
-    testCaretPosition(domWinUtils, selection.focusOffset, {
-      min: { left: 10, top: 380 },
-      max: { left: 25, top: 390 },
-    });
+    testCaretPosition(domWinUtils, selection.focusOffset, expected);
 
     cp = document.caretPositionFromPoint(395, 395);
     input = cp.offsetNode;
@@ -150,36 +205,19 @@
     input.selectionStart = input.selectionEnd = offset;
 
     selection = getSelection(text);
+    expected = expectedCaretPosition(cp, selection, transform);
 
-    testCaretPosition(domWinUtils, input.selectionStart, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, input.selectionStart, expected);
 
-    testCaretPosition(domWinUtils, input.selectionEnd, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, input.selectionEnd, expected);
 
-    testCaretPosition(domWinUtils, text.selectionStart, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, text.selectionStart, expected);
 
-    testCaretPosition(domWinUtils, text.selectionEnd, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, text.selectionEnd, expected);
 
-    testCaretPosition(domWinUtils, selection.anchorOffset, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, selection.anchorOffset, expected);
 
-    testCaretPosition(domWinUtils, selection.focusOffset, {
-      min: { left: 390, top: 380 },
-      max: { left: 400, top: 390 },
-    });
+    testCaretPosition(domWinUtils, selection.focusOffset, expected);
 
     done();
   }
