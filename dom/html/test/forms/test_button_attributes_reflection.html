@@ -50,9 +50,8 @@ reflectLimitedEnumerated({
 reflectLimitedEnumerated({
   element: document.createElement("button"),
   attribute: "formMethod",
-  validValues: [ "get", "post" ],
+  validValues: [ "get", "post", "dialog" ],
   invalidValues: [ "put", "", "tulip" ],
-  unsupportedValues: [ "dialog" ],
   defaultValue: {
     invalid: "get",
     missing: "",

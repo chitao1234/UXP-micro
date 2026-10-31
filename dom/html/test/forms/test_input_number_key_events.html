@@ -188,10 +188,14 @@ function test() {
     synthesizeKey(key, {});
     is(elem.value, String(expectedVal), "Test repeat of " + key + " for number control");
 
-    // Test preventDefault():
-    elem.addEventListener("keypress", function(evt) {
+    // Firefox 78 also selects keydown when non-printable keypress events
+    // are not dispatched to content.
+    const cancelEvent = SpecialPowers.getBoolPref(
+      "dom.keyboardevent.keypress.dispatch_non_printable_in_content")
+      ? "keypress" : "keydown";
+    elem.addEventListener(cancelEvent, function(evt) {
       evt.preventDefault();
-      elem.removeEventListener("keypress", arguments.callee, false);
+      elem.removeEventListener(cancelEvent, arguments.callee, false);
     }, false);
     oldVal = elem.value = 0;
     expectedVal = 0;
