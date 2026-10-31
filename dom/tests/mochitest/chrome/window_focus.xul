@@ -309,6 +309,11 @@ function mouseWillTriggerFocus(element)
 function mouseOnElement(element, expectedElement, focusChanged, testid)
 {
   var expectedWindow = (element.ownerDocument.defaultView == gChildWindow) ? gChildWindow : window;
+  if (element.id == "t23") {
+    var rect = element.getBoundingClientRect();
+    is(element.ownerDocument.elementFromPoint(rect.left + 4, rect.top + 4),
+       element, testid + " original mouse point hits the focusable image");
+  }
   // on Mac, form elements are not focused when clicking, except for lists and textboxes.
   var noFocusOnMouse = !mouseWillTriggerFocus(element)
 
@@ -364,6 +369,22 @@ function startTest()
 
   gChildWindow = $("childframe").contentWindow;
   gShowOutput = true;
+
+  // happy.png is the 24x24 PNG embedded in child_focus_frame.html's imagemap.
+  // A missing image can be keyboard-focusable but have no mouse hit area.
+  for (var id of ["n5", "t23"]) {
+    var image = getById(id);
+    ok(image.complete, id + " image fixture finished loading");
+    is(image.naturalWidth, 24, id + " image fixture has its intrinsic width");
+    is(image.naturalHeight, 24, id + " image fixture has its intrinsic height");
+  }
+  var canvas = gChildWindow.document.createElement("canvas");
+  canvas.width = canvas.height = 24;
+  var context = canvas.getContext("2d");
+  context.drawImage(getById("t23"), 0, 0);
+  var pixels = context.getImageData(0, 0, 24, 24);
+  ok(pixels.data.some((value, index) => index % 4 == 3 && value > 0),
+     "The focusable image fixture decodes to nonempty pixels");
 
   // synthesize a mousemove over the image to ensure that the imagemap data is
   // created. Otherwise, the special imagemap frames might not exist, and
