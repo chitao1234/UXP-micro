@@ -51,17 +51,20 @@ function triggerFrameReconstruction() {
 
 function assertHasScrollbars(elem) {
   var rect = getMeasureRect();
-  is(rect.width, screen.width - gVerticalScrollbarWidth,
+  // DOMRects and measured scrollbar sizes retain fractional CSS pixels at
+  // non-integer device scales, while screen dimensions are rounded integers.
+  // Add back the scrollbar before applying the screen API's rounding.
+  is(Math.round(rect.width + gVerticalScrollbarWidth), screen.width,
      `Should have vertical scrollbar when ${elem} is in fullscreen`);
-  is(rect.height, screen.height - gHorizontalScrollbarWidth,
+  is(Math.round(rect.height + gHorizontalScrollbarWidth), screen.height,
      `Should have horizontal scrollbar when ${elem} is in fullscreen`);
 }
 
 function assertHasNoScrollbars(elem) {
   var rect = getMeasureRect();
-  is(rect.width, screen.width,
+  is(Math.round(rect.width), screen.width,
      `Should not have vertical scrollbar when ${elem} is in fullscreen`);
-  is(rect.height, screen.height,
+  is(Math.round(rect.height), screen.height,
      `Should not have horizontal scrollbar when ${elem} is in fullscreen`);
 }
 

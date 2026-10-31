@@ -34,7 +34,8 @@ var escKeyReceived = false;
 var escKeySent = false;
 
 function keyHandler(event) {
-  if (escKeyReceived == SpecialPowers.Ci.nsIDOMKeyEvent.DOM_VK_ESC) {
+  // Check the delivered event, using the Escape constant declared in KeyEvent.
+  if (event.keyCode == SpecialPowers.Ci.nsIDOMKeyEvent.DOM_VK_ESCAPE) {
     escKeyReceived = true;
   }
 }

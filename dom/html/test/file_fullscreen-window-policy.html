@@ -1,0 +1,83 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Default fullscreen exit policies for content windows</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="file_fullscreen-utils.js"></script>
+</head>
+<body>
+<script>
+// Extend the event-driven popup pattern in Firefox 78/current's
+// file_fullscreen-multiple.html. Those versions define both exit policies with
+// true defaults; the concurrent-window scenario alone opts out of both.
+const operation = location.search.substring(1);
+let otherWindow = null;
+
+function ok(value, message) {
+  opener.ok(value, "[window-policy " + operation + "] " + message);
+}
+function is(actual, expected, message) {
+  opener.is(actual, expected, "[window-policy " + operation + "] " + message);
+}
+
+function finishPolicyTest() {
+  if (otherWindow && !otherWindow.closed) {
+    otherWindow.close();
+  }
+  opener.nextTest();
+}
+
+function begin() {
+  is(SpecialPowers.getBoolPref("full-screen-api.exit-on.windowOpen"), true,
+     "The default window-open exit policy is restored");
+  is(SpecialPowers.getBoolPref("full-screen-api.exit-on.windowRaise"),
+     operation != "open", "The raise policy matches this isolated scenario");
+  if (operation == "open") {
+    // Isolate the window-open exit: raising the popup must not satisfy it.
+    enterAndExercisePolicy();
+  } else {
+    is(operation, "raise", "The scenario is a known policy operation");
+    // Create the other window before entering fullscreen so only its later
+    // content-initiated focus can cause the default raise-policy exit.
+    otherWindow = window.open("about:blank", "", "width=300,height=200");
+    waitForLoadAndPaint(otherWindow, () => {
+      window.focus();
+      SimpleTest.waitForFocus(enterAndExercisePolicy, window);
+    });
+  }
+}
+
+function enterAndExercisePolicy() {
+  ok(document.hasFocus(), "The fullscreen-requesting document is focused");
+  addFullscreenErrorContinuation(() => {
+    ok(false, "The initial fullscreen request must succeed");
+    finishPolicyTest();
+  });
+  addFullscreenChangeContinuation("enter", () => {
+    is(document.fullscreenElement, document.body,
+       "The document is fullscreen before opening or raising another window");
+    ok(document.hasFocus(), "The fullscreen document is active before the action");
+    // Install the exit listener before the content action under test.
+    addFullscreenChangeContinuation("exit", () => {
+      is(document.fullscreenElement, null,
+         "The default policy exits fullscreen after the content action");
+      ok(otherWindow && !otherWindow.closed,
+         "The content action produced an open companion window");
+      SimpleTest.waitForFocus(() => {
+        ok(otherWindow.document.hasFocus(),
+           "The other window receives focus after the action");
+        finishPolicyTest();
+      }, otherWindow, true);
+    });
+    if (operation == "open") {
+      otherWindow = window.open("about:blank", "", "width=300,height=200");
+    } else {
+      otherWindow.focus();
+    }
+  });
+  document.body.requestFullscreen();
+}
+</script>
+</body>
+</html>

@@ -73,7 +73,8 @@ class TestCase {
       let timeout = 0;
       let expectEvent = new Map();
       for (let [target, type] of this.handlersType) {
-        expectEvent.set(target, this.handlersType != NO_EVENT_HANDLER);
+        // Local oracle repair: track the actual handler kind, not the Map.
+        expectEvent.set(target, type != NO_EVENT_HANDLER);
       }
       let handleEvent = evt => {
         let target = evt.currentTarget;
@@ -96,6 +97,11 @@ class TestCase {
         if (!timeout) {
           timeout = setTimeout(() => {
             this.changeListeners("remove", eventType, handleEvent);
+            // The original test rejected duplicates but never checked that
+            // every subscribed target received the event.
+            for (let [expectedTarget, missing] of expectEvent) {
+              ok(!missing, `Expected ${eventType} was received on ${expectedTarget}`);
+            }
             TestCase.checkState(inFullscreen,
                                 `${msg} in test case ${this.number}`);
             resolve();
@@ -103,7 +109,8 @@ class TestCase {
         }
       };
       this.changeListeners("add", eventType, handleEvent);
-      actionCallback();
+      // Firefox 78 waits for focus before each fullscreen operation.
+      SimpleTest.waitForFocus(() => actionCallback());
     });
   }
 

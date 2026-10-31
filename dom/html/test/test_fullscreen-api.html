@@ -6,6 +6,7 @@
   <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
+  <script type="application/javascript" src="file_fullscreen-utils.js"></script>
   <style>
   body {
     background-color: black;
@@ -28,55 +29,96 @@ SimpleTest.requestFlakyTimeout("untriaged");
 // run in an iframe, which by default will not have the allowfullscreen
 // attribute set, so full-screen won't work.
 var gTestWindows = [
-  "file_fullscreen-multiple.html",
-  "file_fullscreen-rollback.html",
-  "file_fullscreen-esc-exit.html",
-  "file_fullscreen-denied.html",
-  "file_fullscreen-api.html",
-  "file_fullscreen-plugins.html",
-  "file_fullscreen-hidden.html",
-  "file_fullscreen-svg-element.html",
-  "file_fullscreen-navigation.html",
-  "file_fullscreen-scrollbar.html",
-  "file_fullscreen-selector.html",
-  "file_fullscreen-shadowdom.html",
-  "file_fullscreen-top-layer.html",
-  "file_fullscreen-backdrop.html",
-  "file_fullscreen-nested.html",
-  "file_fullscreen-prefixed.html",
-  "file_fullscreen-unprefix-disabled.html",
-  "file_fullscreen-lenient-setters.html",
+  // Firefox 78/current run the concurrent-window scenario with both exit
+  // policies disabled, while retaining their true defaults for all other tests.
+  { test: "file_fullscreen-multiple.html",
+    prefs: [["full-screen-api.exit-on.windowRaise", false],
+            ["full-screen-api.exit-on.windowOpen", false],
+            ["browser.link.open_newwindow.disabled_in_fullscreen", false]] },
+  { test: "file_fullscreen-window-policy.html?open",
+    prefs: [["browser.link.open_newwindow.disabled_in_fullscreen", false],
+            ["full-screen-api.exit-on.windowRaise", false]] },
+  { test: "file_fullscreen-window-policy.html?raise",
+    prefs: [["browser.link.open_newwindow.disabled_in_fullscreen", false]] },
+  { test: "file_fullscreen-rollback.html" },
+  { test: "file_fullscreen-esc-exit.html" },
+  { test: "file_fullscreen-denied.html" },
+  { test: "file_fullscreen-api.html" },
+  { test: "file_fullscreen-plugins.html" },
+  { test: "file_fullscreen-hidden.html" },
+  { test: "file_fullscreen-svg-element.html" },
+  { test: "file_fullscreen-navigation.html" },
+  { test: "file_fullscreen-scrollbar.html" },
+  { test: "file_fullscreen-selector.html" },
+  { test: "file_fullscreen-shadowdom.html" },
+  { test: "file_fullscreen-top-layer.html" },
+  { test: "file_fullscreen-backdrop.html" },
+  { test: "file_fullscreen-nested.html" },
+  { test: "file_fullscreen-prefixed.html" },
+  { test: "file_fullscreen-unprefix-disabled.html" },
+  { test: "file_fullscreen-lenient-setters.html" },
 ];
 
 var testWindow = null;
 var gTestIndex = 0;
+var gCurrentTestHasPrefs = false;
 
 function finish() {
   SimpleTest.finish();
 }
 
+// Match Firefox 78's launcher: return focus after closing the old child,
+// then focus the ready new child directly, without raising the main window
+// between loading the child and starting its fullscreen scenario.
+function advanceToNextTest() {
+  if (gCurrentTestHasPrefs) {
+    gCurrentTestHasPrefs = false;
+    SpecialPowers.popPrefEnv(() => SimpleTest.executeSoon(runNextTest));
+  } else {
+    SimpleTest.executeSoon(runNextTest);
+  }
+}
+
 function nextTest() {
   if (testWindow) {
+    info("Waiting for focus to return to main window");
+    window.addEventListener("focus", function() {
+      info("main window focused, starting next test");
+      advanceToNextTest();
+    }, {once: true});
     testWindow.close();
+  } else {
+    advanceToNextTest();
   }
-  SimpleTest.executeSoon(runNextTest);
 }
 
 function runNextTest() {
   if (gTestIndex < gTestWindows.length) {
-    info("Run test " + gTestWindows[gTestIndex]);
-    testWindow = window.open(gTestWindows[gTestIndex], "", "width=500,height=500,scrollbars=yes");
-    // We'll wait for the window to load, then make sure our window is refocused
-    // before starting the test, which will get kicked off on "focus".
-    // This ensures that we're essentially back on the primary "desktop" on
-    // OS X Lion before we run the test.
-    testWindow.addEventListener("load", function onload() {
-      testWindow.removeEventListener("load", onload, false);
-      SimpleTest.waitForFocus(function() {
-        SimpleTest.waitForFocus(testWindow.begin, testWindow);
+    let test = gTestWindows[gTestIndex++];
+    function openTestWindow() {
+      info("Run test " + test.test);
+      testWindow = window.open(test.test, "", "width=500,height=500,scrollbars=yes");
+      // Wait for the new child's load and first paint before focusing it.
+      // Borrowed from Firefox 78/current; upstream Bug 1465078.
+      waitForLoadAndPaint(testWindow, function() {
+        SimpleTest.waitForFocus(function() {
+          info("The fullscreen child is focused");
+          testWindow.begin();
+        }, testWindow);
       });
-    }, false);
-    gTestIndex++;
+    }
+    // This SimpleTest version records an undo frame only for actual changes.
+    // Never pair a no-op push with a pop: it would pop the outer fixture prefs.
+    let changedPrefs = "prefs" in test
+      ? test.prefs.filter(([name, value]) =>
+          SpecialPowers.getBoolPref(name) != value)
+      : [];
+    if (changedPrefs.length) {
+      gCurrentTestHasPrefs = true;
+      SpecialPowers.pushPrefEnv({"set": changedPrefs}, openTestWindow);
+    } else {
+      openTestWindow();
+    }
   } else {
     SimpleTest.finish();
   }
@@ -93,6 +135,10 @@ is(window.fullScreen, false, "Shouldn't be able to set window fullscreen from co
 addLoadEvent(function() {
   SpecialPowers.pushPrefEnv({
       "set": [
+        // This fixture tests native window geometry/focus. The app normally
+        // diverts all popups into tabs; select the existing feature-window
+        // policy, as browser_test_toolbars_visibility.js does.
+        ["browser.link.open_newwindow.restriction", 2],
         ["full-screen-api.enabled", true],
         ["full-screen-api.unprefix.enabled", true],
         ["full-screen-api.allow-trusted-requests-only", false],

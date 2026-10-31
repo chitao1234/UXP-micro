@@ -117,7 +117,9 @@ function testLongRunningEventHandler() {
     SpecialPowers.popPrefEnv(finish);
   });
   window.addEventListener("keypress", longRunningHandler);
-  synthesizeKey("VK_A", {});
+  // A printable key produces keypress with non-printable keypress filtering.
+  // Match Firefox 78's long-running-handler fixture.
+  sendString("a");
 }
 
 function finish() {
