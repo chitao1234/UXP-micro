@@ -1,0 +1,158 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
+<?xml-stylesheet type="text/css" href="/tests/SimpleTest/test.css"?>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=1123480
+-->
+<window title="Mozilla Bug 1123480"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        onload="RunTest();">
+  <title>nsTransferable PBM Overflow Selection Test</title>
+  <script type="application/javascript"
+          src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+
+  <script type="application/javascript">
+  <![CDATA[
+  Components.utils.import("resource://gre/modules/FileUtils.jsm");
+  Components.utils.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
+  Components.utils.import("resource://gre/modules/Services.jsm");
+  const Cc = Components.classes;
+  const Ci = Components.interfaces;
+  const Cr = Components.results;
+  const FLAVOR = "text/unicode";
+  // Adapt Firefox78/current's anonymous-FD oracle after UXP1efbe485bb. This
+  // deterministic UTF-16 payload exceeds this fork's 4 MiB spill threshold
+  // (c74cecc05c) and has an unusual size to distinguish unrelated temp files.
+  const Ipsum = "0123456789".repeat(234567);
+  const IpsumByteLength = Ipsum.length * 2;
+  const SHORT_STRING = "short string that never spills to disk";
+  const makeTransferable = Components.Constructor(
+    "@mozilla.org/widget/transferable;1", "nsITransferable");
+  const makeString = Components.Constructor(
+    "@mozilla.org/supports-string;1", "nsISupportsString");
+
+  function getClipboardCacheFDCount() {
+    let dir;
+    if (Services.appinfo.OS == "WINNT") {
+      // NS_OpenAnonymousTemporaryFile uses DELETE_ON_CLOSE in this directory.
+      // Observe it; never delete files owned by another transferable/process.
+      dir = FileUtils.getFile("TmpD", ["mozilla-temp-files"]);
+      if (!dir.exists()) return 0;
+    } else {
+      dir = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      dir.initWithPath("/dev/fd");
+    }
+    let count = 0;
+    const entries = dir.directoryEntries;
+    while (entries.hasMoreElements()) {
+      const file = entries.getNext().QueryInterface(Ci.nsIFile);
+      let size;
+      try {
+        size = file.fileSize;
+      } catch (error) {
+        // A different descriptor may disappear during enumeration. Other I/O
+        // errors, including access failures, must remain visible test failures.
+        if (error.result == Cr.NS_ERROR_FILE_NOT_FOUND ||
+            error.result == Cr.NS_ERROR_FILE_TARGET_DOES_NOT_EXIST) continue;
+        info("Unable to stat anonymous clipboard candidate " + file.path + ": " + error);
+        throw error;
+      }
+      if (size == IpsumByteLength) ++count;
+    }
+    return count;
+  }
+
+  function setText(transfer, value) {
+    const string = makeString();
+    string.data = value;
+    transfer.setTransferData(FLAVOR, string, value.length * 2);
+  }
+
+  function checkRoundTrip(transfer, label) {
+    const data = {}, length = {};
+    transfer.getTransferData(FLAVOR, data, length);
+    is(length.value, IpsumByteLength, label + " retains the exact UTF-16 byte length");
+    const text = data.value.QueryInterface(Ci.nsISupportsString).data;
+    ok(text === Ipsum, label + " round-trips all text without corruption");
+  }
+
+  function nextTurn() {
+    return new Promise(resolve => SimpleTest.executeSoon(resolve));
+  }
+
+  function RunTest() {
+    SimpleTest.waitForExplicitFinish();
+    testClipboardPrivacy().then(() => SimpleTest.finish(), error => {
+      ok(false, "Unexpected clipboard privacy test exception: " + error);
+      SimpleTest.finish();
+    });
+  }
+
+  async function testClipboardPrivacy() {
+    const helper = Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper);
+    ok(IpsumByteLength > 4194304, "The payload really exceeds the native 4 MiB spill threshold");
+    helper.copyString(SHORT_STRING);
+    // UXP2829b9387bf defers nsDataObj's last self-reference release to the main
+    // thread. Match current Firefox: let its owned transferable/FD be released
+    // before measuring cleanup, rather than treating a queued release as a leak.
+    await nextTurn();
+    const initialFdCount = getClipboardCacheFDCount();
+    try {
+      helper.copyString(Ipsum);
+      const clipboardCount = Services.clipboard.supportsSelectionClipboard() ? 2 : 1;
+      is(getClipboardCacheFDCount(), initialFdCount + clipboardCount,
+         "Clipboard-helper data with no private context really spills to disk");
+      helper.copyString(SHORT_STRING);
+      await nextTurn();
+      is(getClipboardCacheFDCount(), initialFdCount,
+         "Replacing our clipboard-helper data closes its anonymous files");
+
+      for (const isPrivate of [false, true]) {
+        const label = isPrivate ? "Private" : "Non-private";
+        const win = window.open("about:blank", "_blank",
+          "chrome,width=500,height=200" + (isPrivate ? ",private" : ""));
+        ok(win, label + " context window opens");
+        let transfer;
+        try {
+          is(PrivateBrowsingUtils.isContentWindowPrivate(win), isPrivate,
+             label + " window really has the requested privacy context");
+          transfer = makeTransferable();
+          transfer.init(PrivateBrowsingUtils.privacyContextFromWindow(win));
+          transfer.addDataFlavor(FLAVOR);
+          setText(transfer, Ipsum);
+          const expected = initialFdCount + (isPrivate ? 0 : 1);
+          is(getClipboardCacheFDCount(), expected,
+             label + " transfer spills only when the actual context is non-private");
+          checkRoundTrip(transfer, label + " transfer before clipboard sharing");
+          Services.clipboard.setData(transfer, null, Services.clipboard.kGlobalClipboard);
+          is(getClipboardCacheFDCount(), expected,
+             label + " clipboard sharing preserves the disk-cache privacy rule");
+          checkRoundTrip(transfer, label + " transfer after clipboard sharing");
+          setText(transfer, SHORT_STRING);
+          is(getClipboardCacheFDCount(), initialFdCount,
+             label + " large-to-small replacement closes its own cache file");
+          Services.clipboard.setData(transfer, null, Services.clipboard.kGlobalClipboard);
+          is(getClipboardCacheFDCount(), initialFdCount,
+             label + " small clipboard data leaves no anonymous cache behind");
+        } finally {
+          if (transfer) setText(transfer, SHORT_STRING);
+          if (win) win.close();
+        }
+      }
+    } finally {
+      // Release our OLE/selection ownership without touching unrelated files.
+      helper.copyString(SHORT_STRING);
+      await nextTurn();
+    }
+    is(getClipboardCacheFDCount(), initialFdCount,
+       "All cache descriptors created by this test are closed");
+  }
+  ]]>
+  </script>
+
+  <!-- test results are displayed in the html:body -->
+  <body xmlns="http://www.w3.org/1999/xhtml">
+  <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1123480"
+     target="_blank">Mozilla Bug 1123480</a>
+  </body>
+</window>

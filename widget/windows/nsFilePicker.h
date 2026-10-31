@@ -20,6 +20,7 @@
 #undef LogSeverity // SetupAPI.h #defines this as DWORD
 
 class nsILoadContext;
+class nsIWeakReference;
 
 class nsBaseWinFilePicker :
   public nsBaseFilePicker
@@ -68,6 +69,7 @@ protected:
   void GetFilterListArray(nsString& aFilterList);
   bool ShowFolderPicker(const nsString& aInitialDir);
   bool ShowFilePicker(const nsString& aInitialDir);
+  bool IsOwnerWindowClosed() const;
   void RememberLastUsedDirectory();
   bool IsPrivacyModeEnabled();
   bool IsDefaultPathLink();
@@ -83,6 +85,8 @@ protected:
   static char            mLastUsedDirectory[];
   nsString               mUnicodeFile;
   bool                   mRequireInteraction;
+  uint64_t               mOwnerInnerWindowId;
+  nsCOMPtr<nsIWeakReference> mOwnerDocument;
 
   struct FreeDeleter {
     void operator()(void* aPtr) { ::free(aPtr); }

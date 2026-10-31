@@ -1,0 +1,94 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Test for crashes when the parent window of a file picker is closed via script</title>
+  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+
+<script type="application/javascript">
+
+SimpleTest.waitForExplicitFinish();
+SimpleTest.requestFlakyTimeout("untriaged");
+
+var childWindow;
+var changedRoutingPref = false;
+var currentRestriction;
+var remainingRestrictions = [0, 2];
+
+SimpleTest.registerCleanupFunction(function() {
+  if (childWindow && !childWindow.closed) {
+    childWindow.close();
+  }
+  if (changedRoutingPref) {
+    return SpecialPowers.popPrefEnv();
+  }
+});
+
+function nativeHandle(win) {
+  const Ci = SpecialPowers.Ci;
+  return SpecialPowers.wrap(win).QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIWebNavigation).QueryInterface(Ci.nsIDocShellTreeItem)
+    .treeOwner.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIBaseWindow).nativeHandle;
+}
+
+function testStepOne() {
+  childWindow = window.open('window_picker_no_crash_child.html', 'childWindow', 'width=300,height=150');
+  SimpleTest.waitForFocus(testStepTwo, childWindow);
+}
+
+function testStepTwo() {
+  const parentHandle = nativeHandle(window);
+  const childHandle = nativeHandle(childWindow);
+  ok(/^0x[0-9a-f]+$/i.test(childHandle), "The picker child has a native window");
+  if (currentRestriction == 0) {
+    is(childHandle, parentHandle, "The routed tab shares the surviving browser root");
+  } else {
+    isnot(childHandle, parentHandle, "The picker owner is a separate native window");
+  }
+  info("PICKER EARLY OWNER " + JSON.stringify({parentHandle, childHandle,
+                                               restriction: currentRestriction}));
+  childWindow.document.form1.uploadbox.click();
+  // This should not crash the browser
+  childWindow.close();
+  setTimeout("testStepThree();", 5000);
+}
+
+function testStepThree() {
+  ok(childWindow.closed, "The logical picker owner closes after its click");
+  ok(true, "browser didn't crash");
+  childWindow = null;
+  if (changedRoutingPref) {
+    changedRoutingPref = false;
+    SpecialPowers.popPrefEnv(runNextOwnerCase);
+  } else {
+    runNextOwnerCase();
+  }
+}
+
+function runNextOwnerCase() {
+  if (!remainingRestrictions.length) {
+    SimpleTest.finish();
+    return;
+  }
+  currentRestriction = remainingRestrictions.shift();
+  // Keep the fork's actual routed-tab regression AND upstream's distinct
+  // native-window precondition. Each arm proves its resulting HWND topology.
+  const desired = [["browser.link.open_newwindow", 3],
+                   ["browser.link.open_newwindow.restriction", currentRestriction]];
+  const changes = desired.filter(([name, value]) => SpecialPowers.getIntPref(name) != value);
+  if (!changes.length) {
+    testStepOne();
+    return;
+  }
+  SpecialPowers.pushPrefEnv({set: changes}, function() {
+    changedRoutingPref = true;
+    testStepOne();
+  });
+}
+
+SimpleTest.waitForFocus(runNextOwnerCase);
+</script>
+</body>
+</html>

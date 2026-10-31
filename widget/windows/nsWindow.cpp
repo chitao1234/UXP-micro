@@ -214,6 +214,18 @@ using namespace mozilla::gfx;
 using namespace mozilla::layers;
 using namespace mozilla::widget;
 
+// Release-capable, opt-in diagnostics for modal picker/owner lifetime. Do not
+// use MOZ_LOG here: this tree compiles that macro out of optimized builds.
+static LazyLogModule sWindowFilePickerLifecycleLog("FilePickerLifecycle");
+#define WINDOW_FILE_PICKER_LIFECYCLE_LOG(...)                               \
+  do {                                                                    \
+    if (mozilla::detail::log_test(sWindowFilePickerLifecycleLog,             \
+                                 LogLevel::Debug)) {                        \
+      mozilla::detail::log_print(sWindowFilePickerLifecycleLog,              \
+                                LogLevel::Debug, __VA_ARGS__);              \
+    }                                                                     \
+  } while (0)
+
 /**************************************************************
  **************************************************************
  **
@@ -930,6 +942,11 @@ nsWindow::Create(nsIWidget* aParent,
 // Close this nsWindow
 void nsWindow::Destroy()
 {
+  MOZ_ASSERT(NS_IsMainThread());
+  WINDOW_FILE_PICKER_LIFECYCLE_LOG(
+    "destroy widget=%p hwnd=%p destroyCalled=%d onDestroyCalled=%d count=%lu",
+    this, mWnd, mDestroyCalled, mOnDestroyCalled,
+    static_cast<unsigned long>(mPickerDisplayCount));
   // WM_DESTROY has already fired, avoid calling it twice
   if (mOnDestroyCalled)
     return;
@@ -7965,19 +7982,27 @@ LPARAM nsWindow::lParamToClient(LPARAM lParam)
 
 void nsWindow::PickerOpen()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   mPickerDisplayCount++;
+  WINDOW_FILE_PICKER_LIFECYCLE_LOG("picker-open widget=%p hwnd=%p destroyCalled=%d count=%lu",
+    this, mWnd, mDestroyCalled, static_cast<unsigned long>(mPickerDisplayCount));
 }
 
 void nsWindow::PickerClosed()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   NS_ASSERTION(mPickerDisplayCount > 0, "mPickerDisplayCount out of sync!");
   if (!mPickerDisplayCount)
     return;
   mPickerDisplayCount--;
+  WINDOW_FILE_PICKER_LIFECYCLE_LOG("picker-closed widget=%p hwnd=%p destroyCalled=%d count=%lu",
+    this, mWnd, mDestroyCalled, static_cast<unsigned long>(mPickerDisplayCount));
   if (!mPickerDisplayCount && mDestroyCalled) {
     Destroy();
   }
 }
+
+#undef WINDOW_FILE_PICKER_LIFECYCLE_LOG
 
 bool
 nsWindow::WidgetTypeSupportsAcceleration()

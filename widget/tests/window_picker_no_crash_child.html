@@ -1,0 +1,18 @@
+<html>
+<head>
+  <title>Picker window</title>
+  <script>
+    // Execute window.open in the HTTP document's own realm. An empty URL
+    // preserves the genuinely initial document and its inherited principal;
+    // loading an iframe's fallback about:blank is a different lifecycle.
+    function openInitialPickerOwner(name) {
+      return window.open("", name, "width=350,height=200");
+    }
+  </script>
+</head>
+<body>
+<form name="form1">
+<input type="file" name="uploadbox">
+</form>
+</body>
+</html>

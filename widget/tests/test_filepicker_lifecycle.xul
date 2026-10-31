@@ -1,0 +1,508 @@
+<?xml version="1.0"?>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        title="Native file picker owner lifecycle">
+<script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+<script type="application/javascript"><![CDATA[
+const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
+Cu.import("resource://gre/modules/ctypes.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+SimpleTest.waitForExplicitFinish();
+SimpleTest.requestLongerTimeout(4);
+
+const user32 = ctypes.open("user32.dll");
+const kernel32 = ctypes.open("kernel32.dll");
+const HWND = ctypes.voidptr_t;
+const BOOL = ctypes.int32_t;
+const DWORD = ctypes.uint32_t;
+const EnumProc = ctypes.FunctionType(ctypes.stdcall_abi, BOOL,
+                                    [HWND, ctypes.intptr_t]).ptr;
+const enumThreadWindows = user32.declare("EnumThreadWindows", ctypes.winapi_abi,
+                                       BOOL, DWORD, EnumProc, ctypes.intptr_t);
+const getThreadId = kernel32.declare("GetCurrentThreadId", ctypes.winapi_abi, DWORD);
+const getProcessId = kernel32.declare("GetCurrentProcessId", ctypes.winapi_abi, DWORD);
+const getWindowPid = user32.declare("GetWindowThreadProcessId", ctypes.winapi_abi,
+                                  DWORD, HWND, DWORD.ptr);
+const getWindow = user32.declare("GetWindow", ctypes.winapi_abi, HWND, HWND, DWORD);
+const getAncestor = user32.declare("GetAncestor", ctypes.winapi_abi, HWND, HWND, DWORD);
+const isWindow = user32.declare("IsWindow", ctypes.winapi_abi, BOOL, HWND);
+const isVisible = user32.declare("IsWindowVisible", ctypes.winapi_abi, BOOL, HWND);
+const className = user32.declare("GetClassNameW", ctypes.winapi_abi, ctypes.int32_t,
+                               HWND, ctypes.jschar.ptr, ctypes.int32_t);
+const windowText = user32.declare("GetWindowTextW", ctypes.winapi_abi, ctypes.int32_t,
+                                HWND, ctypes.jschar.ptr, ctypes.int32_t);
+const postMessage = user32.declare("PostMessageW", ctypes.winapi_abi, BOOL,
+                                  HWND, DWORD, ctypes.uintptr_t, ctypes.intptr_t);
+const threadId = getThreadId();
+const processId = getProcessId();
+const pending = [];
+const owners = [];
+const tabs = [];
+let serial = 0;
+let changedRouting = false;
+
+function address(hwnd) {
+  return ctypes.cast(hwnd, ctypes.uintptr_t).value.toString();
+}
+
+function handleFor(win) {
+  const handle = win.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIWebNavigation).QueryInterface(Ci.nsIDocShellTreeItem)
+    .treeOwner.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIBaseWindow).nativeHandle;
+  return ctypes.cast(ctypes.uintptr_t(parseInt(handle, 16)), HWND);
+}
+
+function nativeDialogs(title) {
+  const result = [];
+  const callback = EnumProc(function(hwnd) {
+    const pid = DWORD();
+    getWindowPid(hwnd, pid.address());
+    const name = ctypes.jschar.array(256)();
+    const text = ctypes.jschar.array(512)();
+    className(hwnd, name, name.length);
+    windowText(hwnd, text, text.length);
+    if (pid.value == processId && name.readString() == "#32770" &&
+        text.readString() == title && isVisible(hwnd)) {
+      result.push({handle: HWND(hwnd), owner: getWindow(hwnd, 4),
+                   rootOwner: getAncestor(hwnd, 3)});
+    }
+    return 1;
+  });
+  if (!enumThreadWindows(threadId, callback, 0)) {
+    throw new Error("Could not enumerate this owning STA's windows");
+  }
+  return result;
+}
+
+// Used only AFTER recording a test failure, never to satisfy the product gate.
+// WM_CLOSE targets our PID, main STA, exact per-case title and native dialog.
+function cleanupDialog(record) {
+  for (const dialog of nativeDialogs(record.title)) {
+    record.dialogHandle = dialog.handle;
+    ok(postMessage(dialog.handle, 0x0010, 0, 0), "Clean up failed case's owned native dialog");
+  }
+}
+
+function visiblePicker(record) {
+  const dialogs = nativeDialogs(record.title);
+  if (dialogs.length == 1) record.dialogHandle = dialogs[0].handle;
+  return dialogs.length == 1;
+}
+
+async function waitFor(predicate, message) {
+  await SimpleTest.promiseWaitForCondition(predicate, message);
+  return !!predicate();
+}
+
+// Do not impose an active auto-close API that Windows does not provide
+// (Mozilla bugs 1870660 and 1881329). Native Cancel is an explicit test action,
+// not failure cleanup. The owner may already have canceled naturally.
+async function finishWithNativeCancel(record) {
+  if (!record.done) {
+    const dialogs = nativeDialogs(record.title);
+    is(dialogs.length, 1, "Normal Cancel targets this pending picker's exact native dialog");
+    for (const dialog of dialogs) {
+      record.dialogHandle = dialog.handle;
+      ok(postMessage(dialog.handle, 0x0010, 0, 0),
+         "Normally cancel this own native dialog: " + record.title);
+    }
+  }
+  await awaitCancellation(record);
+}
+
+function windowIsClosed(win) {
+  // Frame-loader teardown can nuke a content Window's chrome wrapper. Do not
+  // read even .closed through that wrapper. Callers also require the saved
+  // native docshell/HWND lifecycle state, not just wrapper disappearance.
+  return Cu.isDeadWrapper(win) || win.closed;
+}
+
+function ownerDocumentDetached(owner) {
+  // Keep the native interface obtained while the owner is live. Destroy marks
+  // isBeingDestroyed before pagehide and later clears the content viewer;
+  // testing both avoids interpreting a dead JS wrapper alone as teardown.
+  return owner.docShell.isBeingDestroyed() && owner.docShell.contentViewer === null &&
+         windowIsClosed(owner.window);
+}
+
+function isRegisteredWindow(win) {
+  const enumerator = Services.wm.getEnumerator(null);
+  while (enumerator.hasMoreElements()) {
+    if (enumerator.getNext() === win) return true;
+  }
+  return false;
+}
+
+async function closePopupOwner(owner, root, chromeWindow) {
+  if (!windowIsClosed(owner)) owner.close();
+  // window.close sets the logical flag before posting native teardown.
+  // getMostRecentWindow does not filter closing windows in this tree.
+  await waitFor(() => windowIsClosed(owner) && !isWindow(root) && !isRegisteredWindow(chromeWindow),
+                "The popup must close, unregister and destroy its HWND before the next case");
+}
+
+async function openOwner() {
+  const owner = window.open("window_picker_no_crash_child.html", "picker-owner-" + (++serial),
+                            "chrome,dialog=no,width=350,height=200");
+  owners.push(owner);
+  if (owner.document.readyState != "complete") {
+    await new Promise(resolve => owner.addEventListener("load", resolve, {once: true}));
+  }
+  const handle = handleFor(owner);
+  const docShell = owner.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDocShell);
+  ok(isWindow(handle), "Owner has a live native HWND");
+  isnot(address(handle), address(handleFor(window)), "Owner is a distinct native window, not a tab");
+  info("PICKER OWNER " + JSON.stringify({handle: address(handle), pid: processId}));
+  return {window: owner, handle, docShell};
+}
+
+function startPicker(owner, mode) {
+  const record = {title: "MicroGecko picker lifecycle " + (++serial), count: 0, done: false};
+  record.picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+  record.picker.init(owner.window, record.title, mode);
+  pending.push(record);
+  record.open = function() {
+    record.started = true;
+    record.picker.open({done(result) {
+      ++record.count;
+      is(record.count, 1, "Each Open gets exactly one callback: " + record.title);
+      is(result, Ci.nsIFilePicker.returnCancel, "The native picker returns cancellation");
+      is(record.picker.file, null, "Cancellation leaves no selected file");
+      ok(!record.picker.files.hasMoreElements(), "Cancellation leaves no selected files");
+      record.done = true;
+    }});
+  };
+  return record;
+}
+
+async function awaitCancellation(record) {
+  if (!await waitFor(() => record.done, "The native picker must finish cancellation: " + record.title)) {
+    // waitForCondition has already failed the test. Release the native modal
+    // loop so this control build can report failure without stranding a dialog.
+    cleanupDialog(record);
+    await waitFor(() => record.done, "Failure cleanup must finish its callback");
+  }
+  is(record.count, 1, "Exactly one final callback for " + record.title);
+  is(nativeDialogs(record.title).length, 0, "No native dialog remains after callback");
+  if (record.dialogHandle) {
+    await waitFor(() => !isWindow(record.dialogHandle), "The completed picker HWND must be destroyed");
+  }
+}
+
+async function staleOwnerCase(mode) {
+  const owner = await openOwner();
+  const record = startPicker(owner, mode);
+  owner.window.close();
+  if (!await waitFor(() => ownerDocumentDetached(owner) && !isWindow(owner.handle),
+                    "The owner must be destroyed before queuing Open")) {
+    return; // The failed precondition cannot stand in for a stale-owner arm.
+  }
+  record.open();
+  await awaitCancellation(record);
+}
+
+async function activeOwnerCase(modes) {
+  const owner = await openOwner();
+  const records = [];
+  for (const mode of modes) {
+    const record = startPicker(owner, mode);
+    records.push(record);
+    record.open();
+    const visible = await waitFor(() => visiblePicker(record),
+                                 "A real native dialog must be visible before closing its owner");
+    if (!visible) {
+      cleanupDialog(record);
+      owner.window.close();
+      await awaitCancellation(record);
+      return;
+    }
+    const dialog = nativeDialogs(record.title)[0];
+    is(address(dialog.rootOwner), address(owner.handle), "Visible dialog belongs to the distinct native owner");
+    ok(!record.done, "The picker callback is pending while its dialog is visible");
+    info("PICKER VISIBLE " + JSON.stringify({title: record.title,
+         handle: address(dialog.handle), owner: address(dialog.owner), root: address(dialog.rootOwner)}));
+  }
+  owner.window.close();
+  await waitFor(() => ownerDocumentDetached(owner),
+                "Closing a picker owner detaches its logical document before native Cancel");
+  // Main-STA modal calls unwind LIFO. The widget must remain alive until the
+  // last picker, its COM results and its RTL shim have all been released.
+  for (const record of records.reverse()) {
+    if (!record.done) {
+      ok(isWindow(owner.handle), "A pending picker protects its closing owner's native HWND");
+    }
+    await finishWithNativeCancel(record);
+  }
+  await waitFor(() => !isWindow(owner.handle), "The closed picker owner must finally be destroyed");
+}
+
+function loadTab(browser, uri) {
+  return new Promise(resolve => {
+    function loaded(event) {
+      if (event.originalTarget != browser.contentDocument ||
+          browser.contentDocument.documentURI != uri) {
+        return;
+      }
+      browser.removeEventListener("load", loaded, true);
+      resolve();
+    }
+    browser.addEventListener("load", loaded, true);
+    browser.loadURI(uri);
+  });
+}
+
+async function logicalTabCase(navigate, mode) {
+  const browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+  ok(browserWindow && browserWindow.gBrowser, "Use the real application's tab browser");
+  if (!browserWindow || !browserWindow.gBrowser) return;
+  const tab = browserWindow.gBrowser.addTab("about:blank");
+  tabs.push({window: browserWindow, tab});
+  const browser = tab.linkedBrowser;
+  const uri = "http://mochi.test:8888/chrome/widget/tests/window_picker_no_crash_child.html";
+  await loadTab(browser, uri);
+  const rootHandle = handleFor(browserWindow);
+  const owner = {window: browser.contentWindow, handle: handleFor(browser.contentWindow),
+                 docShell: browser.docShell};
+  is(address(owner.handle), address(rootHandle), "The logical tab shares the live browser root HWND");
+  const record = startPicker(owner, mode);
+  record.open();
+  const visible = await waitFor(() => visiblePicker(record),
+                               "A tab-owned native picker must really be visible");
+  if (!visible) {
+    cleanupDialog(record);
+    browserWindow.gBrowser.removeTab(tab);
+    await awaitCancellation(record);
+    return;
+  }
+  is(address(nativeDialogs(record.title)[0].rootOwner), address(rootHandle),
+     "The live tab picker is owned by the surviving main HWND");
+  info("PICKER LOGICAL OWNER " + JSON.stringify({title: record.title,
+       root: address(rootHandle), operation: navigate ? "navigate" : "close-tab"}));
+  if (navigate) {
+    await loadTab(browser, uri + "?replacement=" + (++serial));
+  } else {
+    browserWindow.gBrowser.removeTab(tab);
+    await waitFor(() => ownerDocumentDetached(owner),
+                  "Removing the logical owner tab detaches its docshell");
+  }
+  await finishWithNativeCancel(record);
+  ok(isWindow(rootHandle) && !browserWindow.closed,
+     "Normal native Cancel after owner replacement preserves the main browser HWND");
+  if (navigate) browserWindow.gBrowser.removeTab(tab);
+}
+
+function innerWindowId(win) {
+  return win.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
+}
+
+async function tabForPicker() {
+  const browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+  ok(browserWindow && browserWindow.gBrowser, "Use the real application's tab browser");
+  if (!browserWindow || !browserWindow.gBrowser) return null;
+  const tab = browserWindow.gBrowser.addTab("about:blank");
+  tabs.push({window: browserWindow, tab});
+  const browser = tab.linkedBrowser;
+  const uri = "http://mochi.test:8888/chrome/widget/tests/window_picker_no_crash_child.html";
+  await loadTab(browser, uri);
+  return {window: browserWindow, tab, browser, uri, root: handleFor(browserWindow)};
+}
+
+async function completedBlankReplacementCase() {
+  const page = await tabForPicker();
+  if (!page) return;
+  const frame = page.browser.contentDocument.createElement("iframe");
+  const initialLoad = new Promise(resolve => frame.addEventListener("load", resolve, {once: true}));
+  page.browser.contentDocument.body.appendChild(frame);
+  await initialLoad;
+  const initialDocument = frame.contentDocument;
+  ok(initialDocument, "The iframe's completed fallback load creates its document before picker Init");
+  const initialId = innerWindowId(frame.contentWindow);
+  ok(initialId > 0, "The completed fallback load has a real inner window before picker Init");
+  is(initialDocument.documentURI, "about:blank", "Begin with the iframe's completed same-origin about:blank");
+  const record = startPicker({window: frame.contentWindow}, Ci.nsIFilePicker.modeOpen);
+  record.open();
+  const visible = await waitFor(() => visiblePicker(record),
+                               "The completed-blank picker must really be visible");
+  if (!visible) {
+    cleanupDialog(record);
+    await awaitCancellation(record);
+    page.window.gBrowser.removeTab(page.tab);
+    return;
+  }
+  is(address(nativeDialogs(record.title)[0].rootOwner), address(page.root),
+     "The completed-blank picker belongs to the shared main root");
+  info("PICKER COMPLETED BLANK " + JSON.stringify({
+    initialDocument: initialDocument.isInitialDocument,
+    innerId: initialId,
+    principal: initialDocument.nodePrincipal.origin
+  }));
+  const uri = page.uri + "?completed-blank-replacement=" + (++serial);
+  const replaced = new Promise(resolve => {
+    function loaded() {
+      if (frame.contentDocument.documentURI != uri) return;
+      frame.removeEventListener("load", loaded);
+      resolve();
+    }
+    frame.addEventListener("load", loaded);
+  });
+  frame.src = uri;
+  await replaced;
+  await finishWithNativeCancel(record);
+  isnot(frame.contentDocument, initialDocument, "Navigation replaces the actual document");
+  ok(isWindow(page.root) && !page.window.closed,
+     "The browser root survives its completed blank document's replacement");
+  page.window.gBrowser.removeTab(page.tab);
+}
+
+async function staleInitialInnerCase() {
+  const page = await tabForPicker();
+  if (!page) return;
+  // An empty-URL content window retains its genuinely initial document.
+  // The iframe fallback about:blank load does not establish this premise.
+  const content = Cu.waiveXrays(page.browser.contentWindow);
+  const opened = content.openInitialPickerOwner("picker-initial-owner-" + (++serial));
+  ok(opened, "The real HTTP content realm opens a fresh empty-URL owner");
+  if (!opened) {
+    page.window.gBrowser.removeTab(page.tab);
+    return;
+  }
+  const owner = Cu.unwaiveXrays(opened);
+  owners.push(owner);
+  const root = handleFor(owner);
+  const navigation = owner.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIWebNavigation);
+  const browser = navigation.QueryInterface(Ci.nsIDocShell).chromeEventHandler;
+  const chromeWindow = browser.ownerDocument.defaultView;
+  const initialDocument = owner.document;
+  const initialId = innerWindowId(owner);
+  const samePrincipal = initialDocument.nodePrincipal.equals(page.browser.contentDocument.nodePrincipal);
+  is(initialDocument.documentURI, "about:blank", "The empty-URL owner starts with about:blank");
+  ok(initialDocument.isInitialDocument, "The native initial-document flag establishes the reuse precondition");
+  ok(samePrincipal, "The initial owner inherits the real HTTP opener's principal");
+  ok(initialId > 0, "The genuinely initial document has a real inner before picker Init");
+  info("PICKER GENUINE INITIAL " + JSON.stringify({
+    initialDocument: initialDocument.isInitialDocument,
+    innerId: initialId,
+    principal: initialDocument.nodePrincipal.origin
+  }));
+  if (!initialDocument.isInitialDocument || !samePrincipal || !initialId) {
+    await closePopupOwner(owner, root, chromeWindow);
+    page.window.gBrowser.removeTab(page.tab);
+    return;
+  }
+  ok(isWindow(root), "The genuinely initial owner has a live native root");
+  is(browser.contentWindow, owner, "Observe navigation on this owner's persistent browser element");
+  // Capture the old document at Init, but navigate before dispatching Open.
+  // Its inner ID alone cannot detect this stale owner: that ID is reused.
+  const record = startPicker({window: owner}, Ci.nsIFilePicker.modeOpen);
+  await loadTab(browser, page.uri + "?stale-initial-inner=" + (++serial));
+  isnot(owner.document, initialDocument, "The navigation replaces the genuinely initial document");
+  is(innerWindowId(owner), initialId, "The same-origin replacement genuinely reuses the initial inner");
+  is(nativeDialogs(record.title).length, 0, "No native picker exists before stale Open");
+  record.open();
+  await awaitCancellation(record);
+  is(nativeDialogs(record.title).length, 0, "Stale same-inner Open never leaves a native picker");
+  ok(isWindow(root) && !owner.closed, "Rejecting the stale document preserves the live owner and native root");
+  await closePopupOwner(owner, root, chromeWindow);
+  page.window.gBrowser.removeTab(page.tab);
+}
+
+async function staleNavigationCase(mode) {
+  const page = await tabForPicker();
+  if (!page) return;
+  const originalInner = innerWindowId(page.browser.contentWindow);
+  const record = startPicker({window: page.browser.contentWindow}, mode);
+  await loadTab(page.browser, page.uri + "?stale-navigation=" + (++serial));
+  isnot(innerWindowId(page.browser.contentWindow), originalInner,
+        "A normal navigation replaces the initialized owner's inner before Open");
+  record.open();
+  await awaitCancellation(record);
+  is(nativeDialogs(record.title).length, 0, "Stale navigated Open leaves no native dialog");
+  ok(isWindow(page.root) && !page.window.closed, "Rejecting stale navigation preserves the browser root");
+  page.window.gBrowser.removeTab(page.tab);
+}
+
+async function liveOwnerUnaffectedCase() {
+  const page = await tabForPicker();
+  if (!page) return;
+  const record = startPicker({window: page.browser.contentWindow}, Ci.nsIFilePicker.modeOpen);
+  record.open();
+  const visible = await waitFor(() => visiblePicker(record),
+                               "The positive live-owner picker must be visible");
+  if (!visible) {
+    cleanupDialog(record);
+    await awaitCancellation(record);
+    page.window.gBrowser.removeTab(page.tab);
+    return;
+  }
+  const unrelated = page.window.gBrowser.addTab("about:blank");
+  tabs.push({window: page.window, tab: unrelated});
+  await loadTab(unrelated.linkedBrowser, page.uri); // Same URI, different document/inner.
+  await loadTab(unrelated.linkedBrowser, page.uri + "?unrelated=" + (++serial));
+  page.window.gBrowser.removeTab(unrelated);
+  await new Promise(resolve => SimpleTest.executeSoon(resolve));
+  ok(!record.done, "An unrelated same-URI document's navigation/close does not cancel the picker");
+  const dialogs = nativeDialogs(record.title);
+  is(dialogs.length, 1, "The live owner's dialog remains visible after unrelated lifecycle events");
+  ok(isWindow(page.root) && !page.browser.contentWindow.closed, "The positive owner stays alive");
+  await finishWithNativeCancel(record);
+  ok(isWindow(page.root) && !page.browser.contentWindow.closed,
+     "Normal native Cancel preserves the owner and browser root");
+  page.window.gBrowser.removeTab(page.tab);
+}
+
+
+async function run() {
+  const pref = "browser.link.open_newwindow.restriction";
+  if (Services.prefs.getIntPref(pref) != 2) {
+    await SpecialPowers.pushPrefEnv({set: [[pref, 2]]});
+    changedRouting = true;
+  }
+  await staleOwnerCase(Ci.nsIFilePicker.modeOpen);
+  await staleOwnerCase(Ci.nsIFilePicker.modeGetFolder);
+  await staleNavigationCase(Ci.nsIFilePicker.modeOpen);
+  await staleNavigationCase(Ci.nsIFilePicker.modeGetFolder);
+  await activeOwnerCase([Ci.nsIFilePicker.modeOpen]);
+  await activeOwnerCase([Ci.nsIFilePicker.modeGetFolder]);
+  await activeOwnerCase([Ci.nsIFilePicker.modeOpen, Ci.nsIFilePicker.modeGetFolder]);
+  await logicalTabCase(false, Ci.nsIFilePicker.modeOpen);
+  await logicalTabCase(false, Ci.nsIFilePicker.modeGetFolder);
+  await logicalTabCase(true, Ci.nsIFilePicker.modeOpen);
+  await logicalTabCase(true, Ci.nsIFilePicker.modeGetFolder);
+  await completedBlankReplacementCase();
+  await staleInitialInnerCase();
+  await liveOwnerUnaffectedCase();
+}
+
+SimpleTest.registerCleanupFunction(async function() {
+  for (const record of pending) {
+    cleanupDialog(record);
+  }
+  await waitFor(() => pending.every(record => !record.started || record.done),
+                "Every opened native picker must finish before cleanup exits");
+  for (const owner of owners) {
+    if (!windowIsClosed(owner)) owner.close();
+  }
+  for (const entry of tabs) {
+    if (!Cu.isDeadWrapper(entry.window) && !entry.window.closed &&
+        !Cu.isDeadWrapper(entry.tab) && entry.tab.parentNode) {
+      entry.window.gBrowser.removeTab(entry.tab);
+    }
+  }
+  if (changedRouting) await SpecialPowers.popPrefEnv();
+  user32.close();
+  kernel32.close();
+});
+
+window.addEventListener("load", function start() {
+  window.removeEventListener("load", start);
+  run().catch(error => ok(false, error + "\n" + error.stack))
+       .then(() => SimpleTest.finish());
+});
+]]></script>
+<body xmlns="http://www.w3.org/1999/xhtml"/>
+</window>

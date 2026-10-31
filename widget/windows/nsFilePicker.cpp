@@ -17,6 +17,7 @@
 
 #include "mozilla/mscom/EnsureMTA.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/Logging.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WindowsVersion.h"
 #include "nsReadableUtils.h"
@@ -32,6 +33,9 @@
 #include "nsToolkit.h"
 #include "WinUtils.h"
 #include "nsPIDOMWindow.h"
+#include "nsIDocument.h"
+#include "nsIWeakReferenceUtils.h"
+#include "nsThreadUtils.h"
 #include "GeckoProfiler.h"
 
 using mozilla::IsWin8OrLater;
@@ -41,6 +45,18 @@ using mozilla::mscom::EnsureMTA;
 using mozilla::Preferences;
 using mozilla::UniquePtr;
 using namespace mozilla::widget;
+
+// Keep lifecycle diagnostics available in optimized builds, where this tree's
+// MOZ_LOG macro is compiled out. Opt in with FilePickerLifecycle:5,timestamp.
+static mozilla::LazyLogModule sFilePickerLifecycleLog("FilePickerLifecycle");
+#define FILE_PICKER_LIFECYCLE_LOG(...)                                      \
+  do {                                                                    \
+    if (mozilla::detail::log_test(sFilePickerLifecycleLog,                  \
+                                 mozilla::LogLevel::Debug)) {               \
+      mozilla::detail::log_print(sFilePickerLifecycleLog,                   \
+                                mozilla::LogLevel::Debug, __VA_ARGS__);     \
+    }                                                                     \
+  } while (0)
 
 UniquePtr<char16_t[], nsFilePicker::FreeDeleter>
     nsFilePicker::sLastUsedUnicodeDirectory;
@@ -100,35 +116,43 @@ private:
   HWND mWnd;
 };
 
-// Manages matching PickerOpen/PickerClosed calls on the parent widget.
+// Pin the native owner until all picker COM objects, result objects, RTL shims
+// and suppression scopes have been released. ShowW owns this once for either
+// file or folder mode; native owner destruction remains deferred by nsWindow.
 class AutoWidgetPickerState
 {
 public:
-  explicit AutoWidgetPickerState(nsIWidget* aWidget) :
-    mWindow(static_cast<nsWindow *>(aWidget)) {
-    PickerState(true);
-  }
-
-  ~AutoWidgetPickerState() {
-    PickerState(false);
-  }
-private:
-  void PickerState(bool aFlag) {
-    if (mWindow) {
-      if (aFlag)
-        mWindow->PickerOpen();
-      else
-        mWindow->PickerClosed();
+  explicit AutoWidgetPickerState(nsIWidget* aWidget)
+    : mWindow(static_cast<nsWindow*>(aWidget)), mOpen(false) {
+    MOZ_ASSERT(NS_IsMainThread());
+    if (mWindow && !mWindow->DestroyCalled()) {
+      mWindow->PickerOpen();
+      mOpen = true;
     }
   }
+
+  AutoWidgetPickerState(const AutoWidgetPickerState&) = delete;
+  AutoWidgetPickerState& operator=(const AutoWidgetPickerState&) = delete;
+
+  ~AutoWidgetPickerState() {
+    MOZ_ASSERT(NS_IsMainThread());
+    if (mOpen) {
+      mWindow->PickerClosed();
+    }
+  }
+
+  bool IsValid() const { return !mWindow || mOpen; }
+
+private:
   RefPtr<nsWindow> mWindow;
+  bool mOpen;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 // nsIFilePicker
 
 nsFilePicker::nsFilePicker()
-    : mSelectedType(1) {}
+    : mSelectedType(1), mRequireInteraction(false), mOwnerInnerWindowId(0) {}
 
 NS_IMPL_ISUPPORTS(nsFilePicker, nsIFilePicker)
 
@@ -139,8 +163,20 @@ NS_IMETHODIMP nsFilePicker::Init(mozIDOMWindowProxy *aParent, const nsAString& a
   nsIDocShell* docShell = window ? window->GetDocShell() : nullptr;  
   mLoadContext = do_QueryInterface(docShell);
   mRequireInteraction = aRequireInteraction;
+  nsPIDOMWindowInner* inner = window ? window->GetCurrentInnerWindow() : nullptr;
+  mOwnerInnerWindowId = inner ? inner->WindowID() : 0;
+  nsIDocument* document = window ? window->GetExtantDoc() : nullptr;
+  mOwnerDocument = do_GetWeakReference(document);
+  FILE_PICKER_LIFECYCLE_LOG(
+    "init picker=%p owner=%p widget=%p inner=%p capturedInner=%llu doc=%p mode=%d",
+    this, window.get(), mParentWidget.get(), inner,
+    static_cast<unsigned long long>(mOwnerInnerWindowId), document, aMode);
+  NS_ENSURE_TRUE(!document || mOwnerDocument, NS_ERROR_FAILURE);
   
-  return nsBaseFilePicker::Init(aParent, aTitle, aMode);
+  nsresult rv = nsBaseFilePicker::Init(aParent, aTitle, aMode);
+  FILE_PICKER_LIFECYCLE_LOG("init-result picker=%p owner=%p widget=%p rv=0x%08lx",
+    this, mParent.get(), mParentWidget.get(), static_cast<unsigned long>(rv));
+  return rv;
 }
 
 /*
@@ -157,6 +193,9 @@ NS_IMETHODIMP nsFilePicker::Init(mozIDOMWindowProxy *aParent, const nsAString& a
 bool
 nsFilePicker::ShowFolderPicker(const nsString& aInitialDir)
 {
+  if (IsOwnerWindowClosed()) {
+    return false;
+  }
   if (!IsWin8OrLater()) {
     // Some Windows 7 users are experiencing a race condition when some dlls
     // that are loaded by the file picker cause a crash while attempting to shut
@@ -220,7 +259,15 @@ nsFilePicker::ShowFolderPicker(const nsString& aInitialDir)
  
   // display
   RefPtr<IShellItem> item;
-  if (FAILED(dialog->Show(adtw.get())) ||
+  if (IsOwnerWindowClosed()) {
+    return false;
+  }
+  FILE_PICKER_LIFECYCLE_LOG("show-begin picker=%p dialog=%p parentHwnd=%p folder=1",
+    this, dialog.get(), adtw.get());
+  hr = dialog->Show(adtw.get());
+  FILE_PICKER_LIFECYCLE_LOG("show-end picker=%p dialog=%p hr=0x%08lx folder=1",
+    this, dialog.get(), static_cast<unsigned long>(hr));
+  if (FAILED(hr) || IsOwnerWindowClosed() ||
       FAILED(dialog->GetResult(getter_AddRefs(item))) ||
       !item) {
     return false;
@@ -271,6 +318,9 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir)
 {
   PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
 
+  if (IsOwnerWindowClosed()) {
+    return false;
+  }
   if (!IsWin8OrLater()) {
     // Some Windows 7 users are experiencing a race condition when some dlls
     // that are loaded by the file picker cause a crash while attempting to shut
@@ -425,9 +475,15 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir)
   {
     AutoDestroyTmpWindow adtw((HWND)(mParentWidget.get() ?
       mParentWidget->GetNativeData(NS_NATIVE_TMP_WINDOW) : nullptr));
-    AutoWidgetPickerState awps(mParentWidget);
-
-    if (FAILED(dialog->Show(adtw.get()))) {
+    if (IsOwnerWindowClosed()) {
+      return false;
+    }
+    FILE_PICKER_LIFECYCLE_LOG("show-begin picker=%p dialog=%p parentHwnd=%p folder=0",
+      this, dialog.get(), adtw.get());
+    hr = dialog->Show(adtw.get());
+    FILE_PICKER_LIFECYCLE_LOG("show-end picker=%p dialog=%p hr=0x%08lx folder=0",
+      this, dialog.get(), static_cast<unsigned long>(hr));
+    if (FAILED(hr) || IsOwnerWindowClosed()) {
       return false;
     }
   }
@@ -481,12 +537,78 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir)
 ///////////////////////////////////////////////////////////////////////////////
 // nsIFilePicker impl.
 
+bool
+nsFilePicker::IsOwnerWindowClosed() const
+{
+  auto logResult = [this](const char* aReason, bool aClosed) {
+    if (mozilla::detail::log_test(sFilePickerLifecycleLog,
+                                 mozilla::LogLevel::Debug)) {
+      nsPIDOMWindowInner* current = mParent ? mParent->GetCurrentInnerWindow() : nullptr;
+      nsIDocument* currentDocument = mParent ? mParent->GetExtantDoc() : nullptr;
+      nsCOMPtr<nsIDocument> original = do_QueryReferent(mOwnerDocument);
+      auto* widget = static_cast<nsWindow*>(mParentWidget.get());
+      FILE_PICKER_LIFECYCLE_LOG(
+        "owner-check picker=%p owner=%p capturedInner=%llu currentInner=%p "
+        "currentInnerId=%llu capturedDoc=%p currentDoc=%p initialDoc=%d "
+        "logicalClosed=%d docshell=%p frozen=%d widget=%p hwnd=%p "
+        "destroyCalled=%d closed=%d reason=%s",
+        this, mParent.get(), static_cast<unsigned long long>(mOwnerInnerWindowId),
+        current, static_cast<unsigned long long>(current ? current->WindowID() : 0),
+        original.get(), currentDocument,
+        currentDocument && currentDocument->IsInitialDocument(),
+        mParent && mParent->Closed(), mParent ? mParent->GetDocShell() : nullptr,
+        current && current->IsFrozen(), widget,
+        widget ? widget->GetNativeData(NS_NATIVE_WINDOW) : nullptr,
+        widget && widget->DestroyCalled(), aClosed, aReason);
+    }
+    return aClosed;
+  };
+  // Absence of a parent is legitimate. A detached logical owner is not:
+  // upload-directory lookup can complete after its tab/window has closed,
+  // even while the shared browser widget remains alive.
+  if (mParent) {
+    if (mParent->Closed() || !mParent->GetDocShell()) {
+      return logResult("logical-owner-detached", true);
+    }
+    nsPIDOMWindowInner* inner = mParent->GetCurrentInnerWindow();
+    if (mOwnerInnerWindowId &&
+        (!inner || inner->WindowID() != mOwnerInnerWindowId || inner->IsFrozen())) {
+      return logResult("inner-replaced-or-frozen", true);
+    }
+    if (mOwnerDocument) {
+      nsCOMPtr<nsIDocument> document = do_QueryReferent(mOwnerDocument);
+      if (!document || document != mParent->GetExtantDoc()) {
+        return logResult("document-replaced", true);
+      }
+    }
+  }
+  bool closed = mParentWidget &&
+                static_cast<nsWindow*>(mParentWidget.get())->DestroyCalled();
+  return logResult(closed ? "widget-destroyed" : "live-or-parentless", closed);
+}
+
 NS_IMETHODIMP
 nsFilePicker::ShowW(int16_t *aReturnVal)
 {
+  FILE_PICKER_LIFECYCLE_LOG("showw picker=%p owner=%p widget=%p mode=%d",
+    this, mParent.get(), mParentWidget.get(), mMode);
   NS_ENSURE_ARG_POINTER(aReturnVal);
 
   *aReturnVal = returnCancel;
+
+  // Clear a reused picker's previous results before any early cancellation.
+  mUnicodeFile.Truncate();
+  mFiles.Clear();
+  if (IsOwnerWindowClosed()) {
+    return NS_OK;
+  }
+
+  // Keep this outermost: both picker modes must release their COM objects
+  // and RTL owner shim before PickerClosed can finish destroying the widget.
+  AutoWidgetPickerState pickerState(mParentWidget);
+  if (!pickerState.IsValid()) {
+    return NS_OK;
+  }
 
   AutoSuppressEvents supress(mParentWidget);
 
@@ -500,10 +622,6 @@ nsFilePicker::ShowW(int16_t *aReturnVal)
     initialDir = sLastUsedUnicodeDirectory.get();
   }
 
-  // Clear previous file selections
-  mUnicodeFile.Truncate();
-  mFiles.Clear();
-
   // On Win10, the picker doesn't support per-monitor DPI, so we open it
   // with our context set temporarily to system-dpi-aware
   WinUtils::AutoSystemDpiAware dpiAwareness;
@@ -516,8 +634,11 @@ nsFilePicker::ShowW(int16_t *aReturnVal)
   }
 
   // exit, and return returnCancel in aReturnVal
-  if (!result)
+  if (!result || IsOwnerWindowClosed()) {
+    mUnicodeFile.Truncate();
+    mFiles.Clear();
     return NS_OK;
+  }
 
   RememberLastUsedDirectory();
 
@@ -543,6 +664,8 @@ nsFilePicker::Show(int16_t *aReturnVal)
 {
   return ShowW(aReturnVal);
 }
+
+#undef FILE_PICKER_LIFECYCLE_LOG
 
 NS_IMETHODIMP
 nsFilePicker::GetFile(nsIFile **aFile)
