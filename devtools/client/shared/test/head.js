@@ -104,10 +104,102 @@ function oneTimeObserve(name, callback) {
   });
 }
 
+function waitForHostLoadAndPaint(iframe) {
+  return new Promise(resolve => {
+    let win = iframe.contentWindow;
+    let shell = win.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDocShell);
+    let target = shell.chromeEventHandler;
+    let utils = win.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
+    let initialDocument = iframe.contentDocument;
+    let loadedDocument = null;
+    let paintedDocument = null;
+    let done = false;
+
+    function cleanup() {
+      if (done) {
+        return;
+      }
+      done = true;
+      try {
+        if (target && !Cu.isDeadWrapper(target)) {
+          try {
+            target.removeEventListener("load", onLoad, true);
+          } finally {
+            target.removeEventListener("MozAfterPaint", onPaint, true);
+          }
+        }
+      } finally {
+        iframe = win = shell = utils = target = null;
+        initialDocument = loadedDocument = paintedDocument = null;
+      }
+    }
+
+    function paintingIsReady() {
+      if (done) {
+        return false;
+      }
+      try {
+        let id = {};
+        utils.getPresShellId(id);
+        return !!id.value && !utils.paintingSuppressed;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function maybeResolve() {
+      if (done) {
+        return;
+      }
+      let doc = iframe.contentDocument;
+      if (doc && doc != initialDocument && doc == loadedDocument &&
+          doc == paintedDocument && doc.readyState == "complete" && paintingIsReady()) {
+        cleanup();
+        resolve();
+      }
+    }
+
+    function onLoad(event) {
+      if (done) {
+        return;
+      }
+      let doc = iframe.contentDocument;
+      if (event.target != doc || doc == initialDocument) {
+        return;
+      }
+      loadedDocument = doc;
+      maybeResolve();
+    }
+
+    function onPaint(event) {
+      if (done) {
+        return;
+      }
+      let doc = iframe.contentDocument;
+      // MozAfterPaint targets the window, while load targets its document.
+      // Ignore descendant paints and the initial about:blank presentation.
+      if (event.target != win || event.target.document != doc ||
+          doc == initialDocument || !paintingIsReady()) {
+        return;
+      }
+      paintedDocument = doc;
+      maybeResolve();
+    }
+
+    registerCleanupFunction(cleanup);
+    target.addEventListener("load", onLoad, {capture: true, passive: true});
+    target.addEventListener("MozAfterPaint", onPaint, {capture: true, passive: true});
+  });
+}
+
 let createHost =
 Task.async(function* (type = "bottom", src = "data:text/html;charset=utf-8,") {
   let host = new Hosts[type](gBrowser.selectedTab);
   let iframe = yield host.create();
+  // DOMContentLoaded can precede load completion and paint unsuppression.
+  // Widget hit testing may still use the previous about:blank viewer then.
+  // Subscribe before navigation so either load/paint ordering is handled.
+  let ready = waitForHostLoadAndPaint(iframe);
 
   yield new Promise(resolve => {
     let domHelper = new DOMHelpers(iframe.contentWindow);
@@ -115,6 +207,7 @@ Task.async(function* (type = "bottom", src = "data:text/html;charset=utf-8,") {
     domHelper.onceDOMReady(resolve);
   });
 
+  yield ready;
   return [host, iframe.contentWindow, iframe.contentDocument];
 });
 

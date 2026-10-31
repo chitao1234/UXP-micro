@@ -90,8 +90,12 @@ function* testKeyboardInteraction(tree, win) {
   info("clicking on first top level item");
   let node = tree.root.children.firstChild.firstChild;
   event = defer();
+  // Selection fires during mousedown, before the click's default focus has
+  // completed. Wait for both events before sending keyboard input.
+  let clicked = once(node, "click");
   tree.once("select", pass);
   click(node);
+  yield clicked;
   yield event.promise;
   node = tree.root.children.firstChild.nextSibling.firstChild;
   // node should not have selected class
