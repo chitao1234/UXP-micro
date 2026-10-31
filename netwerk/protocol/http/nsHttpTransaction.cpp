@@ -1350,7 +1350,23 @@ nsHttpTransaction::Restart()
 
     mTransportStatus = NS_OK;
 
-    return gHttpHandler->InitiateTransaction(this, mPriority);
+    // A retry on an established connection is not bootstrapped again.  Keep
+    // the timestamps for the attempt that serves the request, as in Firefox
+    // bug 2067308, so only-if-null setters can stamp the retry's requestStart.
+    TimingStruct previousTimings;
+    {
+        MutexAutoLock lock(mLock);
+        previousTimings = mTimings;
+        mTimings = TimingStruct();
+    }
+
+    nsresult rv = gHttpHandler->InitiateTransaction(this, mPriority);
+    if (NS_FAILED(rv)) {
+        // There will be no next attempt.  Preserve the failed attempt's data.
+        MutexAutoLock lock(mLock);
+        mTimings = previousTimings;
+    }
+    return rv;
 }
 
 char *
