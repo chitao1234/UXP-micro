@@ -652,6 +652,14 @@ StyleEditorUI.prototype = {
 
           this.emit("editor-selected", showEditor);
 
+          // Coverage reports use generated CSS coordinates. Original sources
+          // have OriginalSourceActors, not StyleSheetActors, and their ranges
+          // cannot be marked without mapping them back through the source map.
+          if (showEditor.styleSheet.isOriginalSource) {
+            showEditor.removeAllUnusedRegions();
+            return;
+          }
+
           // Is there any CSS coverage markup to include?
           let usage = yield csscoverage.getUsage(this._target);
           if (usage == null) {
