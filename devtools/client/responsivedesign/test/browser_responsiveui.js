@@ -207,20 +207,123 @@ function* verifyResize(rdm, expectedWidth, expectedHeight) {
 
 function* testScreenshot(rdm) {
   info("Testing screenshot");
-  rdm.screenshot("responsiveui");
   let {FileUtils} = Cu.import("resource://gre/modules/FileUtils.jsm", {});
+  let {Downloads} = Cu.import("resource://gre/modules/Downloads.jsm", {});
+  let directory = FileUtils.getFile("TmpD", ["responsiveui-screenshot"]);
+  directory.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+  let file = directory.clone();
+  file.append("responsiveui.png");
 
-  while (true) {
-    // while(true) until we find the file.
-    // no need for a timeout, the test will get killed anyway.
-    let file = FileUtils.getFile("DfltDwnld", [ "responsiveui.png" ]);
-    if (file.exists()) {
-      ok(true, "Screenshot file exists");
-      file.remove(false);
-      break;
+  let list;
+  let view;
+  let download;
+  let image;
+  let prefsPushed = false;
+  let cleanedUp = false;
+  let cleanup = Task.async(function* () {
+    if (cleanedUp) {
+      return;
     }
-    info("checking if file exists in 200ms");
-    yield wait(200);
+    cleanedUp = true;
+    try {
+      if (image) {
+        image.onload = null;
+        image.onerror = null;
+        image.removeAttribute("src");
+      }
+      if (view) {
+        yield list.removeView(view);
+      }
+      try {
+        if (download) {
+          yield list.remove(download);
+          yield download.finalize(true);
+        }
+      } finally {
+        if (directory.exists()) {
+          directory.remove(true);
+        }
+      }
+    } finally {
+      if (prefsPushed) {
+        yield SpecialPowers.popPrefEnv();
+      }
+    }
+  });
+  registerCleanupFunction(cleanup);
+
+  try {
+    yield SpecialPowers.pushPrefEnv({set: [
+      ["browser.download.useDownloadDir", true],
+      ["browser.download.folderList", 2],
+      ["browser.download.dir", directory.path],
+    ]});
+    prefsPushed = true;
+    list = yield Downloads.getList(Downloads.ALL);
+    is(yield Downloads.getPreferredDownloadsDirectory(), directory.path,
+       "The screenshot uses its isolated download directory");
+
+    let size = yield ContentTask.spawn(rdm.tab.linkedBrowser, null, function* () {
+      return {
+        width: content.innerWidth,
+        height: content.innerHeight,
+        ratio: content.devicePixelRatio,
+      };
+    });
+    let screenshotSucceeded = new Promise((resolve, reject) => {
+      view = {
+        onDownloadAdded: candidate => {
+          if (candidate.target.path !== file.path) {
+            return;
+          }
+          download = candidate;
+          candidate.whenSucceeded().then(() => {
+            if (!cleanedUp) {
+              resolve();
+            }
+          });
+          // whenSucceeded never rejects, so check failures separately too.
+          view.onDownloadChanged(candidate);
+        },
+        onDownloadChanged: candidate => {
+          if (!cleanedUp && candidate === download &&
+              (candidate.error || candidate.canceled)) {
+            reject(candidate.error || new Error("Screenshot download was canceled"));
+          }
+        },
+      };
+    });
+    yield list.addView(view);
+    rdm.screenshot("responsiveui");
+    yield screenshotSucceeded;
+
+    ok(download.succeeded, "The screenshot download succeeded");
+    ok(download.source.url.startsWith("data:image/png;"),
+       "The screenshot download contains the captured PNG");
+    ok(file.exists(), "Screenshot file exists at the requested target");
+
+    image = new Image();
+    yield new Promise((resolve, reject) => {
+      image.onload = () => {
+        if (!cleanedUp) {
+          resolve();
+        }
+      };
+      image.onerror = () => {
+        if (!cleanedUp) {
+          reject(new Error("Screenshot PNG could not be decoded"));
+        }
+      };
+      image.src = Services.io.newFileURI(file).spec;
+    });
+    // The classic child multiplies the content viewport by its own DPR, then
+    // assigns the result to the canvas's integer width and height attributes.
+    is(image.naturalWidth, Math.floor(size.width * size.ratio),
+       "Screenshot width matches the content viewport and DPR");
+    is(image.naturalHeight, Math.floor(size.height * size.ratio),
+       "Screenshot height matches the content viewport and DPR");
+  } finally {
+    yield cleanup();
   }
 }
 
