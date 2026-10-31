@@ -82,7 +82,8 @@ window.onload = function() {
       "A CSS variable with spaces fails");
 
     is(toSortedString(cssProperties.getValues('margin')),
-       toSortedString(["-moz-calc","auto","calc","inherit","initial","unset"]),
+       toSortedString(["-moz-calc", "auto", "calc", "inherit", "initial",
+                       "revert", "revert-layer", "unset"]),
        "Can get values for the CSS margin.");
     is(cssProperties.getValues('foobar').length, 0,
       "Unknown values return an empty array.");
@@ -97,6 +98,10 @@ window.onload = function() {
 
     ok(cssProperties.isValidOnClient("margin", "0px", window.document),
       "Margin and 0px are valid CSS values");
+    ok(cssProperties.isValidOnClient("margin", "revert", window.document),
+      "Margin accepts the revert CSS-wide keyword");
+    ok(cssProperties.isValidOnClient("margin", "revert-layer", window.document),
+      "Margin accepts the revert-layer CSS-wide keyword");
     ok(!cssProperties.isValidOnClient("margin", "foo", window.document),
       "Margin and foo are not valid CSS values");
   });
