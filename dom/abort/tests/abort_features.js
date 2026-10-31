@@ -80,11 +80,35 @@ async function runAbortDeadlineTests(base) {
     for (const n of ['1','2','3']) AbortSignal.timeout(5).onabort = () => order += n;
     await new Promise(resolve => AbortSignal.timeout(5).onabort = resolve);
     check(order === '123', 'same deadline insertion order');
-    const protectedSignal = AbortSignal.timeout(10);
-    for (let n = 1; n <= 1000; ++n) clearTimeout(n);
-    await new Promise(resolve => protectedSignal.onabort = resolve);
-    check(protectedSignal.aborted, 'clearTimeout cannot cancel native deadline');
   });
+  // Keep the timer-ID sweep out of this global: it would cancel bounded()'s
+  // watchdog and the surrounding mochitest's timers as well as the probe's.
+  // Worker is exposed in Window and DedicatedWorker, so both runs retain this
+  // native-deadline check without changing their parent's timeout machinery.
+  let timeoutClearWorker;
+  try {
+    await test('clearTimeout protection', async () => {
+      timeoutClearWorker = new Worker(new URL('worker_abort_timeout_clear.js', base).href);
+      const outcome = await new Promise((resolve, reject) => {
+        timeoutClearWorker.onmessage = event => resolve(event.data);
+        timeoutClearWorker.onerror = event => {
+          event.preventDefault();
+          reject(new Error(event.message));
+        };
+      });
+      // Assertions from current Firefox's dom/abort/timeout.any.js, plus this
+      // fork's timer-reason isolation regression exercised by the worker sweep.
+      check(outcome.isSignal, 'protected timeout returns an AbortSignal');
+      check(!outcome.initiallyAborted, 'protected timeout starts un-aborted');
+      check(outcome.aborted && outcome.isDOMException && outcome.reasonName === 'TimeoutError',
+            'protected timeout aborts with a TimeoutError DOMException');
+      check(outcome.aborted, 'clearTimeout cannot cancel native deadline');
+    });
+  } finally {
+    // test() also returns on its bounded failure path, so a broken native
+    // deadline cannot leave the probe worker running through subsequent cases.
+    if (timeoutClearWorker) timeoutClearWorker.terminate();
+  }
   await test('fetch cancellation', async () => {
     for (const reason of [null, 17, { fetch: 'pre-aborted' }]) {
       const c = new AbortController(); c.abort(reason);
