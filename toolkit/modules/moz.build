@@ -5,6 +5,8 @@
 
 SPHINX_TREES['toolkit_modules'] = 'docs'
 
+XPCSHELL_TESTS_MANIFESTS += ['tests/xpcshell/xpcshell.ini']
+
 TESTING_JS_MODULES += [
     'tests/MockDocument.jsm',
     'tests/PromiseTestUtils.jsm',
