@@ -313,13 +313,15 @@ ResponsiveUI.prototype = {
   /**
    * Destroy the nodes. Remove listeners. Reset the style.
    */
-  close: Task.async(function* () {
+  close: Task.async(function* (options) {
     debug("CLOSE BEGINS");
     if (this.closing) {
       debug("ALREADY CLOSING, ABORT");
       return;
     }
     this.closing = true;
+    let isContentDestroying = options &&
+      (options.reason === "unload" || options.reason === "TabClose");
 
     // If we're closing very fast (in tests), ensure init has finished.
     debug("CLOSE: WAIT ON INITED");
@@ -338,7 +340,10 @@ ResponsiveUI.prototype = {
 
     // Wait for resize message before stopping in the child when testing,
     // but only if we should expect to still get a message.
-    if (flags.testing && this.tab.linkedBrowser.messageManager) {
+    // A message manager can still exist after the window starts unloading,
+    // when the content can no longer acknowledge resize or stop requests.
+    if (!isContentDestroying && flags.testing &&
+        this.tab.linkedBrowser.messageManager) {
       yield this.waitForMessage("ResponsiveMode:OnContentResize");
     }
 
@@ -380,12 +385,15 @@ ResponsiveUI.prototype = {
       this.touchEventSimulator.stop();
     }
 
-    yield this.client.close();
+    let clientClosed = this.client.close();
+    if (!isContentDestroying) {
+      yield clientClosed;
+    }
     this.client = this.emulationFront = null;
 
     this._telemetry.toolClosed("responsive");
 
-    if (this.tab.linkedBrowser.messageManager) {
+    if (!isContentDestroying && this.tab.linkedBrowser.messageManager) {
       let stopped = this.waitForMessage("ResponsiveMode:Stop:Done");
       this.tab.linkedBrowser.messageManager.sendAsyncMessage("ResponsiveMode:Stop");
       yield stopped;
@@ -423,7 +431,7 @@ ResponsiveUI.prototype = {
     switch (aEvent.type) {
       case "TabClose":
       case "unload":
-        this.close();
+        this.close({reason: aEvent.type});
         break;
       case "TabSelect":
         if (this.tab.selected) {
