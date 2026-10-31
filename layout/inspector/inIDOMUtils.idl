@@ -128,8 +128,9 @@ interface inIDOMUtils : nsISupports
 
   // Check whether values of the given type are valid values for the property.
   // For shorthands, checks whether there's a corresponding longhand property
-  // that accepts values of this type.  Throws on unsupported properties or
-  // unknown types.
+  // that accepts values of this type.  The 'all' shorthand accepts only
+  // CSS-wide keywords and therefore supports none of these types.
+  // Throws on unsupported properties or unknown types.
   const unsigned long TYPE_LENGTH = 0;
   const unsigned long TYPE_PERCENTAGE = 1;
   const unsigned long TYPE_COLOR = 2;

@@ -750,6 +750,10 @@ static bool
 PropertySupportsVariant(nsCSSPropertyID aPropertyID, uint32_t aVariant)
 {
   if (nsCSSProps::IsShorthand(aPropertyID)) {
+    // 'all' accepts only CSS-wide keywords, not the types of its reset longhands.
+    if (aPropertyID == eCSSProperty_all) {
+      return false;
+    }
     // We need a special case for border here, because while it resets
     // border-image, it can't actually parse an image.
     if (aPropertyID == eCSSProperty_border) {

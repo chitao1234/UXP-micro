@@ -52,6 +52,19 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1006595
      "'color' can be a color");
   ok(utils.cssPropertySupportsType("background", utils.TYPE_COLOR),
      "'background' can be a color");
+  // Supplemental regression for this legacy API.  Firefox 78 and current
+  // Firefox's properties.mako.rs explicitly give 'all' SUPPORTED_TYPES = 0;
+  // neither reference's Inspector tests contain a direct all-types assertion.
+  // Keep the neighboring shorthand/longhand positive controls unchanged.
+  for (var typeName of [
+    "TYPE_LENGTH", "TYPE_PERCENTAGE", "TYPE_COLOR", "TYPE_URL", "TYPE_ANGLE",
+    "TYPE_FREQUENCY", "TYPE_TIME", "TYPE_GRADIENT", "TYPE_TIMING_FUNCTION",
+    "TYPE_IMAGE_RECT", "TYPE_NUMBER"
+  ]) {
+    ok(!utils.cssPropertySupportsType("all", utils[typeName]),
+       "'all' accepts only CSS-wide keywords, not " + typeName);
+  }
+
   ok(!utils.cssPropertySupportsType("background-image", utils.TYPE_COLOR),
      "'background-image' can't be a color");
 
