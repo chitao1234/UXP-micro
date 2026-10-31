@@ -42,8 +42,12 @@ function run_test() {
     "Common name is correct.");
   equal(result.subject.organization, DUMMY_CERT.organization,
     "Organization is correct.");
-  equal(result.subject.organizationUnit, DUMMY_CERT.organizationUnit,
+  equal(result.subject.organizationUnit, DUMMY_CERT.organizationalUnit,
     "Organizational unit is correct.");
+  ok(Object.prototype.hasOwnProperty.call(result.subject, "organizationUnit"),
+    "The subject uses the same organizational-unit field as the issuer.");
+  ok(!Object.prototype.hasOwnProperty.call(result.subject, "organizationalUnit"),
+    "The native certificate attribute does not leak into the protocol shape.");
 
   // Issuer
   equal(result.issuer.commonName, DUMMY_CERT.issuerCommonName,
@@ -52,6 +56,8 @@ function run_test() {
     "Organization of the issuer is correct.");
   equal(result.issuer.organizationUnit, DUMMY_CERT.issuerOrganizationUnit,
     "Organizational unit of the issuer is correct.");
+  notEqual(result.subject.organizationUnit, result.issuer.organizationUnit,
+    "Distinct subject and issuer organizational units are preserved.");
 
   // Validity
   equal(result.validity.start, DUMMY_CERT.validity.notBeforeLocalDay,
@@ -64,4 +70,16 @@ function run_test() {
     "Certificate SHA1 fingerprint is correct.");
   equal(result.fingerprint.sha256, DUMMY_CERT.sha256Fingerprint,
     "Certificate SHA256 fingerprint is correct.");
+
+  let noUnits = Object.assign({}, DUMMY_CERT, {
+    organizationalUnit: "",
+    issuerOrganizationUnit: ""
+  });
+  let emptyResult = NetworkHelper.parseCertificateInfo(noUnits);
+  equal(emptyResult.subject.organizationUnit, "",
+    "An absent subject unit remains empty for the UI's unavailable label.");
+  equal(emptyResult.issuer.organizationUnit, "",
+    "An absent issuer unit remains empty for the UI's unavailable label.");
+  deepEqual(NetworkHelper.parseCertificateInfo(null), {},
+    "A missing certificate does not invent certificate fields.");
 }

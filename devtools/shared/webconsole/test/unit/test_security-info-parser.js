@@ -39,6 +39,7 @@ const MockSecurityInfo = {
   securityState: wpl.STATE_IS_SECURE,
   errorCode: 0,
   SSLStatus: {
+    cipherName: "AES-GCM",
     cipherSuite: "TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256",
     protocolVersion: 3, // TLS_VERSION_1_2
     serverCert: MockCertificate,
@@ -50,8 +51,10 @@ function run_test() {
 
   equal(result.state, "secure", "State is correct.");
 
-  equal(result.cipherSuite, MockSecurityInfo.cipherSuite,
+  equal(result.cipherSuite, MockSecurityInfo.SSLStatus.cipherSuite,
     "Cipher suite is correct.");
+  notEqual(result.cipherSuite, MockSecurityInfo.SSLStatus.cipherName,
+    "The full TLS suite is reported instead of only its symmetric cipher.");
 
   equal(result.protocolVersion, "TLSv1.2", "Protocol version is correct.");
 

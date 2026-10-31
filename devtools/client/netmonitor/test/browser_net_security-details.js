@@ -63,7 +63,9 @@ add_task(function* () {
 
   checkLabel("#security-cert-issuer-cn", "Temporary Certificate Authority");
   checkLabel("#security-cert-issuer-o", "Mozilla Testing");
-  checkLabel("#security-cert-issuer-ou", "<Not Available>");
+  // The PGO CA has this OU in both the ESR52 generator and the current
+  // pgoca.certspec. The old field-name mismatch hid it from this panel.
+  checkLabel("#security-cert-issuer-ou", "Profile Guided Optimization");
 
   // These two values can change. So only check they're not empty.
   checkLabelNotEmpty("#security-keagroup-value");

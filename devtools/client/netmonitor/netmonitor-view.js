@@ -1152,11 +1152,11 @@ NetworkDetailsView.prototype = {
       let cert = securityInfo.cert;
       setValue("#security-cert-subject-cn", cert.subject.commonName);
       setValue("#security-cert-subject-o", cert.subject.organization);
-      setValue("#security-cert-subject-ou", cert.subject.organizationalUnit);
+      setValue("#security-cert-subject-ou", cert.subject.organizationUnit);
 
       setValue("#security-cert-issuer-cn", cert.issuer.commonName);
       setValue("#security-cert-issuer-o", cert.issuer.organization);
-      setValue("#security-cert-issuer-ou", cert.issuer.organizationalUnit);
+      setValue("#security-cert-issuer-ou", cert.issuer.organizationUnit);
 
       setValue("#security-cert-validity-begins", cert.validity.start);
       setValue("#security-cert-validity-expires", cert.validity.end);

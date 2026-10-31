@@ -619,7 +619,7 @@ var NetworkHelper = {
       }
 
       // Cipher suite.
-      info.cipherSuite = SSLStatus.cipherName;
+      info.cipherSuite = SSLStatus.cipherSuite;
 
       // Key exchange group name.
       info.keaGroupName = SSLStatus.keaGroupName;
@@ -692,7 +692,7 @@ var NetworkHelper = {
    * @return object
    *         An object with following format:
    *           {
-   *             subject: { commonName, organization, organizationalUnit },
+   *             subject: { commonName, organization, organizationUnit },
    *             issuer: { commonName, organization, organizationUnit },
    *             validity: { start, end },
    *             fingerprint: { sha1, sha256 }
@@ -704,7 +704,7 @@ var NetworkHelper = {
       info.subject = {
         commonName: cert.commonName,
         organization: cert.organization,
-        organizationalUnit: cert.organizationalUnit,
+        organizationUnit: cert.organizationalUnit,
       };
 
       info.issuer = {

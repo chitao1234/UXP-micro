@@ -9814,7 +9814,7 @@ var Debugger =
 	      }
 	
 	      // Cipher suite.
-	      info.cipherSuite = SSLStatus.cipherName;
+	      info.cipherSuite = SSLStatus.cipherSuite;
 	
 	      // Protocol version.
 	      info.protocolVersion = this.formatSecurityProtocol(SSLStatus.protocolVersion);
@@ -9869,7 +9869,7 @@ var Debugger =
 	      info.subject = {
 	        commonName: cert.commonName,
 	        organization: cert.organization,
-	        organizationalUnit: cert.organizationalUnit
+	        organizationUnit: cert.organizationalUnit
 	      };
 	
 	      info.issuer = {
