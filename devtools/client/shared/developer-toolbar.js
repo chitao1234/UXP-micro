@@ -29,6 +29,7 @@ loader.lazyRequireGetter(this, "util", "gcli/util/util");
 loader.lazyRequireGetter(this, "ConsoleServiceListener", "devtools/server/actors/utils/webconsole-utils", true);
 loader.lazyRequireGetter(this, "gDevTools", "devtools/client/framework/devtools", true);
 loader.lazyRequireGetter(this, "gDevToolsBrowser", "devtools/client/framework/devtools-browser", true);
+loader.lazyRequireGetter(this, "getTheme", "devtools/client/shared/theme", true);
 loader.lazyRequireGetter(this, "nodeConstants", "devtools/shared/dom-node-constants");
 loader.lazyRequireGetter(this, "EventEmitter", "devtools/shared/event-emitter");
 
@@ -962,12 +963,10 @@ OutputPanel.prototype._init = function (devtoolbar) {
   return deferred.promise;
 };
 
-/* Copy the current devtools theme attribute into the iframe,
-   so it can be styled correctly. */
+/* Apply the DevTools theme directly; popup styles support dark and light. */
 OutputPanel.prototype._copyTheme = function () {
   if (this.document) {
-    let theme =
-      this._devtoolbar._doc.documentElement.getAttribute("devtoolstheme");
+    let theme = getTheme() == "dark" ? "dark" : "light";
     this.document.documentElement.setAttribute("devtoolstheme", theme);
   }
 };
@@ -1282,12 +1281,10 @@ TooltipPanel.prototype._init = function (devtoolbar) {
   return deferred.promise;
 };
 
-/* Copy the current devtools theme attribute into the iframe,
-   so it can be styled correctly. */
+/* Apply the DevTools theme directly; popup styles support dark and light. */
 TooltipPanel.prototype._copyTheme = function () {
   if (this.document) {
-    let theme =
-      this._devtoolbar._doc.documentElement.getAttribute("devtoolstheme");
+    let theme = getTheme() == "dark" ? "dark" : "light";
     this.document.documentElement.setAttribute("devtoolstheme", theme);
   }
 };

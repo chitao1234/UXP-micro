@@ -15,10 +15,16 @@ thisTestLeaksUncaughtRejectionsAndShouldBeFixed(
 
 const TEST_URI = "data:text/html;charset=utf-8,<p>Tooltip Tests</p>";
 const PREF_DEVTOOLS_THEME = "devtools.theme";
+const ORIGINAL_THEME = Services.prefs.getCharPref(PREF_DEVTOOLS_THEME);
+const HAD_USER_THEME = Services.prefs.prefHasUserValue(PREF_DEVTOOLS_THEME);
 
 registerCleanupFunction(() => {
   // Set preferences back to their original values
-  Services.prefs.clearUserPref(PREF_DEVTOOLS_THEME);
+  if (HAD_USER_THEME) {
+    Services.prefs.setCharPref(PREF_DEVTOOLS_THEME, ORIGINAL_THEME);
+  } else {
+    Services.prefs.clearUserPref(PREF_DEVTOOLS_THEME);
+  }
 });
 
 add_task(function* showToolbar() {
@@ -62,21 +68,56 @@ add_task(function* testDimensions() {
 
 add_task(function* testThemes() {
   let tooltipPanel = DeveloperToolbar.tooltipPanel;
+  let outputPanel = DeveloperToolbar.outputPanel;
   ok(tooltipPanel.document, "Tooltip panel is initialized");
+  ok(outputPanel.document, "Output panel is initialized");
 
-  Services.prefs.setCharPref(PREF_DEVTOOLS_THEME, "dark");
+  for (let [theme, expected] of [["dark", "dark"], ["light", "light"],
+                               ["firebug", "light"]]) {
+    Services.prefs.setCharPref(PREF_DEVTOOLS_THEME, theme);
 
-  yield DeveloperToolbar.inputter.setInput("");
-  yield DeveloperToolbar.inputter.setInput("help help");
-  is(tooltipPanel.document.documentElement.getAttribute("devtoolstheme"),
-     "dark", "Tooltip panel has correct theme");
+    DeveloperToolbar.inputter.focus();
+    yield DeveloperToolbar.inputter.setInput("");
+    yield DeveloperToolbar.inputter.setInput("help help");
+    // Executing the preceding command normally clears the help request.
+    // Use the same public Escape/F1 actions as Inputter, establishing a real
+    // closed-to-shown transition even when the earlier help was still open.
+    let tooltipHidden = tooltipPanel._panel.state != "closed" ?
+      BrowserTestUtils.waitForEvent(tooltipPanel._panel, "popuphidden") : null;
+    DeveloperToolbar.focusManager.removeHelp();
+    if (tooltipHidden) {
+      yield tooltipHidden;
+    }
+    is(tooltipPanel._panel.state, "closed", "Previous help is closed before requesting help");
+    let tooltipShown = BrowserTestUtils.waitForEvent(tooltipPanel._panel, "popupshown");
+    DeveloperToolbar.focusManager.helpRequest();
+    yield tooltipShown;
+    is(tooltipPanel._panel.state, "open", "The requested help tooltip is actually shown");
+    is(tooltipPanel.document.documentElement.getAttribute("devtoolstheme"),
+       expected, "Tooltip panel follows the DevTools theme: " + theme);
 
-  Services.prefs.setCharPref(PREF_DEVTOOLS_THEME, "light");
-
-  yield DeveloperToolbar.inputter.setInput("");
-  yield DeveloperToolbar.inputter.setInput("help help");
-  is(tooltipPanel.document.documentElement.getAttribute("devtoolstheme"),
-     "light", "Tooltip panel has correct theme");
+    // Exercise the normal output-render/show path with a real command, not a
+    // direct call to _copyTheme or a fabricated browser-root theme attribute.
+    // Toolbar startup may already have displayed the normal welcome output.
+    let previousHidden = outputPanel._panel.state != "closed" ?
+      BrowserTestUtils.waitForEvent(outputPanel._panel, "popuphidden") : null;
+    outputPanel.remove();
+    if (previousHidden) {
+      yield previousHidden;
+    }
+    is(outputPanel._panel.state, "closed", "Previous output is closed before the next command");
+    let shown = BrowserTestUtils.waitForEvent(outputPanel._panel, "popupshown");
+    let output = yield DeveloperToolbar.requisition.updateExec("help");
+    yield output.promise;
+    ok(output.completed && !output.error, "The help command completes successfully");
+    yield shown;
+    is(outputPanel.displayedOutput, output, "The real command output is displayed");
+    is(outputPanel.document.documentElement.getAttribute("devtoolstheme"),
+       expected, "Output panel follows the DevTools theme: " + theme);
+    let hidden = BrowserTestUtils.waitForEvent(outputPanel._panel, "popuphidden");
+    outputPanel.remove();
+    yield hidden;
+  }
 });
 
 add_task(function* hideToolbar() {
