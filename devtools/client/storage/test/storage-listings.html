@@ -100,7 +100,7 @@ function deleteDB(dbName) {
   });
 }
 
-function fetchPut(cache, url) {
+function* fetchPut(cache, url) {
   let response = yield fetch(url);
   yield cache.put(url, response);
 }
