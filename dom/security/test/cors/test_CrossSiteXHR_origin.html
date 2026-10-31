@@ -14,7 +14,7 @@
   
 </div>
 <pre id="test">
-<script class="testbody" type="application/javascript;version=1.8">
+<script class="testbody" type="application/javascript">
 
 SimpleTest.waitForExplicitFinish();
 SimpleTest.requestLongerTimeout(2);
@@ -40,7 +40,8 @@ var origins =
      origin: 'http://xn--hxajbheg2az3al.xn--jxalpdlp'
    },
    { origin: 'http://example.org',
-     file: 'jar:http://example.org/tests/dom/security/test/cors/file_CrossSiteXHR_inner.jar!/file_CrossSiteXHR_inner.html'
+     file: 'jar:http://example.org/tests/dom/security/test/cors/file_CrossSiteXHR_inner.jar!/file_CrossSiteXHR_inner.html',
+     blockedNavigation: true
    },
    { origin: 'null',
      file: 'http://example.org/tests/dom/security/test/cors/file_CrossSiteXHR_inner_data.sjs'
@@ -51,13 +52,15 @@ var origins =
    //['https://sub1.test1.example.com:443'],
 
 window.addEventListener("message", function(e) {
-  gen.send(e.data);
+  gen.next(e.data);
 }, false);
 
 gen = runTest();
 
-function runTest() {
+// Standard generator flow follows Firefox78/current CORS fixtures.
+function* runTest() {
   var loader = document.getElementById('loader');
+  loader.name = "cors-origin-loader";
   var loaderWindow = loader.contentWindow;
   loader.onload = function () { gen.next() };
 
@@ -67,6 +70,32 @@ function runTest() {
 
   for (originEntry of origins) {
     origin = originEntry.origin || originEntry.server;
+
+    if (originEntry.blockedNavigation) {
+      // UXP1c261b24f15 marks jar: as a restricted local-file protocol.
+      // Keep the old remote-jar input as an explicit content-navigation
+      // rejection test. A blocked iframe load cannot supply a load event.
+      const previousDocument = SpecialPowers.wrap(loader).contentDocument;
+      const form = document.createElement("form");
+      form.action = originEntry.file;
+      form.target = loader.name;
+      document.body.appendChild(form);
+      let error;
+      try {
+        form.submit();
+      } catch (exception) {
+        error = exception;
+      } finally {
+        form.remove();
+      }
+      is(error && error.name, "NS_ERROR_DOM_BAD_URI",
+         "Content navigation to the remote jar URI is rejected");
+      // SpecialPowers creates fresh proxies; compare their underlying nodes.
+      ok(SpecialPowers.compare(SpecialPowers.wrap(loader).contentDocument,
+                               previousDocument),
+         "Rejected jar navigation leaves the loader document unchanged");
+      continue;
+    }
 
     loader.src = originEntry.file ||
                  (originEntry.server + "/tests/dom/security/test/cors/file_CrossSiteXHR_inner.html");
@@ -164,9 +193,7 @@ function runTest() {
 }
 
 addLoadEvent(function() {
-  SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false]]}, function() {
-    gen.next();
-  });
+  gen.next();
 });
 </script>
 </pre>

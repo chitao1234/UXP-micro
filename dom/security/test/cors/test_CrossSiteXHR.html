@@ -14,7 +14,7 @@
   
 </div>
 <pre id="test">
-<script class="testbody" type="application/javascript;version=1.8">
+<script class="testbody" type="application/javascript">
 
 const runPreflightTests = 1;
 const runCookieTests = 1;
@@ -30,7 +30,7 @@ function initTest() {
 
 function initTestCallback() {
   window.addEventListener("message", function(e) {
-    gen.send(e.data);
+    gen.next(e.data);
   }, false);
 
   gen = runTest();
@@ -38,7 +38,8 @@ function initTestCallback() {
   gen.next()
 }
 
-function runTest() {
+// Standard generator flow follows Firefox78/current CORS fixtures.
+function* runTest() {
   var loader = document.getElementById('loader');
   var loaderWindow = loader.contentWindow;
   loader.onload = function () { gen.next() };
@@ -1122,7 +1123,9 @@ function runTest() {
                     },
                     ],
            },
-           { pass: 0,
+           // Firefox78/current permits this same-origin continuation after preflight.
+           // Local ce717e2633 implements the Bug1312864 redirect update.
+           { pass: 1,
              method: "POST",
              body: "hi there",
              headers: { "Content-Type": "text/plain",
@@ -1196,7 +1199,9 @@ function runTest() {
                     },
                     ],
            },
-           { pass: 0,
+           // Firefox78/current permits this same-origin continuation after preflight.
+           // Local ce717e2633 implements the Bug1312864 redirect update.
+           { pass: 1,
              method: "DELETE",
              hops: [{ server: "http://example.org",
                     },
