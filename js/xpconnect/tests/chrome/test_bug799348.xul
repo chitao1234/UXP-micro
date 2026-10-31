@@ -21,19 +21,62 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=799348
   SimpleTest.waitForExplicitFinish();
   Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
   Components.utils.import("resource://gre/modules/Services.jsm");
-  gCalledOnload = false;
+  var gCalledOnload = false;
+  var gOpenedWindow = null;
+  var gObserverRegistered = false;
+  var existingWindows = new Set();
+  var windowEnumerator = Services.ww.getWindowEnumerator();
+  while (windowEnumerator.hasMoreElements()) {
+    existingWindows.add(windowEnumerator.getNext());
+  }
+  var browserChromeURL = Services.io.newURI(
+    Services.prefs.getCharPref("browser.chromeURL"), null, null).spec;
+  var restrictionPref = "browser.link.open_newwindow.restriction";
+  var hadRestrictionPref = Services.prefs.prefHasUserValue(restrictionPref);
+  var oldRestriction = Services.prefs.getIntPref(restrictionPref);
+  SimpleTest.registerCleanupFunction(function() {
+    if (gObserverRegistered) {
+      Services.ww.unregisterNotification(myObserver);
+      gObserverRegistered = false;
+    }
+    if (gOpenedWindow && !gOpenedWindow.closed) {
+      gOpenedWindow.close();
+    }
+    if (hadRestrictionPref) {
+      Services.prefs.setIntPref(restrictionPref, oldRestriction);
+    } else {
+      Services.prefs.clearUserPref(restrictionPref);
+    }
+  });
   var myObserver = {
     QueryInterface: XPCOMUtils.generateQI([Components.interfaces.nsIObserver]),
     observe: function(win, topic, data) {
       if (topic == "domwindowopened") {
+        // This is the containing chrome window, not the child content window.
+        // CreateNewContentWindow deliberately gives it a null opener before
+        // notifying WindowWatcher, so matching the content opener rejects it.
+        if (existingWindows.has(win) || gOpenedWindow) {
+          return;
+        }
+        gOpenedWindow = win;
+        info("Observed the child document's native window before load");
         ok(!gCalledOnload, "domwindowopened notification fired before onload");
         win.addEventListener("load", function(evt) {
+          if (evt.target !== win.document) {
+            return;
+          }
+          is(win.document.documentURI, browserChromeURL,
+             "The native browser chrome loaded for the child's popup");
           gCalledOnload = true;
           win.close();
         }, false);
       } else if (topic == "domwindowclosed") {
+        if (win !== gOpenedWindow) {
+          return;
+        }
         ok(gCalledOnload, "should have called onload");
         Services.ww.unregisterNotification(myObserver);
+        gObserverRegistered = false;
         SimpleTest.finish();
       }
       else {
@@ -42,9 +85,21 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=799348
     }
   };
   Services.ww.registerNotification(myObserver);
+  gObserverRegistered = true;
 
+  // This test requires a native window, not a new tab. App 653eb56125d0
+  // changed the default to divert even feature-requesting opens into tabs.
+  // WindowWatcher reads this preference synchronously while opening the
+  // child; no asynchronous UI observer needs to settle before the request.
+  Services.prefs.setIntPref(restrictionPref, 2);
+  SimpleTest.executeSoon(function() {
+    info("Loading the popup child with native-window policy " +
+         Services.prefs.getIntPref(restrictionPref));
+    document.getElementById("frame").setAttribute("src",
+      "http://test1.example.org/tests/js/xpconnect/tests/mochitest/file_bug799348.html");
+  });
 
   ]]>
   </script>
-  <iframe id="frame" type="content" src="http://test1.example.org/tests/js/xpconnect/tests/mochitest/file_bug799348.html" />
+  <iframe id="frame" type="content" />
 </window>
