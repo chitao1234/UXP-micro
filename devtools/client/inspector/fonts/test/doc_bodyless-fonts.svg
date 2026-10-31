@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="80">
+  <style>
+    @font-face {
+      font-family: BodylessRegular;
+      src: url(ostrich-regular.ttf) format("truetype");
+    }
+    text { font: 32px BodylessRegular; }
+  </style>
+  <text id="font-target" x="10" y="45">BODYLESS FONTS</text>
+</svg>

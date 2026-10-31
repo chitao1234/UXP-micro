@@ -238,8 +238,9 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
     let windows = this.inspector.tabActor.windows;
     let fontsList = [];
     for (let win of windows) {
-      fontsList = [...fontsList,
-                   ...this.getUsedFontFaces(win.document.body, options)];
+      // SVG and XUL documents do not have an HTML body.
+      let node = win.document.body || win.document.documentElement;
+      fontsList = [...fontsList, ...this.getUsedFontFaces(node, options)];
     }
     return fontsList;
   },
