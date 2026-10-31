@@ -1,0 +1,93 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Datetime-local extended years and normalization</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+// Complete value matrix borrowed from mozilla-central revision
+// 309a5a01511293cd91f86d82c9c2f7130dd38ebc:
+// testing/web-platform/tests/html/semantics/forms/the-input-element/datetime-local.html
+// Only the harness wrapper is adapted to SimpleTest.
+  var datetimeLocal = [
+    {value: "", expected: "", testname: "empty value"},
+    {value: "2014-01-01T11:11:11.111", expected: "2014-01-01T11:11:11.111", testname: "datetime-local input value set to 2014-01-01T11:11:11.111 without min/max"},
+    {value: "2014-01-01 11:11:11.111", expected: "2014-01-01T11:11:11.111", testname: "datetime-local input value set to 2014-01-01 11:11:11.111 without min/max"},
+    {value: "2014-01-01 11:11", expected: "2014-01-01T11:11", testname: "datetime-local input value set to 2014-01-01 11:11 without min/max"},
+    {value: "2014-01-01 00:00:00.000", expected: "2014-01-01T00:00", testname: "datetime-local input value set to 2014-01-01 00:00:00.000 without min/max"},
+    {value: "2014-01-0 11:11", expected: "", testname: "datetime-local input value set to 2014-01-0 11:11 without min/max"},
+    {value: "2014-01-01 11:1", expected: "", testname: "datetime-local input value set to 2014-01-01 11:1 without min/max"},
+    {value: "2014-01-01 11:1d1", expected: "", testname: "invalid datetime-local input value 1"},
+    {value: "2014-01-01H11:11", expected: "", testname: "invalid datetime-local input value 2"},
+    {value: "2014-01-01 11:11:", expected: "", testname: "invalid datetime-local input value 3"},
+    {value: "2014-01-01 11-11", expected: "", testname: "invalid datetime-local input value 4"},
+    {value: "2014-01-01 11:11:123", expected: "", testname: "invalid datetime-local input value 5"},
+    {value: "2014-01-01 11:11:12.1234", expected: "", testname: "invalid datetime-local input value 6"},
+    {value: "2014-01-01 11:12", attributes: { min: "2014-01-01 11:11" }, expected: "2014-01-01T11:12", testname: "Value >= min attribute"},
+    {value: "2014-01-01 11:10", attributes: { min: "2014-01-01 11:11" }, expected: "2014-01-01T11:10", testname: "Value < min attribute"},
+    {value: "2014-01-01 11:10", attributes: { max: "2014-01-01 11:11" }, expected: "2014-01-01T11:10", testname: "Value <= max attribute"},
+    {value: "2014-01-01 11:12", attributes: { max: "2014-01-01 11:11" }, expected: "2014-01-01T11:12", testname: "Value > max attribute"}
+  ];
+  for (var w of datetimeLocal) {
+    let input = document.createElement("input");
+    input.type = "datetime-local";
+    input.value = w.value;
+    for (var attr in w.attributes) {
+      input[attr] = w.attributes[attr];
+    }
+    is(input.value, w.expected, w.testname);
+  }
+
+// Extend the same normalization cases to five- and six-digit years.
+for (let date of ["0001-01-01", "2014-01-01", "9999-01-01",
+                  "10000-01-01", "275760-09-13"]) {
+  for (let [time, normalized] of [["00:00", "00:00"],
+                                 ["11:12:00.000", "11:12"],
+                                 ["11:12:34.000", "11:12:34"],
+                                 ["11:12:34.123", "11:12:34.123"]]) {
+    for (let separator of ["T", " "]) {
+      let input = document.createElement("input");
+      input.type = "datetime-local";
+      const value = date + separator + time;
+      input.value = value;
+      is(input.value, date + "T" + normalized, "Normalize " + value);
+    }
+  }
+}
+
+// Boundary pairs retained by current Firefox's native fixture:
+// dom/html/test/forms/test_valueasnumber_attribute.html, checkDatetimeLocalGet/Set.
+for (let [value, milliseconds] of [["275760-09-13T00:00", 8640000000000000],
+                                  ["0001-01-01T00:00", -62135596800000]]) {
+  let input = document.createElement("input");
+  input.type = "datetime-local";
+  input.value = value;
+  is(input.valueAsNumber, milliseconds, "Read numeric boundary " + value);
+  input.value = "";
+  input.valueAsNumber = milliseconds;
+  is(input.value, value, "Write numeric boundary " + value);
+}
+// A syntactically valid year can exceed the ECMAScript Date numeric range.
+// Keep value sanitization separate from valueAsNumber's TimeClip conversion.
+{
+  let input = document.createElement("input");
+  input.type = "datetime-local";
+  input.value = "1234567-01-01T12:00";
+  is(input.value, "1234567-01-01T12:00", "Retain a valid seven-digit year string");
+  ok(isNaN(input.valueAsNumber), "Numeric conversion rejects an out-of-range date");
+}
+
+for (let value of ["10000-02-30T00:00", "10000-01-01H00:00",
+                  "10000-01-01T25:00", "10000-01-01T00:00:00.1234",
+                  "10000-01-01T00:00Z"]) {
+  let input = document.createElement("input");
+  input.type = "datetime-local";
+  input.value = value;
+  is(input.value, "", "Reject malformed extended year " + value);
+}
+</script>
+</body>
+</html>

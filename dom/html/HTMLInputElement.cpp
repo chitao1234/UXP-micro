@@ -5573,9 +5573,12 @@ HTMLInputElement::ParseDateTimeLocal(const nsAString& aValue, uint32_t* aYear,
     return false;
   }
 
-  const uint32_t sepIndex = 10;
-  if (aValue[sepIndex] != 'T' && aValue[sepIndex] != ' ') {
-    return false;
+  int32_t sepIndex = aValue.FindChar('T');
+  if (sepIndex == -1) {
+    sepIndex = aValue.FindChar(' ');
+    if (sepIndex == -1) {
+      return false;
+    }
   }
 
   const nsAString& dateStr = Substring(aValue, 0, sepIndex);
@@ -5584,7 +5587,7 @@ HTMLInputElement::ParseDateTimeLocal(const nsAString& aValue, uint32_t* aYear,
   }
 
   const nsAString& timeStr = Substring(aValue, sepIndex + 1,
-                                       aValue.Length() - sepIndex + 1);
+                                       aValue.Length() - sepIndex - 1);
   if (!ParseTime(timeStr, aTime)) {
     return false;
   }
@@ -5600,20 +5603,24 @@ HTMLInputElement::NormalizeDateTimeLocal(nsAString& aValue) const
   }
 
   // Use 'T' as the separator between date string and time string.
-  const uint32_t sepIndex = 10;
-  if (aValue[sepIndex] == ' ') {
+  int32_t sepIndex = aValue.FindChar(' ');
+  if (sepIndex != -1) {
     aValue.Replace(sepIndex, 1, NS_LITERAL_STRING("T"));
+  } else {
+    sepIndex = aValue.FindChar('T');
   }
 
   // Time expressed as the shortest possible string.
-  if (aValue.Length() == 16) {
+  if ((aValue.Length() - sepIndex) == 6) {
     return;
   }
 
   // Fractions of seconds part is optional, ommit it if it's 0.
-  if (aValue.Length() > 19) {
+  if ((aValue.Length() - sepIndex) > 9) {
+    const uint32_t millisecSepIndex = sepIndex + 9;
     uint32_t milliseconds;
-    if (!DigitSubStringToNumber(aValue, 20, aValue.Length() - 20,
+    if (!DigitSubStringToNumber(aValue, millisecSepIndex + 1,
+                                aValue.Length() - (millisecSepIndex + 1),
                                 &milliseconds)) {
       return;
     }
@@ -5622,12 +5629,14 @@ HTMLInputElement::NormalizeDateTimeLocal(nsAString& aValue) const
       return;
     }
 
-    aValue.Cut(19, aValue.Length() - 19);
+    aValue.Cut(millisecSepIndex, aValue.Length() - millisecSepIndex);
   }
 
   // Seconds part is optional, ommit it if it's 0.
+  const uint32_t secondSepIndex = sepIndex + 6;
   uint32_t seconds;
-  if (!DigitSubStringToNumber(aValue, 17, aValue.Length() - 17, &seconds)) {
+  if (!DigitSubStringToNumber(aValue, secondSepIndex + 1,
+                              aValue.Length() - (secondSepIndex + 1), &seconds)) {
     return;
   }
 
@@ -5635,7 +5644,7 @@ HTMLInputElement::NormalizeDateTimeLocal(nsAString& aValue) const
     return;
   }
 
-  aValue.Cut(16, aValue.Length() - 16);
+  aValue.Cut(secondSepIndex, aValue.Length() - secondSepIndex);
 }
 
 double
