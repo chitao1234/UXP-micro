@@ -1,0 +1,9 @@
+<!DOCTYPE HTML>
+<html>
+<head><meta charset="utf-8"><title>Existing blocked-navigation target</title></head>
+<body id="loaded-target">A real existing document must survive a blocked data navigation.
+<script>
+opener.postMessage("blocked-data-window-loaded", location.origin);
+</script>
+</body>
+</html>

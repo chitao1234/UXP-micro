@@ -362,6 +362,8 @@ public:
     return static_cast<nsDocShell*>(aDocShell);
   }
 
+  uint64_t NavigationGeneration() const { return mNavigationGeneration; }
+
 protected:
   virtual ~nsDocShell();
   virtual void DestroyChildren() override;
@@ -1046,6 +1048,9 @@ protected:
 #endif
 
   uint64_t mHistoryID;
+  // Count attempted loads, including ones stopped before a document commits.
+  // Deferred cleanup must not mistake a later failed load for an unused shell.
+  uint64_t mNavigationGeneration;
   uint32_t mDefaultLoadFlags;
 
   static nsIURIFixup* sURIFixup;

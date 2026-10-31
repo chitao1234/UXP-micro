@@ -24,8 +24,75 @@
 #include "nsIMultiPartChannel.h"
 #include "mozilla/dom/nsCSPUtils.h"
 #include "nsIStreamListener.h"
+#include "nsIPropertyBag2.h"
+#include "nsPIDOMWindow.h"
+#include "nsThreadUtils.h"
+#include "mozilla/Unused.h"
 
 using namespace mozilla;
+
+namespace {
+
+already_AddRefed<nsIRunnable>
+CloseBlockedDataWindowEvent(nsDocShell* aDocShell, nsIChannel* aBlockedChannel)
+{
+  // Firefox's MaybeCloseWindowHelper closes a popup created for a blocked data:
+  // navigation. This tree predates BrowsingContext; retain the old window and
+  // its initial document instead, and never close an existing target window.
+  nsCOMPtr<nsIPropertyBag2> properties = do_QueryInterface(aBlockedChannel);
+  bool newWindowTarget = false;
+  if (!properties ||
+      NS_FAILED(properties->GetPropertyAsBool(
+        NS_LITERAL_STRING("docshell.newWindowTarget"), &newWindowTarget)) ||
+      !newWindowTarget) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsPIDOMWindowOuter> window = aDocShell->GetWindow();
+  nsCOMPtr<nsIDocument> document = window ? window->GetExtantDoc() : nullptr;
+  if (!document || !document->IsInitialDocument() ||
+      !NS_IsAboutBlank(document->GetDocumentURI()) || window->Closed()) {
+    return nullptr;
+  }
+  nsCOMPtr<nsPIDOMWindowOuter> opener = window->GetOpener();
+  if (!opener || opener->Closed()) {
+    return nullptr;
+  }
+  nsCOMPtr<nsIChannel> documentChannel;
+  if (NS_FAILED(aDocShell->GetDocumentChannel(getter_AddRefs(documentChannel))) ||
+      documentChannel != aBlockedChannel) {
+    return nullptr;
+  }
+
+  // Own the request's state before cancellation, then recheck on the deferred
+  // turn: queued load/console observers may have reused the initial window.
+  RefPtr<nsDocShell> docShell = aDocShell;
+  nsCOMPtr<nsIChannel> blockedChannel = aBlockedChannel;
+  const uint64_t navigationGeneration = docShell->NavigationGeneration();
+  return NS_NewRunnableFunction([docShell, window, document, opener, blockedChannel,
+                                navigationGeneration]() {
+    if (window->Closed() || window->GetDocShell() != docShell.get() ||
+        docShell->NavigationGeneration() != navigationGeneration ||
+        window->GetExtantDoc() != document.get() ||
+        !document->IsInitialDocument() ||
+        !NS_IsAboutBlank(document->GetDocumentURI())) {
+      return;
+    }
+    nsCOMPtr<nsPIDOMWindowOuter> currentOpener = window->GetOpener();
+    if (currentOpener != opener || opener->Closed()) {
+      return;
+    }
+    nsCOMPtr<nsIChannel> currentChannel;
+    if (NS_FAILED(docShell->GetDocumentChannel(getter_AddRefs(currentChannel))) ||
+        (currentChannel && currentChannel != blockedChannel)) {
+      // Another navigation may have started before it replaces the document.
+      return;
+    }
+    Unused << window->Close();
+  });
+}
+
+} // namespace
 
 nsDSURIContentListener::nsDSURIContentListener(nsDocShell* aDocShell)
   : mDocShell(aDocShell)
@@ -98,9 +165,16 @@ nsDSURIContentListener::DoContent(const nsACString& aContentType,
     // block top-level data URI navigations if triggered by the web
     if (!nsContentSecurityManager::AllowTopLevelNavigationToDataURI(aOpenedChannel)) {
       // logging to console happens within AllowTopLevelNavigationToDataURI
+      nsCOMPtr<nsIRunnable> closeWindowEvent =
+        CloseBlockedDataWindowEvent(mDocShell, aOpenedChannel);
       aRequest->Cancel(NS_ERROR_DOM_BAD_URI);
       *aAbortProcess = true;
-      return NS_OK; 
+      if (closeWindowEvent) {
+        // Like upstream's zero-delay timer, leave the current load/open stack
+        // before closing the newly opened, still-initial about:blank window.
+        Unused << NS_DispatchToCurrentThread(closeWindowEvent.forget());
+      }
+      return NS_OK;
     }
   }
 

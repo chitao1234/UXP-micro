@@ -812,6 +812,7 @@ nsDocShell::nsDocShell()
 #ifdef DEBUG
   , mInEnsureScriptEnv(false)
 #endif
+  , mNavigationGeneration(0)
   , mDefaultLoadFlags(nsIRequest::LOAD_NORMAL)
   , mFrameType(FRAME_TYPE_REGULAR)
   , mPrivateBrowsingId(0)
@@ -9731,6 +9732,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                          nsIDocShell** aDocShell,
                          nsIRequest** aRequest)
 {
+  // Invalidate queued cleanup before checks, same-document loads, or observer
+  // callbacks: even a rejected or subsequently stopped attempt owns the window.
+  ++mNavigationGeneration;
   MOZ_ASSERT(aTriggeringPrincipal, "need a valid TriggeringPrincipal");
 
   nsresult rv = NS_OK;

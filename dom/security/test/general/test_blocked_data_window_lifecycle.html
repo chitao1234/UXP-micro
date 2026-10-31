@@ -1,0 +1,209 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Blocked data navigation closes only an unchanged new popup</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/SpawnTask.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+const openedWindows = [];
+const blockActions = new Map();
+const fixture = "file_blocked_data_window.html";
+
+function blockedSVG(marker) {
+  // Keep the unique marker inside the native diagnostic's first 50 bytes.
+  return "data:image/svg+xml,<svg id='" + marker +
+    "' xmlns='http://www.w3.org/2000/svg'/>";
+}
+
+function openTarget(uri) {
+  const target = window.open(uri);
+  ok(target, "The test really opens its target window");
+  openedWindows.push(target);
+  return target;
+}
+
+function expectBlock(marker, action) {
+  return new Promise((resolve, reject) => {
+    blockActions.set(marker, {action, resolve, reject});
+  });
+}
+
+SpecialPowers.registerConsoleListener(message => {
+  if (message.category != "DATA_URI_BLOCKED" || !message.errorMessage) {
+    return;
+  }
+  for (const [marker, pending] of blockActions) {
+    if (message.errorMessage.indexOf(marker) == -1) {
+      continue;
+    }
+    blockActions.delete(marker);
+    try {
+      if (pending.action) pending.action();
+      pending.resolve();
+    } catch (error) {
+      pending.reject(error);
+    }
+    return; // A newly registered same-URI retry must await its own diagnostic.
+  }
+});
+
+function nextTurn() {
+  return new Promise(resolve => SimpleTest.executeSoon(resolve));
+}
+
+function runInTarget(target, source) {
+  const document = SpecialPowers.wrap(target).document;
+  const script = document.createElement("script");
+  // A console-service callback has no entry document. A real script element
+  // establishes the target's AutoEntryScript and preserves document.open's
+  // native entry-document/same-origin checks rather than bypassing them.
+  script.textContent = "(function() { const actionScript = document.currentScript; " +
+    source + "; actionScript.setAttribute('data-complete', 'true'); })();";
+  document.documentElement.appendChild(script);
+  is(script.getAttribute("data-complete"), "true",
+     "The queued observer's action executes synchronously in the target realm");
+}
+
+function waitForFixture(target) {
+  return new Promise(resolve => {
+    function loaded(event) {
+      if (event.source != target || event.origin != location.origin ||
+          event.data != "blocked-data-window-loaded") {
+        return;
+      }
+      window.removeEventListener("message", loaded);
+      resolve();
+    }
+    window.addEventListener("message", loaded);
+  });
+}
+
+SimpleTest.registerCleanupFunction(() => {
+  SpecialPowers.postConsoleSentinel();
+  for (const target of openedWindows) {
+    if (target && !target.closed) SpecialPowers.wrap(target).close();
+  }
+});
+
+add_task(function* test_blocked_data_window_lifecycle() {
+  yield SpecialPowers.pushPrefEnv({set: [
+    ["security.data_uri.block_toplevel_data_uri_navigations", true]
+  ]});
+
+  // Existing initial about:blank windows have an opener too. They were not
+  // created for the rejected request and must stay open with the same document.
+  const blank = openTarget("");
+  const blankDocument = SpecialPowers.wrap(blank).document;
+  blankDocument.body.textContent = "existing initial target";
+  const blankBlocked = expectBlock("keepblank");
+  blank.location = blockedSVG("keepblank");
+  yield blankBlocked;
+  yield nextTurn();
+  yield nextTurn();
+  ok(!blank.closed, "A blocked navigation does not close an existing initial window");
+  ok(SpecialPowers.compare(blankDocument, SpecialPowers.wrap(blank).document),
+     "The existing initial document is retained");
+  is(SpecialPowers.wrap(blank).document.body.textContent, "existing initial target",
+     "The existing initial window keeps its content");
+  blank.close();
+
+  const existing = openTarget("");
+  const existingLoaded = waitForFixture(existing);
+  existing.location = fixture;
+  yield existingLoaded;
+  const existingDocument = SpecialPowers.wrap(existing).document;
+  const existingBlocked = expectBlock("keepload");
+  existing.location = blockedSVG("keepload");
+  yield existingBlocked;
+  yield nextTurn();
+  yield nextTurn();
+  ok(!existing.closed, "A blocked navigation does not close an existing loaded window");
+  ok(SpecialPowers.compare(existingDocument, SpecialPowers.wrap(existing).document),
+     "The existing loaded document is retained");
+  is(SpecialPowers.wrap(existing).document.body.id, "loaded-target",
+     "The existing loaded document's content remains visible");
+  existing.close();
+
+  // Native console delivery was queued before the deferred close. Replacing
+  // the initial document here must invalidate that close, not lose new content.
+  let edited;
+  const editBlocked = expectBlock("editblank", () => {
+    runInTarget(edited, "document.open(); document.write(" +
+      JSON.stringify("<!DOCTYPE html><body id='edited-target'>New document content</body>") +
+      "); document.close()");
+  });
+  edited = openTarget(blockedSVG("editblank"));
+  yield editBlocked;
+  yield nextTurn();
+  yield nextTurn();
+  ok(!edited.closed, "The deferred close does not discard a document.open replacement");
+  is(SpecialPowers.wrap(edited).document.body.id, "edited-target",
+     "The document.open replacement is retained");
+  edited.close();
+
+  // Also protect a new navigation before it has committed a replacement doc.
+  let navigated;
+  let navigationLoaded;
+  const navigationBlocked = expectBlock("newload", () => {
+    navigationLoaded = waitForFixture(navigated);
+    runInTarget(navigated, "location.href = " + JSON.stringify(new URL(fixture, location.href).href));
+  });
+  navigated = openTarget(blockedSVG("newload"));
+  yield navigationBlocked;
+  yield navigationLoaded;
+  ok(!navigated.closed, "The deferred close does not cancel a replacement navigation");
+  is(SpecialPowers.wrap(navigated).document.body.id, "loaded-target",
+     "The replacement navigation commits its real document");
+  navigated.close();
+
+  // A channel-pointer check alone misses a load that starts and is stopped
+  // before the deferred callback: the initial document and null channel remain.
+  let stopped;
+  let stoppedDocument;
+  const stopBlocked = expectBlock("startstop", () => {
+    stoppedDocument = SpecialPowers.wrap(stopped).document;
+    runInTarget(stopped, "location.href = " + JSON.stringify(new URL(fixture, location.href).href) +
+      "; window.stop()");
+  });
+  stopped = openTarget(blockedSVG("startstop"));
+  yield stopBlocked;
+  yield nextTurn();
+  yield nextTurn();
+  ok(!stopped.closed, "A later start-then-stop navigation invalidates the queued close");
+  ok(SpecialPowers.compare(stoppedDocument, SpecialPowers.wrap(stopped).document),
+     "Stopping the replacement load retains the same initial document");
+  is(SpecialPowers.wrap(stopped).document.documentURI, "about:blank",
+     "The stopped replacement load never commits a document");
+  stopped.close();
+
+  // Retrying the very same blocked URI is a new attempt even though neither
+  // the requested URI nor the document ultimately changes. Observe both real
+  // policy failures rather than relying on a delay or an assumed failed load.
+  let retried;
+  let retryDocument;
+  let secondBlock;
+  const retryURI = blockedSVG("retrydata");
+  const firstBlock = expectBlock("retrydata", () => {
+    retryDocument = SpecialPowers.wrap(retried).document;
+    secondBlock = expectBlock("retrydata");
+    runInTarget(retried, "location.href = " + JSON.stringify(retryURI));
+  });
+  retried = openTarget(retryURI);
+  yield firstBlock;
+  yield secondBlock;
+  yield nextTurn();
+  yield nextTurn();
+  ok(!retried.closed, "A second failed attempt at the same URI invalidates the queued close");
+  ok(SpecialPowers.compare(retryDocument, SpecialPowers.wrap(retried).document),
+     "The second failed attempt leaves the original initial document intact");
+  is(SpecialPowers.wrap(retried).document.documentURI, "about:blank",
+     "The repeated blocked URI does not commit a document");
+  retried.close();
+});
+</script>
+</body>
+</html>
