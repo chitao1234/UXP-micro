@@ -54,7 +54,7 @@ add_task(function* () {
   // CPOWs from Tasks. We work around this by calling clear via a ContentTask
   // instead.
   yield ContentTask.spawn(gBrowser.selectedBrowser, null, function* () {
-    return Task.spawn(content.wrappedJSObject.clear);
+    yield content.wrappedJSObject.clear();
   });
 
   yield gUI.once("store-objects-cleared");
