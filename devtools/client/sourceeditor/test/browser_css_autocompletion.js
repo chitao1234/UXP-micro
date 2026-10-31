@@ -116,7 +116,9 @@ function checkStateAndMoveOn() {
 function checkState(expected, actual) {
   if (expected.length != actual.length) {
     ok(false, "Number of suggestions did not match up for state " + index +
-              ". Expected: " + expected.length + ", Actual: " + actual.length);
+              ". Expected: " + expected.length + ", Actual: " + actual.length +
+              ". Expected labels: " + JSON.stringify(expected) +
+              ", Actual labels: " + JSON.stringify(actual.map(item => item.label)));
     progress.classList.add("failed");
     return;
   }

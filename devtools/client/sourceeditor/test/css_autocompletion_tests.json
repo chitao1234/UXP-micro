@@ -22,7 +22,7 @@
               'background-clip', 'background-color', 'background-image',
               'background-origin', 'background-position', 'background-position-x',
               'background-position-y', 'background-repeat', 'background-size']],
-  [[21,  9], ["-moz-calc", "auto", "calc", "inherit", "initial","unset"]],
+  [[21,  9], ["-moz-calc", "auto", "calc", "inherit", "initial", "revert", "revert-layer", "unset"]],
   [[25, 26], ['.devtools-toolbarbutton > tab',
               '.devtools-toolbarbutton > hbox',
               '.devtools-toolbarbutton > .toolbarbutton-menubutton-button']],
