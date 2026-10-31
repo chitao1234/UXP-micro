@@ -16,4 +16,6 @@ add_task(function* () {
 
   let text = yield getElementText(".jsonPanelBox .jsonParseError");
   ok(text, "There must be an error description");
+  ok(/^SyntaxError:\s*\S/.test(text),
+     "Invalid JSON displays a nonempty SyntaxError description");
 });

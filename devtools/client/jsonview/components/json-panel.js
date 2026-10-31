@@ -127,7 +127,9 @@ define(function (require, exports, module) {
       let data = this.props.data;
 
       try {
-        if (typeof data == "object") {
+        if (data instanceof Error) {
+          content = div({className: "jsonParseError"}, data + "");
+        } else if (typeof data == "object") {
           content = this.renderTree();
         } else {
           content = div({className: "jsonParseError"},
