@@ -23,6 +23,8 @@ const Ci = Components.interfaces;
 const workerScope = "http://mochi.test:8888/chrome/dom/workers/test/serviceworkers/";
 const workerURL = workerScope + "fetch.js";
 const contentPage = workerScope + "hello.html";
+var testWindow;
+var testRegistration;
 
 function createTestWindow(aURL) {
   var mainwindow = window.QueryInterface(Ci.nsIInterfaceRequestor)
@@ -31,67 +33,127 @@ function createTestWindow(aURL) {
                          .rootTreeItem
                          .QueryInterface(Ci.nsIInterfaceRequestor)
                          .getInterface(Ci.nsIDOMWindow);
-  var win = mainwindow.OpenBrowserWindow(contentPage);
+  var win = mainwindow.OpenBrowserWindow();
+  testWindow = win;
+  SimpleTest.registerCleanupFunction(() => {
+    if (!win.closed) win.close();
+  });
 
-  return new Promise(aResolve => {
-    win.addEventListener("DOMContentLoaded", function callback() {
-      if (win.content.location.href != aURL) {
-        win.gBrowser.loadURI(aURL);
+  return new Promise((resolve, reject) => {
+    var browser;
+    var timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out loading the interception window: " + aURL));
+    }, 30000);
+    function cleanup() {
+      clearTimeout(timer);
+      win.removeEventListener("load", initialize, true);
+      if (browser) browser.removeEventListener("load", loaded, true);
+    }
+    function loaded(event) {
+      if (event.originalTarget !== browser.contentDocument ||
+          browser.currentURI.spec !== aURL) {
         return;
       }
-
-      win.removeEventListener("DOMContentLoaded", callback);
-      aResolve(win.content);
-    });
+      cleanup();
+      info("Interception window loaded " + aURL);
+      resolve(browser.contentWindow);
+    }
+    function initialize(event) {
+      if (event && event.target !== win.document) return;
+      win.removeEventListener("load", initialize, true);
+      browser = win.gBrowser.selectedBrowser;
+      browser.addEventListener("load", loaded, true);
+      browser.loadURI(aURL);
+    }
+    if (win.document.readyState === "complete") initialize();
+    else win.addEventListener("load", initialize, true);
   });
 }
 
 function executeTest(aWindow) {
-  var registration;
-
   return Promise.resolve()
     // Should not be intercepted.
     .then(_ => fetchAndCheckTimedChannel(aWindow, false, true, "hello.html"))
 
     // Regist a service worker.
     .then(_ => register(aWindow, workerURL, workerScope))
-    .then(r => registration = r)
+    .then(r => testRegistration = r)
 
     // Should be intercpeted and synthesized.
     .then(_ => fetchAndCheckTimedChannel(aWindow, true, false, "fake.html"))
 
     // Should be intercepted but still fetch from network.
     .then(_ => fetchAndCheckTimedChannel(aWindow, true, true,
-                                         "hello.html?ForBypassingHttpCache"))
-
-    // Tear down
-    .then(_ => registration.unregister());
+                                         "hello.html?ForBypassingHttpCache"));
 }
 
 function register(aWindow, aURL, aScope) {
   return aWindow.navigator.serviceWorker.register(aURL, {scope: aScope})
-    .then(r => {
-      var worker = r.installing;
-      return new Promise(function(aResolve) {
-        worker.onstatechange = function() {
-          if (worker.state == "activated") {
-            aResolve(r);
+    .then(registration => {
+      testRegistration = registration;
+      return new Promise((resolve, reject) => {
+        var worker = registration.installing || registration.waiting || registration.active;
+        var container = aWindow.navigator.serviceWorker;
+        var timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("Timed out waiting for the active service worker to control the page"));
+        }, 30000);
+        function cleanup() {
+          clearTimeout(timer);
+          if (worker) worker.removeEventListener("statechange", check);
+          container.removeEventListener("controllerchange", check);
+        }
+        function check() {
+          if (worker && worker.state === "redundant") {
+            cleanup();
+            reject(new Error("The interception service worker became redundant"));
+          } else if (worker && worker.state === "activated" &&
+                     container.controller && container.controller.scriptURL === aURL) {
+            cleanup();
+            info("Service worker is active and controls the interception page");
+            resolve(registration);
           }
         }
+        if (worker) worker.addEventListener("statechange", check);
+        container.addEventListener("controllerchange", check);
+        check();
       });
     });
 }
 
 function fetchAndCheckTimedChannel(aWindow, aIntercepted, aFetch, aURL) {
   var resolveFunction;
-  var promise = new Promise(aResolve => resolveFunction = aResolve);
+  var rejectFunction;
+  var promise = new Promise((resolve, reject) => {
+    resolveFunction = resolve;
+    rejectFunction = reject;
+  });
+  var expectedURL = new URL(aURL, aWindow.location.href).href;
 
   var topic = aFetch ? "http-on-examine-response"
                      : "service-worker-synthesized-response";
+  var observing = true;
+  var timer = setTimeout(() => {
+    cleanup();
+    rejectFunction(new Error("Timed out waiting for " + topic + " for " + expectedURL));
+  }, 30000);
+  function cleanup() {
+    clearTimeout(timer);
+    if (observing) SpecialPowers.removeObserver(observer, topic);
+    observing = false;
+  }
 
   function observer(aSubject) {
     var channel = aSubject.QueryInterface(Ci.nsIChannel);
-    ok(channel.URI.spec.endsWith(aURL));
+    // Observer notifications are process-wide.  A background response must
+    // neither satisfy this fetch's wait nor contribute unrelated timings.
+    if (channel.URI.spec !== expectedURL) {
+      info("Ignoring " + topic + " for unrelated channel " + channel.URI.spec);
+      return;
+    }
+    is(channel.URI.spec, expectedURL, "Timings belong to the requested fetch");
+    info("Checking " + topic + " timings for " + expectedURL);
 
     var tc = aSubject.QueryInterface(Ci.nsITimedChannel);
 
@@ -114,8 +176,8 @@ function fetchAndCheckTimedChannel(aWindow, aIntercepted, aFetch, aURL) {
       });
     } else {
       serviceWorkerTimings.forEach(aTimings => {
-        is(aTimings.start, 0);
-        is(aTimings.end, 0);
+        is(aTimings.start, 0, "A non-intercepted fetch has no service-worker start timing");
+        is(aTimings.end, 0, "A non-intercepted fetch has no service-worker end timing");
       });
     }
 
@@ -129,28 +191,53 @@ function fetchAndCheckTimedChannel(aWindow, aIntercepted, aFetch, aURL) {
                           tc.responseEndTime];
     if (aFetch) {
       networkTimings.reduce((aPreviousTiming, aCurrentTiming) => {
-        ok(aPreviousTiming <= aCurrentTiming);
+        ok(aPreviousTiming <= aCurrentTiming, "Network timings are in order");
         return aCurrentTiming;
       });
     } else {
-      networkTimings.forEach(aTiming => is(aTiming, 0));
+      networkTimings.forEach(aTiming => is(aTiming, 0, "A synthesized response has no network timing"));
     }
 
-    SpecialPowers.removeObserver(observer, topic);
+    cleanup();
     resolveFunction();
   }
 
   SpecialPowers.addObserver(observer, topic, false);
 
-  // return promise;
-  return Promise.all([aWindow.fetch(aURL), promise]);
+  // The window navigation can already have warmed hello.html in the HTTP
+  // cache. This test specifically observes network-response timing, so its
+  // network fetches must not be answered by that cache.
+  info("Fetching " + expectedURL);
+  var fetchOptions = aFetch ? {cache: "no-store"} : {};
+  return Promise.all([aWindow.fetch(aURL, fetchOptions).then(response => {
+    ok(response.ok, "The requested fetch succeeds: " + expectedURL);
+    return response.text();
+  }), promise]).then(result => {
+    cleanup();
+    return result;
+  }, error => {
+    cleanup();
+    throw error;
+  });
+}
+
+function cleanupTest() {
+  var cleanup = testRegistration ? testRegistration.unregister() : Promise.resolve();
+  return cleanup.then(() => {
+    if (testWindow && !testWindow.closed) testWindow.close();
+  }, error => {
+    if (testWindow && !testWindow.closed) testWindow.close();
+    throw error;
+  });
 }
 
 function runTest() {
   return Promise.resolve()
     .then(_ => createTestWindow(contentPage))
     .then(w => executeTest(w))
-    .catch(e => ok(false, "Some test failed with error " + e))
+    .catch(e => ok(false, "Interception test failed: " + e + "\n" + e.stack))
+    .then(cleanupTest)
+    .catch(e => ok(false, "Interception cleanup failed: " + e))
     .then(_ => SimpleTest.finish());
 }
 
