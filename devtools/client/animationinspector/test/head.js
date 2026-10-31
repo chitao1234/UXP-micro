@@ -36,7 +36,9 @@ registerCleanupFunction(() => {
 function enableWebAnimationsAPI() {
   return new Promise(resolve => {
     SpecialPowers.pushPrefEnv({"set": [
-      ["dom.animations-api.core.enabled", true]
+      ["dom.animations-api.core.enabled", true],
+      // UXP abc58d2ed0 gave getAnimations() its own feature gate.
+      ["dom.animations-api.getAnimations.enabled", true]
     ]}, resolve);
   });
 }
