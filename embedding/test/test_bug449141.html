@@ -30,15 +30,22 @@ function getTempDir() {
             .get("TmpD", Ci.nsILocalFile);
 }
 
-// STATE_STOP from nsIWebProgressListener.idl
+// State flags from nsIWebProgressListener.idl.
 const STATE_STOP = 0x00000010;
+const STATE_IS_NETWORK = 0x00040000;
 
 var progressListener = {
+  completed: false,
   onProgressChange: function() {
     /* Ignore progress callback */
   },
   onStateChange: function(aProgress, aRequest, aStateFlag, aStatus) {
-    if (aStateFlag & STATE_STOP) {
+    // Local fixture repair: the ESR52 test (also present in current Firefox)
+    // treats individual resource stops as completion and then removes twice.
+    // Wait for the aggregate stop, and finish this listener only once.
+    const completedFlags = STATE_STOP | STATE_IS_NETWORK;
+    if ((aStateFlag & completedFlags) == completedFlags && !this.completed) {
+      this.completed = true;
       var dirExists = false;
       var videoExists = false;
 
@@ -47,10 +54,11 @@ var progressListener = {
       dirExists = videoFile.exists();
       videoFile.append("320x240.ogv");
       videoExists = videoFile.exists();
-      this.folder.remove(true);
-      this.file.remove(false);
+      is(aStatus, Components.results.NS_OK, 'Document persistence should succeed');
       ok(dirExists, 'Directory containing video file should be created');
       ok(videoExists, 'Video should be persisted with document');
+      this.folder.remove(true);
+      this.file.remove(false);
       SimpleTest.finish();
     }    
   }
