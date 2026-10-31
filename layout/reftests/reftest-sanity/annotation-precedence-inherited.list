@@ -1,0 +1,7 @@
+# A skip on the including manifest dominates every child result annotation.
+fuzzy(1,1) script scripttest-must-skip.html?inherited-fuzzy
+fails script scripttest-must-skip.html?inherited-fails
+random script scripttest-must-skip.html?inherited-random
+fails fuzzy(1,1) script scripttest-must-skip.html?inherited-fails-fuzzy
+fuzzy(1,1) fails script scripttest-must-skip.html?inherited-fuzzy-fails
+include annotation-precedence-nested.list

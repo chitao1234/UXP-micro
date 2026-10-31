@@ -825,6 +825,7 @@ function ReadManifest(aURL, inherited_status, aFilter)
         var maxAsserts = 0;
         var needs_focus = false;
         var slow = false;
+        var skip = false;
         var testPrefSettings = defaultTestPrefSettings.concat();
         var refPrefSettings = defaultRefPrefSettings.concat();
         var fuzzy_max_delta = 2;
@@ -923,14 +924,19 @@ function ReadManifest(aURL, inherited_status, aFilter)
                 } else if (stat == "random") {
                     expected_status = EXPECTED_RANDOM;
                 } else if (stat == "skip") {
-                    expected_status = EXPECTED_DEATH;
+                    skip = true;
                 } else if (stat == "silentfail") {
                     allow_silent_fail = true;
                 }
             }
         }
 
-        expected_status = Math.max(expected_status, inherited_status);
+        // Skipping is independent of the expected comparison result. A later
+        // fuzzy/fails/random annotation must not revive a test that is unsafe
+        // to execute, including tests in a skipped parent manifest.
+        expected_status = skip || inherited_status == EXPECTED_DEATH
+                        ? EXPECTED_DEATH
+                        : Math.max(expected_status, inherited_status);
 
         if (minAsserts > maxAsserts) {
             throw "Bad range in manifest file " + aURL.spec + " line " + lineNo;

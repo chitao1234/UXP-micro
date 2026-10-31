@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>A skipped annotation-precedence test must never execute</title>
+<script>
+function getTestCases() {
+  // Invalid script-test results force an unexpected failure even when an
+  // erroneous result annotation marks the test as fails or random.
+  return null;
+}
+</script>
+</head>
+<body>This fixture must be skipped.</body>
+</html>

@@ -1,0 +1,51 @@
+# Every ordering retains skip independently of comparison expectations.
+# The script fixture deliberately reports a harness error if executed.
+skip fuzzy(1,1) fails random script scripttest-must-skip.html?skip-fuzzy-fails-random
+skip fuzzy(1,1) random fails script scripttest-must-skip.html?skip-fuzzy-random-fails
+skip fails fuzzy(1,1) random script scripttest-must-skip.html?skip-fails-fuzzy-random
+skip fails random fuzzy(1,1) script scripttest-must-skip.html?skip-fails-random-fuzzy
+skip random fuzzy(1,1) fails script scripttest-must-skip.html?skip-random-fuzzy-fails
+skip random fails fuzzy(1,1) script scripttest-must-skip.html?skip-random-fails-fuzzy
+fuzzy(1,1) skip fails random script scripttest-must-skip.html?fuzzy-skip-fails-random
+fuzzy(1,1) skip random fails script scripttest-must-skip.html?fuzzy-skip-random-fails
+fuzzy(1,1) fails skip random script scripttest-must-skip.html?fuzzy-fails-skip-random
+fuzzy(1,1) fails random skip script scripttest-must-skip.html?fuzzy-fails-random-skip
+fuzzy(1,1) random skip fails script scripttest-must-skip.html?fuzzy-random-skip-fails
+fuzzy(1,1) random fails skip script scripttest-must-skip.html?fuzzy-random-fails-skip
+fails skip fuzzy(1,1) random script scripttest-must-skip.html?fails-skip-fuzzy-random
+fails skip random fuzzy(1,1) script scripttest-must-skip.html?fails-skip-random-fuzzy
+fails fuzzy(1,1) skip random script scripttest-must-skip.html?fails-fuzzy-skip-random
+fails fuzzy(1,1) random skip script scripttest-must-skip.html?fails-fuzzy-random-skip
+fails random skip fuzzy(1,1) script scripttest-must-skip.html?fails-random-skip-fuzzy
+fails random fuzzy(1,1) skip script scripttest-must-skip.html?fails-random-fuzzy-skip
+random skip fuzzy(1,1) fails script scripttest-must-skip.html?random-skip-fuzzy-fails
+random skip fails fuzzy(1,1) script scripttest-must-skip.html?random-skip-fails-fuzzy
+random fuzzy(1,1) skip fails script scripttest-must-skip.html?random-fuzzy-skip-fails
+random fuzzy(1,1) fails skip script scripttest-must-skip.html?random-fuzzy-fails-skip
+random fails skip fuzzy(1,1) script scripttest-must-skip.html?random-fails-skip-fuzzy
+random fails fuzzy(1,1) skip script scripttest-must-skip.html?random-fails-fuzzy-skip
+
+# Conditional skip and require-or fallback use the same sticky skip flag.
+skip-if(true) fuzzy-if(true,1,1) script scripttest-must-skip.html?conditional-skip-first
+fuzzy-if(true,1,1) skip-if(true) script scripttest-must-skip.html?conditional-skip-last
+require-or(unrecognizedCondition,skip) fuzzy(1,1) script scripttest-must-skip.html?fallback-skip-first
+fuzzy(1,1) require-or(unrecognizedCondition,skip) script scripttest-must-skip.html?fallback-skip-last
+
+# Inherited skips also dominate child fuzzy annotations, through nested includes.
+skip include annotation-precedence-inherited.list
+skip-if(true) include annotation-precedence-inherited.list
+
+# False skip conditions and non-skip last-matching behavior remain unchanged.
+skip-if(false) script scripttest-pass.html?false-skip
+skip-if(false) fuzzy(1,1) == fuzzy-ref.html?false-skip-fuzzy fuzzy-ref.html
+fuzzy(1,1) skip-if(false) == fuzzy-ref.html?fuzzy-false-skip fuzzy-ref.html
+skip-if(false) fails script scripttest-fail.html?false-skip-fails
+fails skip-if(false) script scripttest-fail.html?fails-false-skip
+random fails script scripttest-fail.html?random-fails
+fails random script scripttest-pass.html?fails-random-pass
+fails random script scripttest-fail.html?fails-random-fail
+fuzzy(1,1) fails script scripttest-fail.html?fuzzy-fails
+fails fuzzy(1,1) == fuzzy-ref.html?fails-fuzzy fuzzy-ref.html
+random fuzzy(1,1) == fuzzy-ref.html?random-fuzzy fuzzy-ref.html
+fuzzy(1,1) random script scripttest-pass.html?fuzzy-random-pass
+fuzzy(1,1) random script scripttest-fail.html?fuzzy-random-fail

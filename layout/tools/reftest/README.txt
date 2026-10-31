@@ -52,8 +52,9 @@ must be one of the following:
    <failure-type>* include <relative_path>
 
    <failure-type> is the same as listed below for a test item.  As for 
-   test items, multiple failure types listed on the same line are 
-   combined by using the last matching failure type listed.  However, 
+   test items, multiple failure types listed on the same line are
+   combined by using the last matching failure type listed, except that
+   a matching skip always wins over result annotations.  However,
    the failure type on a manifest is combined with the failure type on 
    the test (or on a nested manifest) with the rule that the last in the
    following list wins:  fails, random, skip.  (In other words, skip 
