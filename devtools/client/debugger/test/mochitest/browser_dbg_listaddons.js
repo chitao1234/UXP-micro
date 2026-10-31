@@ -43,7 +43,7 @@ function testFirstAddon() {
     addonListChanged = true;
   });
 
-  return addTemporaryAddon(ADDON1_PATH).then(aAddon => {
+  return addTestAddon(ADDON1_PATH).then(aAddon => {
     gAddon1 = aAddon;
 
     return getAddonActorForId(gClient, ADDON1_ID).then(aGrip => {
@@ -60,7 +60,7 @@ function testSecondAddon() {
     addonListChanged = true;
   });
 
-  return addTemporaryAddon(ADDON2_PATH).then(aAddon => {
+  return addTestAddon(ADDON2_PATH).then(aAddon => {
     gAddon2 = aAddon;
 
     return getAddonActorForId(gClient, ADDON1_ID).then(aFirstGrip => {

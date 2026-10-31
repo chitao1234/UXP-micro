@@ -7,6 +7,21 @@
 // shared-head.js handles imports, constants, and utility functions
 Services.scriptloader.loadSubScript("chrome://mochitests/content/browser/devtools/client/framework/test/shared-head.js", this);
 
+// These controlled debugger documents assert their own source inventory.
+// The application's compatibility scripts are real debuggable page scripts;
+// isolate the fixtures without hiding those sources in the product.
+const INTERNAL_SCRIPTS_PREF = "browser.internal-userscripts.enabled";
+const hadInternalScriptsPref = Services.prefs.prefHasUserValue(INTERNAL_SCRIPTS_PREF);
+const oldInternalScriptsPref = Services.prefs.getBoolPref(INTERNAL_SCRIPTS_PREF);
+Services.prefs.setBoolPref(INTERNAL_SCRIPTS_PREF, false);
+registerCleanupFunction(() => {
+  if (hadInternalScriptsPref) {
+    Services.prefs.setBoolPref(INTERNAL_SCRIPTS_PREF, oldInternalScriptsPref);
+  } else {
+    Services.prefs.clearUserPref(INTERNAL_SCRIPTS_PREF);
+  }
+});
+
 // Disable logging for faster test runs. Set this pref to true if you want to
 // debug a test in your try runs. Both the debugger server and frontend will
 // be affected by this pref.
@@ -123,15 +138,82 @@ function getAddonURIFromPath(aPath) {
   return chromeRegistry.convertChromeURL(chromeURI).QueryInterface(Ci.nsIFileURL);
 }
 
-function getTemporaryAddonURLFromPath(aPath) {
-  return getAddonURIFromPath(aPath).spec;
-}
-
-function addTemporaryAddon(aPath) {
+function addTestAddon(aPath) {
   let addonFile = getAddonURIFromPath(aPath).file;
   info("Installing addon: " + addonFile.path);
 
-  return AddonManager.installTemporaryAddon(addonFile);
+  // Tycho's manager (deea787c2e) has no temporary-install API. These tests
+  // exercise supported bootstrap/SDK debugging, not temporary installation.
+  // Install normally, retaining em:unpack for the unpacked-module fixture.
+  if (addonFile.isDirectory()) {
+    let directory = Services.dirsvc.get("TmpD", Ci.nsIFile);
+    directory.append("debugger-addon-fixture");
+    directory.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+    registerCleanupFunction(() => {
+      if (directory.exists()) {
+        directory.remove(true);
+      }
+    });
+    let archive = directory.clone();
+    archive.append(addonFile.leafName + ".xpi");
+    let zip = Cc["@mozilla.org/zipwriter;1"].createInstance(Ci.nsIZipWriter);
+    zip.open(archive, 0x02 | 0x08 | 0x20);
+    function addDirectory(source, prefix) {
+      let entries = source.directoryEntries;
+      while (entries.hasMoreElements()) {
+        let entry = entries.getNext().QueryInterface(Ci.nsIFile);
+        let name = prefix + entry.leafName;
+        if (entry.isDirectory()) {
+          addDirectory(entry, name + "/");
+        } else {
+          zip.addEntryFile(name, Ci.nsIZipWriter.COMPRESSION_NONE, entry, false);
+        }
+      }
+    }
+    try {
+      addDirectory(addonFile, "");
+    } finally {
+      zip.close();
+    }
+    addonFile = archive;
+  }
+
+  return new Promise((resolve, reject) => {
+    AddonManager.getInstallForFile(addonFile, install => {
+      if (!install || install.error) {
+        reject(new Error("Cannot install debugger add-on fixture: " +
+                         (install ? install.error : "no install")));
+        return;
+      }
+      let listener = {
+        onDownloadFailed() { failed(); },
+        onDownloadCancelled() { failed(); },
+        onInstallFailed() { failed(); },
+        onInstallCancelled() { failed(); },
+        onInstallEnded(installation, addon) {
+          install.removeListener(listener);
+          registerCleanupFunction(function* () {
+            let current = yield new Promise(done => AddonManager.getAddonByID(addon.id, done));
+            if (current) {
+              yield removeAddon(current);
+            }
+          });
+          resolve(addon);
+        }
+      };
+      function failed() {
+        install.removeListener(listener);
+        reject(new Error("Debugger fixture install failed: " + install.error));
+      }
+      install.addListener(listener);
+      try {
+        install.install();
+      } catch (error) {
+        install.removeListener(listener);
+        reject(error);
+      }
+    });
+  });
 }
 
 function removeAddon(aAddon) {

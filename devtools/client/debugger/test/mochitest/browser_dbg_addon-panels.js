@@ -21,7 +21,7 @@ function test() {
     // Store and enable all optional dev tools panels
     yield pushPrefs(...PREFS);
 
-    let addon = yield addTemporaryAddon(ADDON_PATH);
+    let addon = yield addTestAddon(ADDON_PATH);
     let addonDebugger = yield initAddonDebugger(ADDON_ID);
 
     // Check only valid tabs are shown

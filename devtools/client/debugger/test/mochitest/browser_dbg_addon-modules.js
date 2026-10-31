@@ -6,16 +6,17 @@
 
 const ADDON_ID = "browser_dbg_addon4@tests.mozilla.org";
 const ADDON_PATH = "addon4.xpi";
-const ADDON_URL = getTemporaryAddonURLFromPath(ADDON_PATH);
 
 function test() {
   Task.spawn(function* () {
-    let addon = yield addTemporaryAddon(ADDON_PATH);
+    let addon = yield addTestAddon(ADDON_PATH);
+    ok(addon.getResourceURI("bootstrap.js").schemeIs("jar"),
+       "The fixture is installed as a packed XPI");
     let tab1 = yield addTab("chrome://browser_dbg_addon4/content/test.xul");
 
     let addonDebugger = yield initAddonDebugger(ADDON_ID);
 
-    is(addonDebugger.title, `Developer Tools - Test add-on with JS Modules - ${ADDON_URL}`,
+    is(addonDebugger.title, `Developer Tools - Test add-on with JS Modules - ${addon.sourceURI.spec}`,
        "Saw the right toolbox title.");
 
     // Check the inital list of sources is correct
@@ -26,7 +27,7 @@ function test() {
 
     let sources = groups[0].sources;
     is(sources.length, 3, "Should be three sources");
-    ok(sources[0].url.endsWith("/addon4.xpi!/bootstrap.js"), "correct url for bootstrap code");
+    is(sources[0].url, addon.getResourceURI("bootstrap.js").spec, "correct url for bootstrap code");
     is(sources[0].label, "bootstrap.js", "correct label for bootstrap code");
     is(sources[1].url, "resource://browser_dbg_addon4/test.jsm", "correct url for addon code");
     is(sources[1].label, "test.jsm", "correct label for addon code");
@@ -44,7 +45,7 @@ function test() {
 
     sources = groups[0].sources;
     is(sources.length, 5, "Should be five sources");
-    ok(sources[0].url.endsWith("/addon4.xpi!/bootstrap.js"), "correct url for bootstrap code");
+    is(sources[0].url, addon.getResourceURI("bootstrap.js").spec, "correct url for bootstrap code");
     is(sources[0].label, "bootstrap.js", "correct label for bootstrap code");
     is(sources[1].url, "resource://browser_dbg_addon4/test.jsm", "correct url for addon code");
     is(sources[1].label, "test.jsm", "correct label for addon code");

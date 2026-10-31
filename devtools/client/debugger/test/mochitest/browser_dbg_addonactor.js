@@ -37,7 +37,7 @@ function test() {
 }
 
 function installAddon() {
-  return addTemporaryAddon(ADDON3_PATH).then(aAddon => {
+  return addTestAddon(ADDON3_PATH).then(aAddon => {
     gAddon = aAddon;
   });
 }

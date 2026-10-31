@@ -21,7 +21,7 @@ function getCachedMessages(webConsole) {
 
 function test() {
   Task.spawn(function* () {
-    let addon = yield addTemporaryAddon(ADDON_PATH);
+    let addon = yield addTestAddon(ADDON_PATH);
     let addonDebugger = yield initAddonDebugger(ADDON_ID);
 
     let webConsole = addonDebugger.webConsole;
