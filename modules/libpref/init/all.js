@@ -4580,6 +4580,9 @@ pref("alerts.showFavicons", false);
 pref("full-screen-api.enabled", false);
 pref("full-screen-api.unprefix.enabled", true);
 pref("full-screen-api.allow-trusted-requests-only", true);
+// Exit DOM fullscreen when content opens or raises another window.
+pref("full-screen-api.exit-on.windowOpen", true);
+pref("full-screen-api.exit-on.windowRaise", true);
 pref("full-screen-api.pointer-lock.enabled", true);
 // Whether to restrict the full-screen API to the existing window size
 // If true, this effectively make fullscreen "fill window" instead.

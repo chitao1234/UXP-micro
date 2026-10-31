@@ -1269,7 +1269,8 @@ nsWindowWatcher::OpenWindowInternal(mozIDOMWindowProxy* aParent,
 
   // If a website opens a popup exit DOM fullscreen
   if (windowIsNew && aCalledFromJS && !hasChromeParent && !isCallerChrome &&
-      parentWindow) {
+      parentWindow &&
+      Preferences::GetBool("full-screen-api.exit-on.windowOpen", true)) {
     nsIDocument::AsyncExitFullscreen(parentWindow->GetDoc());
   }
 			

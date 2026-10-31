@@ -1280,7 +1280,8 @@ nsFocusManager::SetFocusInner(nsIContent* aNewContent, int32_t aFlags,
   }
 
   // Exit fullscreen if a website focuses another window
-  if (!isElementInActiveWindow && aFlags & FLAG_RAISE) {
+  if (!isElementInActiveWindow && (aFlags & FLAG_RAISE) &&
+      Preferences::GetBool("full-screen-api.exit-on.windowRaise", true)) {
     if (nsIDocument* doc = mActiveWindow ? mActiveWindow->GetDoc() : nullptr) {
       if (doc && doc->GetFullscreenElement()) {
         nsIDocument::AsyncExitFullscreen(doc);
