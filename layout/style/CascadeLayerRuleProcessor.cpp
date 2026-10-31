@@ -219,7 +219,7 @@ CascadeLayerRuleProcessor::MediumFeaturesChanged(nsPresContext* aPresContext)
 }
 
 /* virtual */ nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
-CascadeLayerRuleProcessor::GetChildRuleProcessors()
+CascadeLayerRuleProcessor::GetChildRuleProcessors(nsPresContext* aPresContext)
 {
   return nullptr;
 }

@@ -1118,7 +1118,7 @@ FileRulesFromAllChildProcessors(
 {
   if (aParentProcessor && !skipOrigin) {
     nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* processors =
-      aParentProcessor->GetChildRuleProcessors();
+      aParentProcessor->GetChildRuleProcessors(aData->mPresContext);
     if (processors) {
       for (uint32_t i = 0; i < processors->Length(); i++) {
         if (i > 0) {

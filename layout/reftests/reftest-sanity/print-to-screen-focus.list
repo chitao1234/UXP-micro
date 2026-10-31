@@ -1,0 +1,6 @@
+# Shared UA processors must select the screen cascade after print matching,
+# including when a destroyed print context's allocator address is reused.
+== page-height-2.1in.html page-height-forcebreak.html
+needs-focus script needs-focus-after-print.html
+== page-height-2.1in.html page-height-forcebreak.html
+needs-focus script needs-focus-after-print.html?repeat

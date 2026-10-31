@@ -125,9 +125,11 @@ public:
   /**
    * Returns an array of style rule processors if this origin supports
    * cascade layers. The array will contain the rule processors for each
-   * layer in the order in which they should be applied.
+   * layer in the order in which they should be applied, selected for the
+   * requesting presentation context's medium and media features.
    */
-  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors() = 0;
+  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
+    GetChildRuleProcessors(nsPresContext* aPresContext) = 0;
 
   /**
    * Report the size of this style rule processor to about:memory.  A

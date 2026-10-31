@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shared UA and user cascades select each live presentation's media</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+"use strict";
+SimpleTest.waitForExplicitFinish();
+
+const Ci = SpecialPowers.Ci;
+const sheets = SpecialPowers.Cc["@mozilla.org/content/style-sheet-service;1"]
+  .getService(Ci.nsIStyleSheetService);
+const io = SpecialPowers.Cc["@mozilla.org/network/io-service;1"]
+  .getService(Ci.nsIIOService);
+const frames = [];
+const registered = [];
+
+function cleanup() {
+  for (let frame of frames.splice(0)) {
+    try {
+      frame.remove();
+    } catch (error) {
+      ok(false, "Could not remove frame: " + error);
+    }
+  }
+  for (let entry of registered.splice(0)) {
+    try {
+      sheets.unregisterSheet(entry.uri, entry.type);
+      ok(!sheets.sheetRegistered(entry.uri, entry.type), "Global test sheet removed");
+    } catch (error) {
+      ok(false, "Could not unregister global test sheet: " + error);
+    }
+  }
+}
+SimpleTest.registerCleanupFunction(cleanup);
+
+function mediaRules(origin, narrow) {
+  const selector = ".micro-shared-cascade-probe";
+  const width = narrow ? "max-width:300px" : "min-width:301px";
+  const offset = narrow ? 0 : 10;
+  const side = origin === "agent" ? "left" : "right";
+  const first = origin === "agent" ? 3 : 5;
+  return "@media(" + width + "){" +
+    selector + "{padding-" + side + ":" + (11 + offset) + "px;}" +
+    // Both origins index this class, so toggling it forces rule matching
+    // without changing viewport size or the registered stylesheet set.
+    selector + ".bump{padding-" + side + ":" + (11 + offset) + "px;}" +
+    "@layer microEarly{" + selector + "{margin-" + side + ":" +
+      (first + offset) + "px!important;}}" +
+    "@layer microLate{" + selector + "{margin-" + side + ":" +
+      (first + offset + 4) + "px!important;}}" +
+    (origin === "user" ? selector + "{margin-left:99px!important;}" : "") +
+    "}";
+}
+
+async function addFrame(width) {
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "display:block;border:0;height:100px;width:" + width + "px";
+  const loaded = new Promise(resolve => { frame.onload = resolve; });
+  frame.srcdoc = "<!doctype html><style>" +
+    ".micro-shared-cascade-probe{margin-left:77px!important;margin-right:77px!important;}" +
+    "</style><div class='micro-shared-cascade-probe'>anchor</div>";
+  frames.push(frame);
+  document.body.appendChild(frame);
+  await loaded;
+  return frame;
+}
+
+function check(frame, element, label) {
+  const narrow = frame.contentWindow.innerWidth < 300;
+  const offset = narrow ? 0 : 10;
+  const css = frame.contentWindow.getComputedStyle(element);
+  is(css.paddingLeft, (11 + offset) + "px", label + ": UA media rules");
+  is(css.paddingRight, (11 + offset) + "px", label + ": user media rules");
+  is(css.marginLeft, (3 + offset) + "px",
+     label + ": earliest UA important layer beats user and author important");
+  is(css.marginRight, (5 + offset) + "px",
+     label + ": earliest user important layer beats author important");
+}
+
+function prime(frame) {
+  const anchor = frame.contentDocument.querySelector(".micro-shared-cascade-probe");
+  anchor.classList.toggle("bump");
+  check(frame, anchor, "Prime " + frame.contentWindow.innerWidth);
+}
+
+function interleave(label) {
+  for (let target of [0, 1, 0, 1]) {
+    // Leave both shared origin processors selected for the other live context.
+    // Build a fresh element off-document to avoid attribute invalidation
+    // selecting the target context before its initial rule matching.
+    prime(frames[1 - target]);
+    const frame = frames[target];
+    const probe = frame.contentDocument.createElement("div");
+    probe.className = "micro-shared-cascade-probe";
+    probe.textContent = "new";
+    frame.contentDocument.body.appendChild(probe);
+    check(frame, probe, label + " appended " + target);
+    probe.remove();
+    prime(frames[1 - target]);
+    prime(frame);
+  }
+}
+
+(async function() {
+  try {
+    for (let origin of ["agent", "user"]) {
+      const type = origin === "agent" ? sheets.AGENT_SHEET : sheets.USER_SHEET;
+      const css = "@layer microEarly,microLate;" +
+                  mediaRules(origin, true) + mediaRules(origin, false);
+      const uri = io.newURI("data:text/css," + encodeURIComponent(css), null, null);
+      sheets.loadAndRegisterSheet(uri, type);
+      registered.push({uri, type});
+      ok(sheets.sheetRegistered(uri, type), origin + " sheet registered once for both contexts");
+    }
+    await addFrame(200);
+    await addFrame(400);
+    for (let frame of frames) {
+      frame.contentDocument.body.offsetWidth;
+      const utils = SpecialPowers.getDOMWindowUtils(frame.contentWindow);
+      for (let type of [sheets.AGENT_SHEET, sheets.USER_SHEET]) {
+        ok(utils.hasRuleProcessorUsedByMultipleStyleSets(type),
+           "The origin processor is shared between simultaneously live contexts");
+      }
+    }
+    is(frames[0].contentWindow.innerWidth, 200, "First context has the narrow viewport");
+    is(frames[1].contentWindow.innerWidth, 400, "Second context has the wide viewport");
+    interleave("Initial media");
+    frames[0].style.width = "400px";
+    frames[1].style.width = "200px";
+    for (let frame of frames) {
+      frame.contentDocument.body.offsetWidth;
+    }
+    is(frames[0].contentWindow.innerWidth, 400, "First context changes media state");
+    is(frames[1].contentWindow.innerWidth, 200, "Second context changes media state");
+    interleave("Swapped media");
+  } finally {
+    cleanup();
+  }
+})().catch(error => ok(false, String(error) + "\n" + error.stack))
+  .then(() => SimpleTest.finish());
+</script>

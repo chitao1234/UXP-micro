@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Screen controls dispatch focus after a print presentation</title>
+<script>
+var focusEvents = 0;
+var focusWasSynchronous = false;
+var screenAtLoad = false;
+var printAtLoad = true;
+var userInputAfterFocus = "";
+var inputWasActive = false;
+
+function loaded() {
+  var input = document.getElementById("i");
+  // Exercise native focus against the initial frame style before any computed
+  // style query or other diagnostic flush can refresh a stale print cascade.
+  input.focus();
+  focusWasSynchronous = focusEvents === 1;
+  inputWasActive = document.activeElement === input;
+  screenAtLoad = matchMedia("screen").matches;
+  printAtLoad = matchMedia("print").matches;
+  userInputAfterFocus = getComputedStyle(input).MozUserInput;
+}
+
+function getTestCases() {
+  function result(passed, description) {
+    return { testPassed: function() { return passed; },
+             testDescription: function() { return description; } };
+  }
+  return [
+    result(focusWasSynchronous, "The input's trusted focus handler ran synchronously during onload"),
+    result(focusEvents === 1, "The input received exactly one focus event"),
+    result(inputWasActive, "The input became the active element during onload"),
+    result(screenAtLoad && !printAtLoad, "The new document has screen media, without print media"),
+    result(userInputAfterFocus === "auto", "The print UA rule does not disable the screen input")
+  ];
+}
+</script>
+<body onload="loaded();">
+<input id="i" onfocus="if (event.isTrusted) ++focusEvents;">

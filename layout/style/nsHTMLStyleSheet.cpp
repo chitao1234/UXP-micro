@@ -433,7 +433,7 @@ nsHTMLStyleSheet::MediumFeaturesChanged(nsPresContext* aPresContext)
 }
 
 /* virtual */ nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
-nsHTMLStyleSheet::GetChildRuleProcessors()
+nsHTMLStyleSheet::GetChildRuleProcessors(nsPresContext* aPresContext)
 {
   return nullptr;
 }

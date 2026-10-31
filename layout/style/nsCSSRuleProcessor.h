@@ -17,6 +17,7 @@
 #include "mozilla/RefCountType.h"
 #include "mozilla/SheetType.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/WeakPtr.h"
 #include "nsExpirationTracker.h"
 #include "nsIMediaList.h"
 #include "nsIStyleRuleProcessor.h"
@@ -123,7 +124,7 @@ public:
 
   virtual bool MediumFeaturesChanged(nsPresContext* aPresContext) override;
 
-  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors()
+  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors(nsPresContext* aPresContext)
     override;
 
   /**
@@ -209,8 +210,9 @@ private:
   // before we lost the old group.
   mozilla::UniquePtr<nsMediaQueryResultCacheKey> mPreviousCacheKey;
 
-  // The last pres context for which GetGroup was called.
-  nsPresContext *mLastPresContext;
+  // Shared processors can outlive their last presentation context. Invalidate
+  // this identity when that context dies, even if its address is reused.
+  mozilla::WeakPtr<nsPresContext> mLastPresContext;
 
   // The scope element for this rule processor's scoped style sheets.
   // Only used if mSheetType == nsStyleSet::eScopedDocSheet.

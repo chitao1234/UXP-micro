@@ -412,11 +412,10 @@ nsCSSRuleProcessor::MediumFeaturesChanged(nsPresContext* aPresContext)
 }
 
 /* virtual */ nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
-nsCSSRuleProcessor::GetChildRuleProcessors()
+nsCSSRuleProcessor::GetChildRuleProcessors(nsPresContext* aPresContext)
 {
-  return mGroup
-    ? &mGroup->mItems
-    : nullptr;
+  RuleProcessorGroup* group = GetGroup(aPresContext);
+  return group ? &group->mItems : nullptr;
 }
 
 UniquePtr<nsMediaQueryResultCacheKey>
@@ -643,6 +642,7 @@ nsCSSRuleProcessor::ClearGroup()
   // nsPresContext::RebuildAllStyleData).
   RuleProcessorGroup* data = mGroup;
   mGroup = nullptr;
+  mLastPresContext = nullptr;
   while (data) {
     RuleProcessorGroup* next = data->mNext;
     delete data;
@@ -860,17 +860,14 @@ nsCSSRuleProcessor::GetGroup(nsPresContext* aPresContext)
 
   // If anything changes about the presentation context, we will be
   // notified.  Otherwise, our cache is valid if mLastPresContext
-  // matches aPresContext.  (The only rule processors used for multiple
-  // pres contexts are for XBL.  These rule processors are probably less
-  // likely to have @media rules, and thus the cache is pretty likely to
-  // hit instantly even when we're switching between pres contexts.)
+  // matches aPresContext. Shared agent/user processors and XBL processors can
+  // serve multiple contexts. The weak identity must expire with the context:
+  // a new screen context may reuse the address of a destroyed print context.
 
-  if (!mGroup || aPresContext != mLastPresContext ||
+  if (!mGroup || aPresContext != mLastPresContext.get() ||
       mCachedStateLimit != MediaStateLimit(aPresContext)) {
     RefreshGroup(aPresContext);
   }
-  mLastPresContext = aPresContext;
-
   return mGroup;
 }
 
@@ -927,6 +924,9 @@ CreateChildProcessorsEnumFunc(CascadeLayer* aLayer, void* aData)
 void
 nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
 {
+  // MediumFeaturesChanged can refresh a different live context without going
+  // through GetGroup. Only stamp the identity of a successfully selected group.
+  mLastPresContext = nullptr;
   uint32_t stateLimit = MediaStateLimit(aPresContext);
   // Having RuleCascadeData objects be per-medium (over all variation
   // caused by media queries, handled through mCacheKey) works for now
@@ -949,6 +949,8 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
       mGroup = group;
 
       TrimMediaStates(stateLimit);
+      mCachedStateLimit = stateLimit;
+      mLastPresContext = aPresContext;
       return;
     }
   }
@@ -1040,6 +1042,7 @@ nsCSSRuleProcessor::RefreshGroup(nsPresContext* aPresContext)
         mDocumentRulesAndCacheKeyValid = true;
 #endif
       }
+      mLastPresContext = aPresContext;
     }
   }
   mCachedStateLimit = stateLimit;

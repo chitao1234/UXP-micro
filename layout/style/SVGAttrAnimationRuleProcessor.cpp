@@ -76,7 +76,7 @@ SVGAttrAnimationRuleProcessor::MediumFeaturesChanged(nsPresContext* aPresContext
 }
 
 /* virtual */ nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
-SVGAttrAnimationRuleProcessor::GetChildRuleProcessors()
+SVGAttrAnimationRuleProcessor::GetChildRuleProcessors(nsPresContext* aPresContext)
 {
   return nullptr;
 }

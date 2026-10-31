@@ -45,7 +45,7 @@ public:
     HasAttributeDependentStyle(AttributeRuleProcessorData* aData,
                                mozilla::RestyleHintData& aRestyleHintDataResult) override;
   virtual bool MediumFeaturesChanged(nsPresContext* aPresContext) override;
-  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors()
+  virtual nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors(nsPresContext* aPresContext)
     override;
   virtual size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf)
     const MOZ_MUST_OVERRIDE override;

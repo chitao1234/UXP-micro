@@ -278,7 +278,7 @@ private:
                         AttributeRuleProcessorData* aData,
                         RestyleHintData& aRestyleHintDataResult) override;
     bool MediumFeaturesChanged(nsPresContext* aPresContext) override;
-    nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors()
+    nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>* GetChildRuleProcessors(nsPresContext* aPresContext)
       override;
     void RulesMatching(ElementRuleProcessorData* aData) override;
     void RulesMatching(PseudoElementRuleProcessorData* aData) override;

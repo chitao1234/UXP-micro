@@ -839,7 +839,7 @@ EffectCompositor::AnimationStyleRuleProcessor::MediumFeaturesChanged(
 }
 
 nsTArray<nsCOMPtr<nsIStyleRuleProcessor>>*
-EffectCompositor::AnimationStyleRuleProcessor::GetChildRuleProcessors()
+EffectCompositor::AnimationStyleRuleProcessor::GetChildRuleProcessors(nsPresContext* aPresContext)
 {
   return nullptr;
 }
