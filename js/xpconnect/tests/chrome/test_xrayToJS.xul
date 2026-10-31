@@ -151,7 +151,10 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
     // We could also test DataView and Iterator here for completeness, but it's
     // more trouble than it's worth.
 
-    SimpleTest.finish();
+    Promise.resolve().then(testModernBuiltins).then(() => SimpleTest.finish(), error => {
+      ok(false, "Modern built-in Xray checks failed: " + error + "\n" + error.stack);
+      SimpleTest.finish();
+    });
   }
 
   // Maintain a static list of the properties that are available on each standard
@@ -161,9 +164,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
   // DO NOT CHANGE WTIHOUT REVIEW FROM AN XPCONNECT PEER.
   var version = Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULAppInfo).version;
   var isNightlyBuild = version.endsWith("a1");
-  var isReleaseOrBeta = !version.includes("a");
+  // Shared memory is controlled by the embedding preference, not the product's
+  // version/branding suffix (Basilisk release versions enable it as well).
+  var sharedMemoryEnabled = SpecialPowers.getBoolPref("javascript.options.shared_memory");
+  is(typeof SharedArrayBuffer, sharedMemoryEnabled ? "function" : "undefined",
+     "SharedArrayBuffer exposure follows the shared-memory preference");
   var gPrototypeProperties = {};
   var gConstructorProperties = {};
+  // Keep checking visibility/identity for stateful methods, but exercise them
+  // on fresh receivers instead of repeatedly detaching the generic test object.
+  var gStatefulProperties = { ArrayBuffer: ["transfer", "transferToFixedLength"] };
   function constructorProps(arr) {
     // Some props live on all constructors
     return arr.concat(["prototype", "length", "name"]);
@@ -192,13 +202,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
                       "getOwnPropertyNames", "getOwnPropertySymbols",
                       "preventExtensions", "freeze", "fromEntries", "isFrozen", "seal",
                       "isSealed", "assign", "getPrototypeOf", "values",
-                      "entries", "isExtensible"]);
+                      "entries", "isExtensible", "hasOwn", "groupBy"]);
   gPrototypeProperties['Array'] =
     ["length", "toSource", "toString", "toLocaleString", "join", "reverse", "sort", "push",
       "pop", "shift", "unshift", "splice", "concat", "slice", "lastIndexOf", "indexOf",
       "includes", "forEach", "map", "reduce", "reduceRight", "filter", "some", "every", "find",
       "findIndex", "copyWithin", "fill", Symbol.iterator, Symbol.unscopables, "entries", "keys",
-      "values", "constructor", "flat", "flatMap"];
+      "values", "constructor", "flat", "flatMap", "at", "findLast", "findLastIndex",
+      "toReversed", "toSorted", "toSpliced", "with"];
   if (isNightlyBuild) {
     // ...nothing now
   }
@@ -234,8 +245,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
 
   gPrototypeProperties['RegExp'] =
     ["constructor", "toSource", "toString", "compile", "exec", "test",
-     Symbol.match, Symbol.replace, Symbol.search, Symbol.split,
-     "flags", "global", "ignoreCase", "multiline", "source", "sticky", "unicode"];
+     Symbol.match, Symbol.matchAll, Symbol.replace, Symbol.search, Symbol.split,
+     "flags", "dotAll", "global", "hasIndices", "ignoreCase", "multiline", "source", "sticky", "unicode"];
   gConstructorProperties['RegExp'] =
     constructorProps(["input", "lastMatch", "lastParen",
                       "leftContext", "rightContext", "$1", "$2", "$3", "$4",
@@ -245,18 +256,19 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
   gPrototypeProperties['Promise'] =
     ["constructor", "catch", "then", "finally", Symbol.toStringTag];
   gConstructorProperties['Promise'] =
-    constructorProps(["resolve", "reject", "all", "race", Symbol.species]);
+    constructorProps(["resolve", "reject", "all", "allSettled", "any", "race",
+                      "try", "withResolvers", Symbol.species]);
 
   gPrototypeProperties['ArrayBuffer'] =
-    ["constructor", "byteLength", "slice", Symbol.toStringTag];
+    ["constructor", "byteLength", "detached", "maxByteLength", "resizable",
+     "resize", "slice", "transfer", "transferToFixedLength", Symbol.toStringTag];
   gConstructorProperties['ArrayBuffer'] =
     constructorProps(["isView", "slice", Symbol.species]);
 
-  if (!isReleaseOrBeta) {
-    gPrototypeProperties['SharedArrayBuffer'] = ["constructor", "slice", "byteLength", Symbol.toStringTag];
+  if (sharedMemoryEnabled) {
+    gPrototypeProperties['SharedArrayBuffer'] =
+      ["constructor", "slice", "byteLength", "grow", "growable", "maxByteLength", Symbol.toStringTag];
     gConstructorProperties['SharedArrayBuffer'] = constructorProps([Symbol.species]);
-  } else {
-    is(typeof SharedArrayBuffer, "undefined", "Enable tests!");
   }
 
   // Sort an array that may contain symbols as well as strings.
@@ -286,7 +298,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
     return !!Object.getOwnPropertyDescriptor(obj, name).get;
   }
 
-  function testProtoCallables(protoCallables, xray, xrayProto, localProto) {
+  function testProtoCallables(protoCallables, xray, xrayProto, localProto, stateful = []) {
     for (let name of protoCallables) {
       info("Running tests for property: " + name);
       // Test both methods and getter properties.
@@ -308,7 +320,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
       is(lookupCallable(xray), method, "Proto props resolve on the instance");
       let local = lookupCallable(localProto);
       is(method.length, local.length, "Function.length identical");
-      if (method.length == 0) {
+      if (method.length == 0 && !stateful.includes(name)) {
         is(method.call(xray) + "", local.call(xray) + "",
            "Xray and local method results stringify identically");
 
@@ -396,7 +408,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
     is(xrayProto, xray.__proto__, "Proto accessors agree");
     var protoProto = classname == "Object" ? null : iwin.Object.prototype;
     is(Object.getPrototypeOf(xrayProto), protoProto, "proto proto is correct");
-    testProtoCallables(protoCallables, xray, xrayProto, localProto);
+    testProtoCallables(protoCallables, xray, xrayProto, localProto,
+                       gStatefulProperties[classname]);
     is(Object.getOwnPropertyNames(xrayProto).sort().toSource(),
        protoProps.toSource(), "getOwnPropertyNames works");
     is(Object.getOwnPropertySymbols(xrayProto).map(uneval).sort().toSource(),
@@ -836,7 +849,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
              ctorPropsToSkip);
 
     // Test the self-hosted |flags| property, toString, and toSource.
-    for (var flags of ["", "g", "i", "m", "y", "gimy"]) {
+    for (var flags of ["", "g", "i", "m", "y", "gimy", "d", "s", "dgs", "dgimsuy"]) {
       var re = new iwin.RegExp("foo", flags);
       is(re.flags, re.wrappedJSObject.flags, "Results match");
 
@@ -852,7 +865,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=933681
 
       // Test with modified flags accessors
       iwin.eval(`
-var props = ["global", "ignoreCase", "multiline", "sticky", "source", "unicode"];
+var props = ["dotAll", "global", "hasIndices", "ignoreCase", "multiline", "sticky", "source", "unicode"];
 var origDescs = {};
 for (var prop of props) {
   origDescs[prop] = Object.getOwnPropertyDescriptor(RegExp.prototype, prop);
@@ -896,7 +909,9 @@ for (var prop of props) {
   function testArrayBuffer() {
     let constructors = ['ArrayBuffer'];
 
-    if (!isReleaseOrBeta) {
+    is(typeof iwin.SharedArrayBuffer, sharedMemoryEnabled ? "function" : "undefined",
+       "Content SharedArrayBuffer exposure follows the shared-memory preference");
+    if (sharedMemoryEnabled) {
       constructors.push('SharedArrayBuffer');
     }
 
@@ -933,6 +948,228 @@ for (var prop of props) {
 
       t = (new iwin.Int32Array(2)).buffer;
       is(t.byteLength, 8, `Can access ${c} returned by buffer property`);
+    }
+  }
+
+  async function testModernBuiltins() {
+    // Source-audited ClassSpec methods must resolve to the pristine functions,
+    // even if content replaces its same-named built-ins with hostile code.
+    iwin.eval(`
+      var modernOverrideCalls = 0;
+      var modernOverrides = [];
+      for (let [target, names] of [
+        [Object, ["hasOwn", "groupBy"]],
+        [Array.prototype, ["at", "findLast", "findLastIndex", "toReversed",
+                           "toSorted", "toSpliced", "with"]],
+        [RegExp.prototype, [Symbol.matchAll]],
+        [Promise, ["allSettled", "any", "try", "withResolvers"]],
+        [ArrayBuffer.prototype, ["resize", "transfer", "transferToFixedLength"]]
+      ]) {
+        for (let name of names) {
+          modernOverrides.push([target, name, Object.getOwnPropertyDescriptor(target, name)]);
+          Object.defineProperty(target, name, {
+            configurable: true,
+            value: function() {
+              modernOverrideCalls++;
+              throw new Error("Content replacement must not run through an Xray");
+            }
+          });
+        }
+      }
+    `);
+
+    try {
+      let object = iwin.eval('Object.create({inherited: 1}, {own: {value: 2}})');
+      is(iwin.Object.hasOwn(object, "own"), true, "Object.hasOwn finds an own property through Xrays");
+      is(iwin.Object.hasOwn(object, "inherited"), false, "Object.hasOwn excludes inherited properties");
+      let calls = [];
+      let groups = iwin.Object.groupBy(iwin.eval('[1, 2, 3]'), (value, index) => {
+        calls.push([value, index]);
+        return value % 2 ? "odd" : "even";
+      });
+      is(Object.getPrototypeOf(groups), null, "Object.groupBy returns a null-prototype dictionary");
+      arraysEqual(groups.odd, [1, 3], "Object.groupBy odd values");
+      arraysEqual(groups.even, [2], "Object.groupBy even values");
+      arraysEqual(calls, [[1, 0], [2, 1], [3, 2]], "Object.groupBy callback order and indices");
+
+      let array = iwin.eval('[3, 1, 2, 1]');
+      is(array.at(-2), 2, "Array.at supports a negative index through Xrays");
+      let visited = [];
+      is(array.findLast((value, index) => {
+        visited.push(index);
+        return value === 2;
+      }), 2, "Array.findLast returns the last match");
+      arraysEqual(visited, [3, 2], "Array.findLast visits indices backwards");
+      is(array.findLastIndex(value => value === 1), 3, "Array.findLastIndex returns the last index");
+      arraysEqual(array.toReversed(), [1, 2, 1, 3], "Array.toReversed through Xrays");
+      arraysEqual(array.toSorted((a, b) => a - b), [1, 1, 2, 3], "Array.toSorted through Xrays");
+      arraysEqual(array.toSpliced(1, 2, 9), [3, 9, 1], "Array.toSpliced through Xrays");
+      arraysEqual(array.with(-1, 7), [3, 1, 2, 7], "Array.with through Xrays");
+      arraysEqual(array, [3, 1, 2, 1], "Copying Array methods preserve the original content array");
+      checkThrows(() => array.with(4, 0), /RangeError/, "Array.with rejects an invalid index");
+
+      let re = new iwin.RegExp("(a.)", "dgs");
+      is(re.dotAll, true, "RegExp.dotAll reads the intrinsic flag through Xrays");
+      is(re.hasIndices, true, "RegExp.hasIndices reads the intrinsic flag through Xrays");
+      let match = re.exec("a\na!");
+      is(match[0], "a\n", "RegExp dotAll matches a newline");
+      arraysEqual(match.indices[0], [0, 2], "RegExp match indices through Xrays");
+      arraysEqual(match.indices[1], [0, 2], "RegExp capture indices through Xrays");
+      re.lastIndex = 0;
+      // RegExp string iterators are deliberately opaque to Xrays in this tree.
+      // Waive only the returned iterator; the audited entry point is invoked
+      // through the pristine Xray method, not content's Symbol.matchAll.
+      let matches = Cu.waiveXrays(re[Symbol.matchAll]("a\na!"));
+      let first = matches.next();
+      is(first.value[0], "a\n", "RegExp Symbol.matchAll returns the first match");
+      arraysEqual(first.value.indices[0], [0, 2], "Symbol.matchAll retains indices");
+      is(matches.next().value[0], "a!", "RegExp Symbol.matchAll returns the second match");
+      is(matches.next().done, true, "RegExp Symbol.matchAll iterator finishes");
+
+      let settled = await iwin.Promise.allSettled(new iwin.Array(
+        iwin.Promise.resolve(4), iwin.Promise.reject("rejected")));
+      is(global(settled), iwin, "Promise.allSettled puts its result array in the promise's realm");
+      is(settled.length, 2, "Promise.allSettled returns both settlement records");
+      // NewPromiseCombinatorElements allocates the array in the content
+      // promise's compartment, but the native reaction creates its records in
+      // the Xray method's chrome compartment. Xrays intentionally hide object
+      // properties that the content target does not subsume. Waive only this
+      // known native result array and verify each record's trusted realm before
+      // inspecting it; the entry point above is still the pristine Xray method.
+      is(settled[0], undefined, "Xrays hide a privileged fulfillment record stored in content");
+      is(settled[1], undefined, "Xrays hide a privileged rejection record stored in content");
+      let settledResult = Cu.waiveXrays(settled);
+      let fulfilledRecord = Cu.unwaiveXrays(settledResult[0]);
+      let rejectedRecord = Cu.unwaiveXrays(settledResult[1]);
+      is(global(fulfilledRecord), window, "The native fulfillment record belongs to chrome");
+      is(global(rejectedRecord), window, "The native rejection record belongs to chrome");
+      is(fulfilledRecord.status, "fulfilled", "Promise.allSettled keeps fulfillment status");
+      is(fulfilledRecord.value, 4, "Promise.allSettled keeps the fulfilled value");
+      is(rejectedRecord.status, "rejected", "Promise.allSettled keeps rejection status");
+      is(rejectedRecord.reason, "rejected", "Promise.allSettled keeps the rejection reason");
+      let localSettled = await iwin.Promise.allSettled.call(Promise, new iwin.Array(
+        iwin.Promise.resolve(4), iwin.Promise.reject("rejected")));
+      is(global(localSettled), window, "A chrome Promise constructor keeps the result array in chrome");
+      is(global(localSettled[0]), window, "The chrome-constructor control has directly accessible records");
+      is(localSettled[0].status, "fulfilled", "The control preserves fulfillment status without a waiver");
+      is(localSettled[0].value, 4, "The control preserves the fulfilled value without a waiver");
+      is(localSettled[1].status, "rejected", "The control preserves rejection status without a waiver");
+      is(localSettled[1].reason, "rejected", "The control preserves the rejection reason without a waiver");
+      is(await iwin.Promise.any(new iwin.Array(
+        iwin.Promise.reject("ignored"), iwin.Promise.resolve(5))), 5,
+         "Promise.any fulfills after a rejected input through Xrays");
+      let capability = iwin.Promise.withResolvers();
+      is(typeof capability.resolve, "function", "Promise.withResolvers exposes its resolve function");
+      is(typeof capability.reject, "function", "Promise.withResolvers exposes its reject function");
+      capability.resolve(6);
+      is(await capability.promise, 6, "Promise.withResolvers resolves through Xrays");
+      let rejected = iwin.Promise.withResolvers();
+      let rejection = rejected.promise.then(() => {
+        ok(false, "The rejected capability must not fulfill");
+      }, reason => is(reason, "capability rejection", "Promise.withResolvers rejects through Xrays"));
+      rejected.reject("capability rejection");
+      await rejection;
+      let callbackCalls = 0;
+      let tried = iwin.Promise.try((a, b) => {
+        callbackCalls++;
+        return a + b;
+      }, 7, 8);
+      is(callbackCalls, 1, "Promise.try invokes its callback synchronously exactly once");
+      is(await tried, 15, "Promise.try forwards arguments through Xrays");
+      await iwin.Promise.try(() => { throw "try rejection"; }).then(() => {
+        ok(false, "Promise.try must reject a thrown exception");
+      }, reason => is(reason, "try rejection", "Promise.try preserves a thrown reason"));
+
+      testModernBuffers();
+      is(iwin.eval('modernOverrideCalls'), 0, "Xray methods never invoke content replacements");
+    } finally {
+      iwin.eval(`
+        for (let [target, name, descriptor] of modernOverrides) {
+          Object.defineProperty(target, name, descriptor);
+        }
+        delete modernOverrides;
+        delete modernOverrideCalls;
+      `);
+    }
+  }
+
+  function testModernBuffers() {
+    let buffer = iwin.eval(`
+      var modernBuffer = new ArrayBuffer(4, {maxByteLength: 12});
+      var modernBytes = new Uint8Array(modernBuffer);
+      modernBytes[0] = 23;
+      modernBuffer;
+    `);
+    let bytes = iwin.eval('modernBytes');
+    checkThrows(() => bytes[0], /performant/, "Resizable typed-array data remains protected by Xrays");
+    checkThrows(() => { bytes[0] = 99; }, /performant/, "Resizable typed-array writes remain protected by Xrays");
+    // TypedArray index access is deliberately denied by JSXrayTraits. Inspect
+    // ordinary buffers through explicit structured copies, as the existing
+    // typed-array tests do, while invoking buffer methods through Xrays.
+    function byteCopy(view) {
+      let copy = Cu.cloneInto(view, window);
+      is(global(copy), window, "The explicit typed-array data copy belongs to chrome");
+      return copy;
+    }
+    is(buffer.resizable, true, "A content resizable buffer is visible through Xrays");
+    is(buffer.detached, false, "A fresh buffer is attached");
+    is(buffer.maxByteLength, 12, "A resizable buffer keeps its maximum");
+    buffer.resize(8);
+    is(bytes.length, 8, "A length-tracking view follows growth through Xrays");
+    let grownBytes = byteCopy(bytes);
+    is(grownBytes[0], 23, "Resize preserves existing bytes");
+    is(grownBytes[7], 0, "Resize zeroes new bytes");
+    buffer.resize(2);
+    is(bytes.length, 2, "A length-tracking view follows shrink through Xrays");
+    checkThrows(() => buffer.resize(13), /RangeError/, "Resize rejects a length above the maximum");
+
+    for (let method of ["transfer", "transferToFixedLength"]) {
+      let source = iwin.eval(`
+        var modernSource = new ArrayBuffer(4, {maxByteLength: 12});
+        var modernSourceBytes = new Uint8Array(modernSource);
+        modernSourceBytes[0] = 42;
+        modernSource;
+      `);
+      let sourceBytes = iwin.eval('modernSourceBytes');
+      let moved = source[method](8);
+      is(source.detached, true, method + " detaches only its fresh receiver");
+      is(source.byteLength, 0, method + " clears the source length");
+      is(source.maxByteLength, 0, method + " clears the detached maximum");
+      is(sourceBytes.length, 0, method + " detaches existing views");
+      is(moved.detached, false, method + " returns an attached buffer");
+      is(moved.byteLength, 8, method + " sets the destination length");
+      is(moved.resizable, method === "transfer", method + " has the specified resizability");
+      is(moved.maxByteLength, method === "transfer" ? 12 : 8, method + " sets the specified maximum");
+      let movedBytes = byteCopy(new iwin.Uint8Array(moved));
+      is(movedBytes[0], 42, method + " preserves existing bytes");
+      is(movedBytes[7], 0, method + " zeroes extended bytes");
+      checkThrows(() => source[method](), /TypeError/, method + " rejects an already detached receiver");
+    }
+
+    if (sharedMemoryEnabled) {
+      let shared = iwin.eval(`
+        var modernShared = new SharedArrayBuffer(4, {maxByteLength: 12});
+        var modernSharedBytes = new Uint8Array(modernShared);
+        modernSharedBytes[0] = 19;
+        modernShared;
+      `);
+      let sharedBytes = iwin.eval('modernSharedBytes');
+      checkThrows(() => sharedBytes[0], /performant/, "Shared typed-array data remains protected by Xrays");
+      checkThrows(() => { sharedBytes[0] = 99; }, /performant/, "Shared typed-array writes remain protected by Xrays");
+      is(shared.growable, true, "A content shared buffer can be growable");
+      is(shared.maxByteLength, 12, "A growable shared buffer keeps its maximum");
+      shared.grow(8);
+      is(shared.byteLength, 8, "SharedArrayBuffer.grow updates the buffer through Xrays");
+      is(sharedBytes.length, 8, "Shared growth updates a length-tracking view");
+      // Generic cloneInto intentionally disallows shared backing stores. Copy
+      // the live values into a content Array, then clone that primitive data.
+      let sharedCopy = Cu.cloneInto(iwin.eval('Array.from(modernSharedBytes)'), window);
+      is(global(sharedCopy), window, "The shared-data snapshot belongs to chrome");
+      is(sharedCopy.length, 8, "The snapshot contains every byte after growth");
+      is(sharedCopy[0], 19, "Shared growth preserves existing bytes");
+      is(sharedCopy[7], 0, "Shared growth zeroes new bytes");
+      checkThrows(() => shared.grow(2), /RangeError/, "Shared buffers cannot shrink");
+      checkThrows(() => shared.grow(13), /RangeError/, "Shared growth respects the maximum");
     }
   }
 
