@@ -3,7 +3,7 @@
 
 "use strict";
 
-// Check stylesheets on HMTL and XUL document
+// Check stylesheets on HTML and XUL documents.
 
 // FIXME: this test opens the devtools for nothing, it should be changed into a
 // devtools/server/tests/mochitest/test_css-logic-...something...html
@@ -29,24 +29,27 @@ add_task(function* () {
   yield selectNode("#target", inspector);
 
   info("Checking stylesheets");
-  yield checkSheets("#target", testActor);
+  yield checkSheets("#target", testActor, TEST_URI_HTML,
+    /doc_content_stylesheet_linked\.css$/);
 
   info("Checking authored stylesheets");
   yield addTab(TEST_URI_AUTHOR);
 
-  ({inspector} = yield openInspector());
+  ({inspector, testActor} = yield openInspector());
   yield selectNode("#target", inspector);
-  yield checkSheets("#target", testActor);
+  yield checkSheets("#target", testActor, TEST_URI_AUTHOR, /^data:.*seagreen/);
 
   info("Checking stylesheets on XUL document");
   info("Allowing XUL content");
+  registerCleanupFunction(disallowXUL);
   allowXUL();
   yield addTab(TEST_URI_XUL);
 
-  ({inspector} = yield openInspector());
+  ({inspector, testActor} = yield openInspector());
   yield selectNode("#target", inspector);
 
-  yield checkSheets("#target", testActor);
+  yield checkSheets("#target", testActor, TEST_URI_XUL,
+    /doc_content_stylesheet_xul\.css$/);
   info("Disallowing XUL content");
   disallowXUL();
 });
@@ -63,8 +66,15 @@ function disallowXUL() {
       Ci.nsIPermissionManager.DENY_ACTION);
 }
 
-function* checkSheets(targetSelector, testActor) {
+function* checkSheets(targetSelector, testActor, expectedURI, expectedSheet) {
+  // Each openInspector creates a document-specific test actor. Keeping an old
+  // actor here silently re-tests the first tab for the authored and XUL cases.
+  is(yield testActor.eval("content.document.documentURI"), expectedURI,
+    "Stylesheet inspection uses the current document");
   let sheets = yield testActor.getStyleSheetsInfoForNode(targetSelector);
+  ok(sheets.length > 0, "The selected node has matching stylesheets");
+  ok(sheets.some(sheet => expectedSheet.test(sheet.href)),
+    "The document-specific stylesheet is present");
 
   for (let sheet of sheets) {
     if (!sheet.href ||
