@@ -48,16 +48,21 @@ window.checkResults = function(reportObj) {
   ok(cspReport["referrer"].startsWith("http://mochi.test:8888/tests/dom/security/test/csp/test_report.html"),
      "Incorrect referrer");
 
-  is(cspReport["blocked-uri"], "self", "Incorrect blocked-uri");
+  // UXPd20b1f2fb6a uses CSP3's inline marker; ec5d6d9b5d1 reports only
+  // the name of the governing directive, not its complete source list.
+  is(cspReport["blocked-uri"], "inline", "Incorrect blocked-uri");
 
-  is(cspReport["violated-directive"], "default-src 'none'", "Incorrect violated-directive");
+  is(cspReport["violated-directive"], "default-src", "Incorrect violated-directive");
 
   is(cspReport["original-policy"], "default-src 'none'; report-uri http://mochi.test:8888/foo.sjs",
      "Incorrect original-policy");
 
   is(cspReport["source-file"], docUri, "Incorrect source-file");
 
-  is(cspReport["script-sample"], "\n    var foo = \"propEscFoo\";\n    var bar...",
+  const ellipsis = SpecialPowers.Cc["@mozilla.org/preferences-service;1"]
+    .getService(SpecialPowers.Ci.nsIPrefBranch)
+    .getComplexValue("intl.ellipsis", SpecialPowers.Ci.nsIPrefLocalizedString).data;
+  is(cspReport["script-sample"], "\n    var foo = \"propEscFoo\";\n    var bar" + ellipsis,
      "Incorrect script-sample");
 
   is(cspReport["line-number"], 7, "Incorrect line-number");

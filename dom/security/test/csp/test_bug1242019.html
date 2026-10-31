@@ -23,21 +23,24 @@ function cleanup() {
   SimpleTest.finish();
 };
 
-var expectedURI = "data:image/png;base64,iVBORw0KGgoAAAANSU"
+const expectedURI = "data:image/png;base64,iVBORw0KGgoAAAANSU";
+const ellipsis = SpecialPowers.Cc["@mozilla.org/preferences-service;1"]
+  .getService(SpecialPowers.Ci.nsIPrefBranch)
+  .getComplexValue("intl.ellipsis", SpecialPowers.Ci.nsIPrefLocalizedString).data;
+const bundle = SpecialPowers.Cc["@mozilla.org/intl/stringbundle;1"]
+  .getService(SpecialPowers.Ci.nsIStringBundleService)
+  .createBundle("chrome://global/locale/security/csp.properties");
+// CSP_LogMessage adds this nonlocalized category prefix before the bundle text.
+const expectedMessage = "Content Security Policy: " + bundle.formatStringFromName(
+  "CSPViolationWithURI", ["img-src", expectedURI + ellipsis], 2);
 
 SpecialPowers.registerConsoleListener(function ConsoleMsgListener(aMsg) {
-  // look for the message with data uri and see the data uri is truncated to 40 chars
-  data_start = aMsg.message.indexOf(expectedURI) 
-  if (data_start > -1) {
-    data_uri = "";
-    data_uri = aMsg.message.substr(data_start);
-    // this will either match the elipsis after the URI or the . at the end of the message
-    data_uri = data_uri.substr(0, data_uri.indexOf("."));
-    if (data_uri == "") {
-      return;
-    }
-
-    ok(data_uri.length == 40, "Data URI only shows 40 characters in the console");
+  if (aMsg.errorMessage && aMsg.errorMessage.indexOf(expectedURI) != -1) {
+    // UXP3dd8bc0ddba uses the localized ellipsis. Compare the complete error
+    // text: splitting on an ASCII period accidentally counted its punctuation.
+    is(expectedURI.length, 40, "The expected URI prefix has exactly 40 characters");
+    is(aMsg.errorMessage, expectedMessage,
+       "The console contains exactly 40 URI characters and the localized ellipsis");
     SimpleTest.executeSoon(cleanup);
   }
 });

@@ -23,7 +23,8 @@ function checkResults(reportObj) {
   // we can not test for the whole referrer since it includes platform specific information
   is(cspReport["referrer"], document.location.toString(), "Incorrect referrer");
   is(cspReport["blocked-uri"], document.location.toString(), "Incorrect blocked-uri");
-  is(cspReport["violated-directive"], "frame-ancestors 'none'", "Incorrect violated-directive");
+  // UXPec5d6d9b5d1 reports the directive name; the policy stays complete below.
+  is(cspReport["violated-directive"], "frame-ancestors", "Incorrect violated-directive");
   is(cspReport["original-policy"], "frame-ancestors 'none'; report-uri http://mochi.test:8888/foo.sjs", "Incorrect original-policy");
   testResults.reportFired = true;
 }

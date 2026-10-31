@@ -1,0 +1,110 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CSP reporting preference preserves enforcement</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/SpawnTask.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+// Adapt the observable allowed/blocked resource oracle from current WPT
+// content-security-policy/reporting/report-and-enforce.html, revision
+// 309a5a01511293cd91f86d82c9c2f7130dd38ebc. The off-arm's bounded observation
+// matches support/checkReport.sub.js's three-second no-report window.
+// UXP6592cdfb42 gates violation notifications as well as outgoing reporting;
+// image events and the HTTP sink therefore verify the off-arm independently.
+const REPORTING_PREF = "security.csp.reporting.enabled";
+const SERVER = "file_reporting_pref.sjs";
+
+function requestState(operation, token) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", SERVER + "?op=" + operation + "&token=" + token);
+    xhr.onload = () => {
+      try {
+        is(xhr.status, 200, "Report sink " + operation + " query succeeds");
+        resolve(JSON.parse(xhr.responseText));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    xhr.onerror = () => reject(new Error("Report sink query failed: " + operation));
+    xhr.send();
+  });
+}
+
+function* checkPhase(token, reportingEnabled) {
+  yield requestState("reset", token);
+  const frame = document.createElement("iframe");
+  document.body.appendChild(frame);
+  const seen = {};
+  let listener;
+  const imageResults = new Promise(resolve => {
+    listener = event => {
+      if (event.source != frame.contentWindow || event.origin != location.origin ||
+          !event.data || event.data.token != token) {
+        return;
+      }
+      const result = event.data;
+      ok(result.kind == "allowed" || result.kind == "blocked", "Known resource result");
+      ok(!seen[result.kind], "The " + result.kind + " resource settles only once");
+      seen[result.kind] = result;
+      if (seen.allowed && seen.blocked) resolve();
+    };
+    window.addEventListener("message", listener);
+  });
+  // Start the enabled arm's long poll before loading its violating document.
+  const reportReceived = reportingEnabled ? requestState("wait", token) : null;
+  try {
+    frame.src = SERVER + "?op=page&token=" + token;
+    yield imageResults;
+    is(seen.allowed.type, "load", "Same-origin image loads with either pref value");
+    is(seen.allowed.width, 1, "The allowed image really decodes");
+    is(seen.blocked.type, "error", "CSP blocks the cross-origin image with either pref value");
+    is(seen.blocked.width, 0, "The blocked image has no decoded pixels");
+    if (reportingEnabled) {
+      yield reportReceived;
+    } else {
+      SimpleTest.requestFlakyTimeout("Observe the WPT no-report window after resource settlement");
+      yield new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    const counts = yield requestState("counts", token);
+    is(counts.allowed, 1, "The allowed HTTP endpoint is reached once");
+    is(counts.blocked, 0, "The CSP-blocked HTTP endpoint is never reached");
+    is(counts.reports, reportingEnabled ? 1 : 0,
+       "The same working report sink receives only the enabled arm's POST");
+    if (reportingEnabled) {
+      is(counts.reportMethod, "POST", "The report sink receives an actual HTTP POST");
+    }
+  } finally {
+    window.removeEventListener("message", listener);
+    frame.remove();
+  }
+}
+
+add_task(function* test_reporting_pref() {
+  const defaultBranch = SpecialPowers.Cc["@mozilla.org/preferences-service;1"]
+    .getService(SpecialPowers.Ci.nsIPrefService).getDefaultBranch("");
+  is(defaultBranch.getBoolPref(REPORTING_PREF), false,
+     "The product reporting default remains off");
+  is(SpecialPowers.getBoolPref(REPORTING_PREF), false,
+     "The fixture starts in its manifest-owned disabled arm");
+  const token = "report-pref-" + Date.now();
+  yield* checkPhase(token + "-off", false);
+  // This is a real false-to-true change, so the old pref helper owns one undo.
+  yield SpecialPowers.pushPrefEnv({set: [[REPORTING_PREF, true]]});
+  try {
+    yield* checkPhase(token + "-on", true);
+    const offCounts = yield requestState("counts", token + "-off");
+    is(offCounts.reports, 0, "No delayed report arrives from the disabled arm");
+  } finally {
+    yield SpecialPowers.popPrefEnv();
+  }
+  is(SpecialPowers.getBoolPref(REPORTING_PREF), false,
+     "The enabled arm restores the manifest-owned disabled preference");
+});
+</script>
+</body>
+</html>

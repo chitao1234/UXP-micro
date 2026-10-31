@@ -50,7 +50,9 @@ function checkResults(reportStr) {
        "http://mochi.test:8888/tests/dom/security/test/csp/test_report_for_import.html",
        "Incorrect referrer");
     is(cspReport["violated-directive"],
-       "style-src-elem http://mochi.test:8888",
+       // The governing style-src fallback's name is reported by this fork's
+       // ec5d6d9b5d1/nsCSPPolicy::permits path; retain the full policy below.
+       "style-src",
        "Incorrect violated-directive");
     is(cspReport["original-policy"],
        "style-src http://mochi.test:8888; report-uri " +

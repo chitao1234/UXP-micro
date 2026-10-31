@@ -5,27 +5,61 @@
 
   <title>Test for bug 1312272</title>
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/SpawnTask.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
 <body>
-<iframe id="cspframe" style="width:100%"></iframe>
-
 <script type="text/javascript">
-SimpleTest.waitForExplicitFinish();
-function handler(evt) {
-  console.log(evt);
-  if (evt.data === "finish") {
-    ok(true, 'Other events continue to work fine.')
-    SimpleTest.finish();
-    //removeEventListener('message', handler);
-  } else {
-    ok(false, "Should not get any other message")
-  }
+function checkEventHandler(allowInline) {
+  const frame = document.createElement("iframe");
+  document.body.appendChild(frame);
+  const seen = {};
+  return new Promise(resolve => {
+    function handler(event) {
+      if (event.source != frame.contentWindow || event.origin != location.origin) {
+        return;
+      }
+      const result = event.data;
+      ok(result.kind == "event" || result.kind == "violation", "Known child result");
+      ok(!seen[result.kind], "Each " + result.kind + " result arrives once");
+      seen[result.kind] = result;
+      if (allowInline && result.kind == "violation") {
+        ok(false, "The unsafe-inline positive control must not produce a violation");
+      }
+      if (!seen.event || (!allowInline && !seen.violation)) {
+        return;
+      }
+      ok(true, "The external listener still receives the native click event");
+      is(seen.event.inlineRan, allowInline,
+         "CSP blocks the inline handler and unsafe-inline really permits it");
+      if (!allowInline) {
+        is(seen.violation.blockedURI, "inline", "The violation identifies inline code");
+        is(seen.violation.violatedDirective, "script-src",
+           "The violation identifies the governing script directive");
+        is(seen.violation.sample, "this.title='inline ran'",
+           "The violation reports the actual blocked event-handler body");
+      }
+      window.removeEventListener("message", handler);
+      frame.remove();
+      resolve();
+    }
+    window.addEventListener("message", handler);
+    if (allowInline) {
+      const policy = "default-src *; script-src * 'unsafe-eval' 'unsafe-inline'";
+      frame.src = "file_testserver.sjs?file=" +
+        encodeURIComponent("tests/dom/security/test/csp/file_bug1312272.html") +
+        "&csp=" + encodeURIComponent(policy);
+    } else {
+      // Retain the original header's external-script allowance and inline ban.
+      frame.src = "file_bug1312272.html";
+    }
+  });
 }
-var cspframe = document.getElementById("cspframe");
-cspframe.src = "file_bug1312272.html";
-addEventListener("message", handler);
-console.log("assignign frame");
+
+add_task(function* test_inline_handler_preserves_other_events() {
+  yield checkEventHandler(false);
+  yield checkEventHandler(true);
+});
 </script>
 
 </body>

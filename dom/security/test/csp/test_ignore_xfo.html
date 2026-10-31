@@ -21,38 +21,103 @@
 
 SimpleTest.waitForExplicitFinish();
 
-var testcounter = 0;
-function checkFinished() {
-  testcounter++;
-  if (testcounter < 2) {
-  	return;
+var completedFrames = new Set();
+function checkFinished(frame) {
+  ok(!completedFrames.has(frame), "The " + frame.id + " navigation completes once");
+  completedFrames.add(frame);
+  if (completedFrames.size == 2) {
+    SimpleTest.finish();
   }
-  SimpleTest.finish();
 }
 
-// 1) test XFO with CSP
-var csp_testframe = document.getElementById("csp_testframe");
-csp_testframe.onload = function() {
-  var msg = csp_testframe.contentWindow.document.getElementById("cspmessage");
-  is(msg.innerHTML, "Ignoring XFO because of CSP", "Loading frame with with XFO and CSP");
-  checkFinished();
+function navigateFrame(frame, url, checkResult) {
+  // Installed only after the parent load barrier and the header sanity check.
+  // Initial about:blank loads cannot be mistaken for either tested navigation.
+  frame.onload = function(event) {
+    if (event.target != frame) {
+      return;
+    }
+    frame.onload = null;
+    frame.onerror = null;
+    is(frame.getAttribute("src"), url, "Load belongs to the requested navigation");
+    checkResult();
+    checkFinished(frame);
+  };
+  frame.onerror = function() {
+    frame.onload = null;
+    frame.onerror = null;
+    ok(false, "sanity: should not fire onerror for " + frame.id);
+    checkFinished(frame);
+  };
+  frame.src = url;
 }
-csp_testframe.onerror = function() {
-  ok(false, "sanity: should not fire onerror for csp_testframe");
-}
-csp_testframe.src = "file_ignore_xfo.html";
 
-// 2) test XFO with CSP_RO
-var csp_ro_testframe = document.getElementById("csp_ro_testframe");
-csp_ro_testframe.onload = function() {
-  var msg = csp_ro_testframe.contentWindow.document.getElementById("cspmessage");
-  is(msg, null, "Blocking frame with with XFO and CSP_RO");
-  checkFinished();
+function loadFrames() {
+  // 1) An enforcing CSP with frame-ancestors overrides XFO.
+  var csp_testframe = document.getElementById("csp_testframe");
+  navigateFrame(csp_testframe, "file_ignore_xfo.html", function() {
+    var frameDocument = csp_testframe.contentDocument;
+    var message = frameDocument && frameDocument.getElementById("cspmessage");
+    ok(message, "The enforcing-CSP frame loads its response body despite XFO");
+    if (message) {
+      is(message.innerHTML, "Ignoring XFO because of CSP", "Loading frame with XFO and CSP");
+    }
+  });
+
+  // 2) A report-only CSP does not override XFO.
+  var csp_ro_testframe = document.getElementById("csp_ro_testframe");
+  navigateFrame(csp_ro_testframe, "file_ro_ignore_xfo.html", function() {
+    // Upstream bug 1492059 uses the safe getter for the opaque blocked document.
+    is(csp_ro_testframe.contentDocument, null,
+       "XFO blocks access to the frame despite report-only frame-ancestors");
+    var blockedDocument = SpecialPowers.wrap(csp_ro_testframe).contentDocument;
+    ok(blockedDocument, "The blocked frame has a replacement document");
+    if (blockedDocument) {
+      is(blockedDocument.documentURI, "about:blank",
+         "XFO replaces the rejected document with about:blank");
+      is(blockedDocument.getElementById("cspmessage"), null,
+         "The rejected response body is not displayed");
+    }
+  });
 }
-csp_ro_testframe.onerror = function() {
-  ok(false, "sanity: should not fire onerror for csp_ro_testframe");
+
+function runTest(event) {
+  if (event.target != document) {
+    return;
+  }
+  window.removeEventListener("load", runTest);
+  // Prove the negative resource and headers exist before testing navigation;
+  // an HTTP failure or enforcing CSP must not satisfy the blank oracle.
+  var request = new XMLHttpRequest();
+  request.open("GET", "file_ro_ignore_xfo.html");
+  request.onload = function() {
+    is(request.status, 200, "The report-only fixture is served successfully");
+    is(request.getResponseHeader("X-Frame-Options"), "deny",
+       "The negative arm actually carries XFO DENY");
+    is(request.getResponseHeader("Content-Security-Policy-Report-Only"),
+       "frame-ancestors http://mochi.test:8888",
+       "The negative arm carries only report-only frame-ancestors");
+    is(request.getResponseHeader("Content-Security-Policy"), null,
+       "An enforcing CSP cannot account for the negative arm");
+    var responseDocument = new DOMParser().parseFromString(request.responseText,
+                                                          "text/html");
+    var message = responseDocument.getElementById("cspmessage");
+    ok(message, "The response contains the protected document's marker");
+    if (message) {
+      is(message.innerHTML, "Ignoring XFO because of CSP_RO",
+         "The negative arm serves the expected response body");
+    }
+    loadFrames();
+  };
+  request.onerror = function() {
+    ok(false, "The report-only fixture sanity request must succeed");
+    SimpleTest.finish();
+  };
+  request.send();
 }
-csp_ro_testframe.src = "file_ro_ignore_xfo.html";
+
+// Wait for both parser-created frames' initial about:blank loads to complete.
+window.addEventListener("load", runTest);
 
 </script>
 </body>

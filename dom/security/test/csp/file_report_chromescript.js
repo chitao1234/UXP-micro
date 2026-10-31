@@ -1,4 +1,5 @@
 Components.utils.import("resource://gre/modules/Services.jsm");
+Components.utils.importGlobalProperties(["TextDecoder"]);
 
 const Ci = Components.interfaces;
 const Cc = Components.classes;
@@ -36,9 +37,12 @@ var openingObserver = {
             segments.push(data);
           }
 
-          var reportText = segments.join("");
+          // The upload body is UTF-8, not a JS binary string. Match current
+          // Firefox's TextDecoder path so non-ASCII report samples round-trip.
+          var reportBytes = Uint8Array.from(segments.join(""), byte => byte.charCodeAt(0));
           // rewind stream as we are supposed to - there will be an assertion later if we don't.
           uploadStream.QueryInterface(Ci.nsISeekableStream).seek(Ci.nsISeekableStream.NS_SEEK_SET, 0);
+          var reportText = new TextDecoder("utf-8", {fatal: true}).decode(reportBytes);
         }
         message.report = reportText;
       } catch (e) {
