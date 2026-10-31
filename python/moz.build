@@ -59,6 +59,7 @@ PYTHON_UNIT_TESTS += [
     'mozbuild/mozbuild/test/test_pythonutil.py',
     'mozbuild/mozbuild/test/test_testing.py',
     'mozbuild/mozbuild/test/test_util.py',
+    'mozbuild/mozbuild/test/test_virtualenv.py',
     'mozbuild/mozpack/test/test_chrome_flags.py',
     'mozbuild/mozpack/test/test_chrome_manifest.py',
     'mozbuild/mozpack/test/test_copier.py',

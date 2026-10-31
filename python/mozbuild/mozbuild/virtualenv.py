@@ -131,7 +131,10 @@ class VirtualenvManager(object):
         # virtualenv. If this fails, it is likely system Python has been
         # upgraded, and our virtualenv would not be usable.
         python_size = os.path.getsize(python)
-        if ((python, python_size) != (self.python_path, os.path.getsize(self.python_path)) and
+        python_key = os.path.normcase(os.path.abspath(python))
+        virtualenv_python_key = os.path.normcase(os.path.abspath(self.python_path))
+        if ((python_key, python_size) !=
+                (virtualenv_python_key, os.path.getsize(self.python_path)) and
             (sys.hexversion, python_size) != self.get_exe_info()):
             return False
 
@@ -197,8 +200,10 @@ class VirtualenvManager(object):
         called out to), the path to create the virtualenv in, and a handle to
         write output to.
         """
-        if os.path.abspath(sys.executable).startswith(
-                os.path.abspath(self.virtualenv_root)):
+        active_python = os.path.normcase(os.path.abspath(sys.executable))
+        virtualenv_root = os.path.normcase(os.path.abspath(self.virtualenv_root))
+        if (active_python == virtualenv_root or
+                active_python.startswith(virtualenv_root + os.sep)):
             raise RuntimeError("Cannot recreate virtualenv while it is active.")
         
         env = dict(os.environ)
@@ -456,6 +461,9 @@ class VirtualenvManager(object):
 
         marker = os.path.join(self.virtualenv_root, "env_built.stamp")
         open(marker, "a").close()
+        # Opening an existing file in append mode does not refresh its mtime.
+        # Mark success only after population completes, including rebuilds.
+        os.utime(marker, None)
 
         return self.virtualenv_root
 
