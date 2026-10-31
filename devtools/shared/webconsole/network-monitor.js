@@ -1454,22 +1454,39 @@ NetworkMonitor.prototype = {
     // nsITimedChannel interface used by Resource and Navigation Timing
     let timedChannel = httpActivity.channel.QueryInterface(Ci.nsITimedChannel);
 
-    if ((harTimings.connect <= 0) && timedChannel) {
-      if (timedChannel.secureConnectionStartTime > timedChannel.connectStartTime) {
+    // A null native TimeStamp is exposed as PRTime 0. Reused connections can
+    // omit one or both marks; subtracting an absent mark from an epoch PRTime
+    // would turn the current date into a request duration. Ignore speculative
+    // marks predating this request, as the current Firefox observer does.
+    function channelTime(property) {
+      if (!timedChannel) {
+        return 0;
+      }
+      let value = timedChannel[property];
+      return value > 0 &&
+        (!timedChannel.asyncOpenTime || value >= timedChannel.asyncOpenTime) ? value : 0;
+    }
+    let connectStart = channelTime("connectStartTime");
+    let connectEnd = channelTime("connectEndTime");
+    let secureStart = channelTime("secureConnectionStartTime");
+    let dnsStart = channelTime("domainLookupStartTime");
+    let dnsEnd = channelTime("domainLookupEndTime");
+
+    if (harTimings.connect <= 0 && connectStart && connectEnd >= connectStart) {
+      if (secureStart >= connectStart && secureStart <= connectEnd) {
         harTimings.connect =
-          timedChannel.secureConnectionStartTime - timedChannel.connectStartTime;
+          secureStart - connectStart;
         harTimings.ssl =
-          timedChannel.connectEndTime - timedChannel.secureConnectionStartTime;
+          connectEnd - secureStart;
       } else {
         harTimings.connect =
-          timedChannel.connectEndTime - timedChannel.connectStartTime;
-        harTimings.ssl = -1;
+          connectEnd - connectStart;
       }
     }
 
-    if ((harTimings.dns <= 0) && timedChannel) {
+    if (harTimings.dns <= 0 && dnsStart && dnsEnd >= dnsStart) {
       harTimings.dns =
-        timedChannel.domainLookupEndTime - timedChannel.domainLookupStartTime;
+        dnsEnd - dnsStart;
     }
 
     if (timings.STATUS_SENDING_TO) {
@@ -1497,7 +1514,9 @@ NetworkMonitor.prototype = {
 
     let totalTime = 0;
     for (let timing in harTimings) {
-      let time = Math.max(Math.round(harTimings[timing] / 1000), -1);
+      // Preserve HAR's unavailable sentinel before converting microseconds;
+      // rounding -1 / 1000 would otherwise report an invented zero duration.
+      let time = harTimings[timing] < 0 ? -1 : Math.round(harTimings[timing] / 1000);
       harTimings[timing] = time;
       if (time > -1) {
         totalTime += time;

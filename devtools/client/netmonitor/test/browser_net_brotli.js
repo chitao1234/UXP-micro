@@ -38,6 +38,20 @@ add_task(function* () {
       time: true
     });
 
+  let request = RequestsMenu.getItemAtIndex(0).attachment;
+  ok(!request.fromCache, "The brotli response came from the network.");
+  ok(Number.isFinite(request.totalTime) && request.totalTime >= 0 &&
+     request.totalTime < 60000,
+     "A local brotli request reports a duration below one minute, not an epoch timestamp.");
+  let timings = request.eventTimings.timings;
+  info("Brotli HAR timings: " + JSON.stringify(timings));
+  is(request.totalTime, Object.keys(timings).reduce((sum, name) => {
+    let duration = timings[name];
+    ok(Number.isFinite(duration) && duration >= -1,
+       name + " is a duration or the unavailable sentinel.");
+    return sum + Math.max(duration, 0);
+  }, 0), "The total is the sum of available HAR phases.");
+
   let onEvent = waitForResponseBodyDisplayed();
   EventUtils.sendMouseEvent({ type: "mousedown" },
     document.getElementById("details-pane-toggle"));

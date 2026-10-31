@@ -346,8 +346,12 @@ function verifyRequestItemTarget(aRequestItem, aMethod, aUrl, aData = {}) {
     let tooltip = target.querySelector(".requests-menu-timings-total").getAttribute("tooltiptext");
     info("Displayed time: " + value);
     info("Tooltip time: " + tooltip);
-    ok(~~(value.match(/[0-9]+/)) >= 0, "The displayed time is correct.");
-    ok(~~(tooltip.match(/[0-9]+/)) >= 0, "The tooltip time is correct.");
+    ok(Number.isFinite(attachment.totalTime) && attachment.totalTime >= 0,
+      "The attached total time is a finite non-negative duration.");
+    let { L10N } = require("devtools/client/netmonitor/l10n");
+    let expectedTime = L10N.getFormatStr("networkMenu.totalMS", attachment.totalTime);
+    is(value, expectedTime, "The displayed time matches the reported duration.");
+    is(tooltip, expectedTime, "The tooltip time matches the reported duration.");
   }
 
   if (visibleIndex != -1) {
