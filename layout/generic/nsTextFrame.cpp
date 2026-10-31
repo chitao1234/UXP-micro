@@ -17,6 +17,7 @@
 #include "mozilla/TextEvents.h"
 #include "mozilla/BinarySearch.h"
 #include "mozilla/IntegerRange.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/Unused.h"
 
 #include "nsCOMPtr.h"
@@ -2304,8 +2305,15 @@ BuildTextRunsScanner::BuildTextRunForFrames(void* aTextBuffer)
   // Setup factory chain
   UniquePtr<nsTransformingTextRunFactory> transformingFactory;
   if (anyTextTransformStyle) {
+    bool useCapitalEsZet = false;
+    if (mozilla::Preferences::GetBool(
+          "layout.css.text-transform.uppercase-eszett.enabled", false)) {
+      gfxFont* firstFont = fontGroup->GetFirstValidFont(0x00DF);
+      useCapitalEsZet = firstFont && firstFont->HasCharacter(0x1E9E);
+    }
     transformingFactory =
-      MakeUnique<nsCaseTransformTextRunFactory>(Move(transformingFactory));
+      MakeUnique<nsCaseTransformTextRunFactory>(Move(transformingFactory),
+                                               false, useCapitalEsZet);
   }
   if (anyMathMLStyling) {
     transformingFactory =
@@ -9686,7 +9694,10 @@ static void TransformChars(nsTextFrame* aFrame, const nsStyleText* aStyle,
       AutoTArray<bool,50> deletedCharsArray;
       nsCaseTransformTextRunFactory::TransformString(fragString,
                                                      convertedString,
-                                                     false, nullptr,
+                                                     false,
+                                                     mozilla::Preferences::GetBool(
+                                                       "layout.css.text-transform.uppercase-eszett.enabled", false),
+                                                     nullptr,
                                                      charsToMergeArray,
                                                      deletedCharsArray,
                                                      transformedTextRun,

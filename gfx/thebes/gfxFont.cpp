@@ -3146,11 +3146,15 @@ gfxFont::InitFakeSmallCapsRun(DrawTarget     *aDrawTarget,
                 nsAutoString convertedString;
                 AutoTArray<bool,50> charsToMergeArray;
                 AutoTArray<bool,50> deletedCharsArray;
+                bool useCapitalEsZet = Preferences::GetBool(
+                    "layout.css.text-transform.uppercase-eszett.enabled", false) &&
+                    HasCharacter(0x1E9E);
 
                 bool mergeNeeded = nsCaseTransformTextRunFactory::
                     TransformString(origString,
                                     convertedString,
                                     true,
+                                    useCapitalEsZet,
                                     mStyle.explicitLanguage
                                       ? mStyle.language.get() : nullptr,
                                     charsToMergeArray,

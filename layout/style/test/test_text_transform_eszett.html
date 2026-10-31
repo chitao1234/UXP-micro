@@ -1,0 +1,141 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Unicode sharp-S casing and optional capital eszett</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<style>
+@font-face {
+  font-family: EszettSupported;
+  src: url(LinLibertine_Re-4.7.5.woff);
+}
+@font-face {
+  font-family: EszettUnsupported;
+  src: url(GenR102.woff2);
+}
+@font-face {
+  font-family: EszettSynthetic;
+  src: url(DejaVuSans.ttf);
+}
+#fixture span { display: inline-block; font-size: 48px; }
+.supported { font-family: EszettSupported; }
+.unsupported { font-family: EszettUnsupported; }
+.uppercase { text-transform: uppercase; }
+.capitalize { text-transform: capitalize; }
+.synthetic { font-family: EszettSynthetic; }
+#fixture .reduced { font-size: 38.4px; }
+.smallcaps { font-variant: small-caps; }
+</style>
+<body>
+<div id="fixture">
+  <div class="supported">
+    <span class="uppercase" id="upper-supported">Straße ß</span>
+    <span id="upper-ss-supported">STRASSE SS</span>
+    <span id="upper-capital-supported">STRAẞE ẞ</span>
+    <span class="capitalize" id="title-supported">ßeta straße</span>
+    <span id="title-ref-supported">Sseta Straße</span>
+    <span class="uppercase" id="prefix-supported">Aß😀ßZ</span>
+    <span id="sharp-ss-supported">SS</span>
+    <span id="sharp-capital-supported">ẞ</span>
+  </div>
+  <div class="unsupported">
+    <span class="uppercase" id="upper-unsupported">Straße ß</span>
+    <span id="upper-ss-unsupported">STRASSE SS</span>
+    <span class="capitalize" id="title-unsupported">ßeta straße</span>
+    <span id="title-ref-unsupported">Sseta Straße</span>
+  </div>
+  <div class="synthetic">
+    <span class="smallcaps" id="caps-supported">ß</span>
+    <span class="reduced" id="caps-ss-supported">SS</span>
+    <span class="reduced" id="caps-capital-supported">ẞ</span>
+  </div>
+  <div class="unsupported">
+    <span class="smallcaps" id="caps-unsupported">ß</span>
+    <span class="reduced" id="caps-ss-unsupported">SS</span>
+  </div>
+</div>
+<script>
+SimpleTest.waitForExplicitFinish();
+const PREF = "layout.css.text-transform.uppercase-eszett.enabled";
+function elt(id) { return document.getElementById(id); }
+function width(id) { return elt(id).getBoundingClientRect().width; }
+function sameWidth(actual, expected, label) {
+  ok(Math.abs(width(actual) - width(expected)) < 0.02,
+     label + ": " + width(actual) + " vs " + width(expected));
+}
+function afterPaints() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+function setPref(value) {
+  return new Promise(resolve => SpecialPowers.pushPrefEnv({set: [[PREF, value]]}, resolve));
+}
+
+(async function() {
+  try {
+    // The mochitest support-file installer stages these external fonts beside
+    // this test, rather than preserving their source-tree directories.
+    await Promise.all([
+      ["EszettSupported", "LinLibertine_Re-4.7.5.woff"],
+      ["EszettUnsupported", "GenR102.woff2"],
+      ["EszettSynthetic", "DejaVuSans.ttf"]
+    ].map(([family, file]) => document.fonts.load("48px " + family, "ß")
+      .then(faces => {
+        is(faces.length, 1, "One bundled font face loaded for " + family);
+        if (faces.length === 1) {
+          is(faces[0].family, '"' + family + '"',
+             "The loaded face serializes the requested family as a CSS string");
+          is(faces[0].status, "loaded", "The bundled font loaded without fallback");
+        }
+      })
+      .catch(error => {
+        throw new Error("Could not load " + family + " from " +
+                        new URL(file, location.href).href + ": " + error);
+      })));
+    await document.fonts.ready;
+    ok(document.fonts.check("48px EszettSupported", "ß"), "The font with capital eszett is loaded");
+    ok(document.fonts.check("48px EszettUnsupported", "ß"), "The font without capital eszett is loaded");
+    ok(Math.abs(width("upper-ss-supported") - width("upper-capital-supported")) > 1,
+       "The fixture distinguishes SS from capital eszett by width");
+
+    // Reuse the same DOM and style throughout to require live pref invalidation.
+    for (let enabled of [false, true, false]) {
+      await setPref(enabled);
+      await afterPaints();
+      sameWidth("upper-supported", enabled ? "upper-capital-supported" : "upper-ss-supported",
+                "Uppercase uses " + (enabled ? "capital eszett" : "Unicode SS") + " in a supporting font");
+      sameWidth("upper-unsupported", "upper-ss-unsupported",
+                "A font without capital eszett keeps Unicode SS, pref=" + enabled);
+      sameWidth("caps-supported", enabled ? "caps-capital-supported" : "caps-ss-supported",
+                "Synthetic small caps follow the preference in a supporting font");
+      sameWidth("caps-unsupported", "caps-ss-unsupported",
+                "Synthetic small caps use SS when the font has no capital eszett");
+      for (let font of ["supported", "unsupported"]) {
+        sameWidth("title-" + font, "title-ref-" + font,
+                  "Capitalize keeps Unicode titlecase Ss, pref=" + enabled + ", font=" + font);
+        is(elt("title-" + font).innerText, "Sseta Straße", "Rendered titlecase uses the same Unicode mapping");
+      }
+      is(elt("upper-supported").innerText, enabled ? "STRAẞE ẞ" : "STRASSE SS",
+         "Rendered text follows the uppercase preference");
+      is(elt("upper-unsupported").innerText, enabled ? "STRAẞE ẞ" : "STRASSE SS",
+         "Text extraction follows the preference independently of glyph availability, as in current Firefox");
+      is(elt("upper-supported").textContent, "Straße ß", "Casing does not mutate authored text");
+      is("Straße ß".toUpperCase(), "STRASSE SS", "The CSS preference does not change JavaScript Unicode casing");
+      is(elt("prefix-supported").innerText, enabled ? "Aẞ😀ẞZ" : "ASS😀SSZ",
+         "Expansions before and after a surrogate pair preserve rendered offsets");
+      const range = document.createRange();
+      range.setStart(elt("prefix-supported").firstChild, 1);
+      range.setEnd(elt("prefix-supported").firstChild, 2);
+      const reference = enabled ? "sharp-capital-supported" : "sharp-ss-supported";
+      ok(Math.abs(range.getBoundingClientRect().width - width(reference)) < 0.02,
+         "A DOM range over one sharp S covers its complete transformed glyphs");
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      is(selection.toString(), "ß", "Selection serialization retains the authored character");
+      selection.removeAllRanges();
+    }
+  } catch (error) {
+    ok(false, "Sharp-S casing regression failed: " + error + "\n" + error.stack);
+  }
+  SimpleTest.finish();
+})();
+</script>

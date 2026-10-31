@@ -281,6 +281,7 @@ nsCaseTransformTextRunFactory::TransformString(
     const nsAString& aString,
     nsString& aConvertedString,
     bool aAllUppercase,
+    bool aUseCapitalEsZet,
     const nsIAtom* aLanguage,
     nsTArray<bool>& aCharsToMergeArray,
     nsTArray<bool>& aDeletedCharsArray,
@@ -604,9 +605,9 @@ nsCaseTransformTextRunFactory::TransformString(
         // to check for special uppercase (ß)
       }
 
-      // Updated mapping for Germen eszett, not currently reflected in the
-      // Unicode data files.
-      if (ch == 0x00DF) {
+      // Unicode's default uppercase mapping is SS. Allow capital eszett only
+      // when explicitly requested and supported by the primary font.
+      if (ch == 0x00DF && aUseCapitalEsZet) {
         ch = 0x1E9E;
         break;
       }
@@ -663,12 +664,6 @@ nsCaseTransformTextRunFactory::TransformString(
                 break;
               }
             }
-          }
-
-          // Updated mapping for Germen eszett as a capital letter.
-          if (ch == 0x00DF) {
-            ch = 0x1E9E;
-            break;
           }
 
           mcm = mozilla::unicode::SpecialTitle(ch);
@@ -754,6 +749,7 @@ nsCaseTransformTextRunFactory::RebuildTextRun(nsTransformedTextRun* aTextRun,
   bool mergeNeeded = TransformString(aTextRun->mString,
                                      convertedString,
                                      mAllUppercase,
+                                     mUseCapitalEsZet,
                                      nullptr,
                                      charsToMergeArray,
                                      deletedCharsArray,

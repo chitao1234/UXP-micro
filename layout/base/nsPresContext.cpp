@@ -319,6 +319,9 @@ nsPresContext::Destroy()
                                   "layout.css.devPixelsPerPx",
                                   this);
   Preferences::UnregisterCallback(nsPresContext::PrefChangedCallback,
+                                  "layout.css.text-transform.uppercase-eszett.enabled",
+                                  this);
+  Preferences::UnregisterCallback(nsPresContext::PrefChangedCallback,
                                   "nglayout.debug.paint_flashing",
                                   this);
   Preferences::UnregisterCallback(nsPresContext::PrefChangedCallback,
@@ -700,6 +703,10 @@ nsPresContext::PreferenceChanged(const char* aPrefName)
     // Changes to font_rendering prefs need to trigger a reflow
     mPrefChangePendingNeedsReflow = true;
   }
+  if (prefName.EqualsLiteral("layout.css.text-transform.uppercase-eszett.enabled")) {
+    // This changes glyph count and line breaking without changing style data.
+    mPrefChangePendingNeedsReflow = true;
+  }
   // we use a zero-delay timer to coalesce multiple pref updates
   if (!mPrefChangedTimer)
   {
@@ -857,6 +864,9 @@ nsPresContext::Init(nsDeviceContext* aDeviceContext)
                                 this);
   Preferences::RegisterCallback(nsPresContext::PrefChangedCallback,
                                 "layout.css.devPixelsPerPx",
+                                this);
+  Preferences::RegisterCallback(nsPresContext::PrefChangedCallback,
+                                "layout.css.text-transform.uppercase-eszett.enabled",
                                 this);
   Preferences::RegisterCallback(nsPresContext::PrefChangedCallback,
                                 "nglayout.debug.paint_flashing",

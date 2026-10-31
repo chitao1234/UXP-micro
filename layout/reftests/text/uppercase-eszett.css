@@ -1,0 +1,23 @@
+@font-face {
+  font-family: EszettSupported;
+  src: url(../fonts/LinLibertine_Re-4.7.5.woff);
+}
+@font-face {
+  font-family: EszettUnsupported;
+  src: url(../fonts/sil/GenR102.woff2);
+}
+@font-face {
+  font-family: EszettSynthetic;
+  src: url(../fonts/dejavu-sans/DejaVuSans.ttf);
+}
+body { font-size: 32px; }
+.supported { font-family: EszettSupported; }
+.unsupported { font-family: EszettUnsupported; }
+.uppercase { text-transform: uppercase; }
+.capitalize { text-transform: capitalize; }
+.narrow { width: 4em; border: 1px solid; }
+/* Keep the following case independent of the reduced reference span's strut. */
+.synthetic { font-family: EszettSynthetic; font-size: 40px; line-height: 50px; height: 50px; }
+.smallcaps { font-variant: small-caps; }
+.reduced { font-size: 80%; }
+pre { margin: 0; font-family: inherit; }

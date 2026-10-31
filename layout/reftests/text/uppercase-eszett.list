@@ -1,0 +1,4 @@
+# Unicode casing remains the default, independent of platform font coverage.
+== uppercase-eszett.html uppercase-eszett-default-ref.html
+pref(layout.css.text-transform.uppercase-eszett.enabled,false) == uppercase-eszett.html uppercase-eszett-default-ref.html
+pref(layout.css.text-transform.uppercase-eszett.enabled,true) == uppercase-eszett.html uppercase-eszett-enabled-ref.html

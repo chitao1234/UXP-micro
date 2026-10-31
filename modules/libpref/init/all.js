@@ -2481,6 +2481,10 @@ pref("layout.css.visited_links_enabled", true);
 // interpretation of physical units such as "pt".
 pref("layout.css.dpi", -1);
 
+// Unicode default casing expands sharp S to SS. Capital eszett is an opt-in
+// uppercase alternative, used only when the primary font contains its glyph.
+pref("layout.css.text-transform.uppercase-eszett.enabled", false);
+
 // Share identical computed custom-property sets between style contexts.
 pref("layout.css.variables.intern", true);
 pref("layout.css.variables.base", true);

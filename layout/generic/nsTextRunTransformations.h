@@ -81,9 +81,11 @@ public:
   
   // Takes ownership of aInnerTransformTextRunFactory
   explicit nsCaseTransformTextRunFactory(UniquePtr<nsTransformingTextRunFactory> aInnerTransformingTextRunFactory,
-                                         bool aAllUppercase = false)
+                                         bool aAllUppercase = false,
+                                         bool aUseCapitalEsZet = false)
     : mInnerTransformingTextRunFactory(Move(aInnerTransformingTextRunFactory)),
-      mAllUppercase(aAllUppercase) {}
+      mAllUppercase(aAllUppercase),
+      mUseCapitalEsZet(aUseCapitalEsZet) {}
 
   virtual void RebuildTextRun(nsTransformedTextRun* aTextRun,
                               mozilla::gfx::DrawTarget* aRefDrawTarget,
@@ -99,9 +101,12 @@ public:
   // will be copied to the output arrays, which must also be provided by
   // the caller. For the global upper-casing usage (no input textrun),
   // these are ignored.
+  // aUseCapitalEsZet opts into uppercase sharp S as a single capital letter;
+  // Unicode's multi-character titlecase mapping is always preserved.
   static bool TransformString(const nsAString& aString,
                               nsString& aConvertedString,
                               bool aAllUppercase,
+                              bool aUseCapitalEsZet,
                               const nsIAtom* aLanguage,
                               nsTArray<bool>& aCharsToMergeArray,
                               nsTArray<bool>& aDeletedCharsArray,
@@ -113,6 +118,7 @@ public:
 protected:
   mozilla::UniquePtr<nsTransformingTextRunFactory> mInnerTransformingTextRunFactory;
   bool mAllUppercase;
+  bool mUseCapitalEsZet;
 };
 
 /**
