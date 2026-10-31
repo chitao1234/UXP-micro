@@ -381,6 +381,8 @@ HTMLTextAreaElement::SetAutofilled(bool aAutofilled)
 NS_IMETHODIMP_(void)
 HTMLTextAreaElement::OnValueChanged(bool aNotify, bool aWasInteractiveUserChange)
 {
+  mLastValueChangeWasInteractive = aWasInteractiveUserChange;
+
   nsAutoString value;
   GetValueInternal(value, true);
 
