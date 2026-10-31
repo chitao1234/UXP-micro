@@ -34,7 +34,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=640158
     bar.setAttribute("testattr", "changed"); // The overlay we load has 'original'
     root.appendChild(bar);
     document.persist("bar", "testattr");
-    document.loadOverlay(location.href.replace(/[^\\\/]*.xul/, "overlay_bug640158.xul"), function() {
+    document.loadOverlay(location.href.replace(/[^\\\/]*.xul/, "overlay_640158.xul"), function() {
       is($("foo").getAttribute("testattr"), "original",
          "Non-overlaid attribute should still be in original state");
       is($("bar").getAttribute("testattr"), "changed",

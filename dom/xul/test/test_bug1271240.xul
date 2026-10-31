@@ -23,14 +23,28 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1271240
 
   /** Test for Bug 1271240 **/
   SimpleTest.waitForExplicitFinish();
-  window.addEventListener('message', (event) => {
-    if (event.data == 'finish') {
+  var popup = null;
+  var completionToken = Components.classes["@mozilla.org/uuid-generator;1"]
+    .getService(Components.interfaces.nsIUUIDGenerator).generateUUID().toString();
+  function onMessage(event) {
+    // Privileged postMessage callers intentionally have a null source.
+    // Correlate this popup's completion through a token in its URL instead.
+    if (event.data && event.data.type === 'finish' &&
+        event.data.token === completionToken) {
       SimpleTest.finish();
+    }
+  }
+  window.addEventListener('message', onMessage);
+  SimpleTest.registerCleanupFunction(function() {
+    window.removeEventListener('message', onMessage);
+    if (popup && !popup.closed) {
+      popup.close();
     }
   });
 
   function loadTest() {
-    window.open("file_bug1271240.xul", "", "chrome");
+    popup = window.open("file_bug1271240.xul?token=" +
+                        encodeURIComponent(completionToken), "", "chrome");
   }
 
   ]]>

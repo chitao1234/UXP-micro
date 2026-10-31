@@ -23,8 +23,14 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1069772
 
   /** Test for Bug 1069772 **/
   SimpleTest.waitForExplicitFinish();
+  var popup = null;
+  SimpleTest.registerCleanupFunction(function() {
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+  });
   function loadTest() {
-    window.open("file_bug1069772.xul", "", "width=360,height=240,chrome");
+    popup = window.open("file_bug1069772.xul", "", "width=360,height=240,chrome");
   }
 
   ]]>
