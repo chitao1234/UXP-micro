@@ -159,7 +159,9 @@ function* openAndCloseToolbox(nbOfTimes, usageTime, toolId) {
   for (let i = 0; i < nbOfTimes; i++) {
     info("Opening toolbox " + (i + 1));
     let target = TargetFactory.forTab(gBrowser.selectedTab);
-    yield gDevTools.showToolbox(target, toolId);
+    let toolbox = yield gDevTools.showToolbox(target, toolId);
+    is(toolbox.currentToolId, toolId, "The requested tool is selected");
+    ok(toolbox.getPanel(toolId), "The requested panel has loaded");
 
     // We use a timeout to check the toolbox's active time
     yield new Promise(resolve => setTimeout(resolve, usageTime));
