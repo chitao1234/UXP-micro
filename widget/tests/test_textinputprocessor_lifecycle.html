@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Test text input transaction survives editor focus changes</title>
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="chrome://mochikit/content/tests/SimpleTest/test.css">
+</head>
+<body>
+<input id="previous" type="password">
+<input id="editor" type="text">
+<script>
+"use strict";
+
+// Follow current Firefox's parent-process IME coverage: obtain real focus,
+// begin a test TIP transaction on its native widget, move focus, and type
+// through the same TIP.
+// Keep this small so TextInputLifecycle logs isolate one ownership transition
+// rather than repeating test_imestate's complete state matrix.
+SimpleTest.waitForExplicitFinish();
+SimpleTest.waitForFocus(() => {
+  const {classes: Cc, interfaces: Ci} = Components;
+  const previous = document.getElementById("previous");
+  const editor = document.getElementById("editor");
+  const notifications = [];
+  const tip = Cc["@mozilla.org/text-input-processor;1"]
+    .createInstance(Ci.nsITextInputProcessor);
+  function callback(sender, notification) {
+    const type = notification.type;
+    notifications.push(type);
+    info("TIP-LIFECYCLE callback " + JSON.stringify({type, sameTIP: sender === tip}));
+    switch (type) {
+      case "request-to-commit":
+        sender.commitComposition();
+        break;
+      case "request-to-cancel":
+        sender.cancelComposition();
+        break;
+    }
+    return true;
+  }
+  function count(type) {
+    return notifications.filter(value => value === type).length;
+  }
+  try {
+    ok(document.hasFocus(), "The native-widget test starts with real document focus");
+    if (document.activeElement) document.activeElement.blur();
+    const started = tip.beginInputTransactionForTests(window, callback);
+    ok(started, "The test input transaction starts with its supplied callback");
+    if (!started) return;
+    info("TIP-LIFECYCLE began transaction");
+
+    previous.focus();
+    is(document.activeElement, previous, "The previous editable field has DOM focus");
+    editor.focus();
+    is(document.activeElement, editor, "The target editable field has DOM focus");
+    is(count("notify-end-input-transaction"), 0,
+       "Moving editor focus does not steal the test input transaction");
+    is(count("notify-focus"), 2, "Both editable fields notify this TIP of native IME focus");
+    is(count("notify-blur"), 1, "Changing editors notifies this TIP of the previous editor's blur");
+    info("TIP-LIFECYCLE focused editors " + JSON.stringify(notifications));
+
+    const key = new KeyboardEvent("", {key: "a", code: "KeyA", keyCode: KeyboardEvent.DOM_VK_A});
+    tip.keydown(key);
+    tip.keyup(key);
+    is(editor.value, "a", "The same transaction can still dispatch real editable input");
+    editor.blur();
+    is(count("notify-blur"), 2, "Leaving the target editor notifies this TIP of native IME blur");
+  } catch (error) {
+    ok(false, "Text input lifecycle failed: " + error + "\n" + error.stack);
+  } finally {
+    info("TIP-LIFECYCLE completed " + JSON.stringify(notifications));
+    SimpleTest.finish();
+  }
+});
+</script>
+</body>
+</html>

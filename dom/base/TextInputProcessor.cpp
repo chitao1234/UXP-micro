@@ -6,6 +6,7 @@
 #include "gfxPrefs.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/Logging.h"
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TextInputProcessor.h"
@@ -18,6 +19,18 @@
 using namespace mozilla::widget;
 
 namespace mozilla {
+
+// Keep transaction diagnostics available in optimized builds without enabling
+// this tree's debug-only MOZ_LOG macro globally. Opt in with TextInputLifecycle.
+static LazyLogModule sTextInputProcessorLifecycleLog("TextInputLifecycle");
+#define TIP_LIFECYCLE_LOG(...)                                             \
+  do {                                                                    \
+    if (mozilla::detail::log_test(sTextInputProcessorLifecycleLog,           \
+                                 LogLevel::Debug)) {                        \
+      mozilla::detail::log_print(sTextInputProcessorLifecycleLog,            \
+                                LogLevel::Debug, __VA_ARGS__);              \
+    }                                                                     \
+  } while (0)
 
 /******************************************************************************
  * TextInputProcessorNotification
@@ -69,6 +82,8 @@ TextInputProcessor::TextInputProcessor()
 
 TextInputProcessor::~TextInputProcessor()
 {
+  TIP_LIFECYCLE_LOG("tip-destroy tip=%p dispatcher=%p callback=%p forTests=%d",
+    this, mDispatcher, mCallback.get(), mForTests);
   if (mDispatcher && mDispatcher->IsComposing()) {
     // If this is composing and not canceling the composition, nobody can steal
     // the rights of TextEventDispatcher from this instance.  Therefore, this
@@ -122,6 +137,9 @@ TextInputProcessor::BeginInputTransactionForTests(
   MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
   nsITextInputProcessorCallback* callback =
     aOptionalArgc >= 1 ? aCallback : nullptr;
+  TIP_LIFECYCLE_LOG(
+    "tip-begin-tests tip=%p window=%p optionalArgc=%u rawCallback=%p selectedCallback=%p",
+    this, aWindow, static_cast<unsigned>(aOptionalArgc), aCallback, callback);
   return BeginInputTransactionInternal(aWindow, callback, true, *aSucceeded);
 }
 
@@ -133,6 +151,9 @@ TextInputProcessor::BeginInputTransactionInternal(
                       bool& aSucceeded)
 {
   aSucceeded = false;
+  TIP_LIFECYCLE_LOG(
+    "tip-begin-request tip=%p window=%p callback=%p forTests=%d oldDispatcher=%p oldCallback=%p",
+    this, aWindow, aCallback, aForTests, mDispatcher, mCallback.get());
   if (NS_WARN_IF(!aWindow)) {
     return NS_ERROR_INVALID_ARG;
   }
@@ -159,6 +180,12 @@ TextInputProcessor::BeginInputTransactionInternal(
 
   RefPtr<TextEventDispatcher> dispatcher = widget->GetTextEventDispatcher();
   MOZ_RELEASE_ASSERT(dispatcher, "TextEventDispatcher must not be null");
+  TIP_LIFECYCLE_LOG(
+    "tip-begin-resolved tip=%p inner=%p innerId=%llu docshell=%p presContext=%p "
+    "widget=%p dispatcher=%p listener=%p callback=%p forTests=%d",
+    this, pWindow.get(), static_cast<unsigned long long>(pWindow->WindowID()),
+    docShell.get(), presContext.get(), widget.get(), dispatcher.get(),
+    static_cast<TextEventDispatcherListener*>(this), aCallback, aForTests);
 
   // If the instance was initialized and is being initialized for same
   // dispatcher and same purpose, we don't need to initialize the dispatcher
@@ -166,6 +193,8 @@ TextInputProcessor::BeginInputTransactionInternal(
   if (mDispatcher && dispatcher == mDispatcher && aCallback == mCallback &&
       aForTests == mForTests) {
     aSucceeded = true;
+    TIP_LIFECYCLE_LOG("tip-begin-reused tip=%p dispatcher=%p callback=%p forTests=%d",
+      this, mDispatcher, mCallback.get(), mForTests);
     return NS_OK;
   }
 
@@ -176,6 +205,8 @@ TextInputProcessor::BeginInputTransactionInternal(
   // opening modal dialog.
   if (mDispatcher &&
       (mDispatcher->IsComposing() || mDispatcher->IsDispatchingEvent())) {
+    TIP_LIFECYCLE_LOG("tip-begin-old-busy tip=%p dispatcher=%p",
+      this, mDispatcher);
     return NS_ERROR_ALREADY_INITIALIZED;
   }
 
@@ -183,12 +214,15 @@ TextInputProcessor::BeginInputTransactionInternal(
   // dispatching an event, it'll fail to steal its ownership.  Then, we should
   // not throw an exception, just return false.
   if (dispatcher->IsComposing() || dispatcher->IsDispatchingEvent()) {
+    TIP_LIFECYCLE_LOG("tip-begin-new-busy tip=%p dispatcher=%p",
+      this, dispatcher.get());
     return NS_OK;
   }
 
   // This instance has finished preparing to link to the dispatcher.  Therefore,
   // let's forget the old dispatcher and purpose.
   if (mDispatcher) {
+    TIP_LIFECYCLE_LOG("tip-begin-end-old tip=%p dispatcher=%p", this, mDispatcher);
     mDispatcher->EndInputTransaction(this);
     if (NS_WARN_IF(mDispatcher)) {
       // Forcibly initialize the members if we failed to end the input
@@ -203,6 +237,8 @@ TextInputProcessor::BeginInputTransactionInternal(
   } else {
     rv = dispatcher->BeginInputTransaction(this);
   }
+  TIP_LIFECYCLE_LOG("tip-begin-dispatched tip=%p dispatcher=%p forTests=%d rv=0x%08lx",
+    this, dispatcher.get(), aForTests, static_cast<unsigned long>(rv));
 
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
@@ -212,12 +248,16 @@ TextInputProcessor::BeginInputTransactionInternal(
   mCallback = aCallback;
   mForTests = aForTests;
   aSucceeded = true;
+  TIP_LIFECYCLE_LOG("tip-begin-success tip=%p dispatcher=%p callback=%p forTests=%d",
+    this, mDispatcher, mCallback.get(), mForTests);
   return NS_OK;
 }
 
 void
 TextInputProcessor::UnlinkFromTextEventDispatcher()
 {
+  TIP_LIFECYCLE_LOG("tip-unlink tip=%p dispatcher=%p callback=%p forTests=%d",
+    this, mDispatcher, mCallback.get(), mForTests);
   mDispatcher = nullptr;
   mForTests = false;
   if (mCallback) {
@@ -227,7 +267,10 @@ TextInputProcessor::UnlinkFromTextEventDispatcher()
     RefPtr<TextInputProcessorNotification> notification =
       new TextInputProcessorNotification("notify-end-input-transaction");
     bool result = false;
-    callback->OnNotify(this, notification, &result);
+    nsresult rv = callback->OnNotify(this, notification, &result);
+    TIP_LIFECYCLE_LOG(
+      "tip-callback tip=%p type=notify-end-input-transaction callback=%p rv=0x%08lx result=%d",
+      this, callback.get(), static_cast<unsigned long>(rv), result);
   }
 }
 
@@ -235,6 +278,8 @@ nsresult
 TextInputProcessor::IsValidStateForComposition()
 {
   if (NS_WARN_IF(!mDispatcher)) {
+    TIP_LIFECYCLE_LOG("tip-state-uninitialized tip=%p callback=%p forTests=%d",
+      this, mCallback.get(), mForTests);
     return NS_ERROR_NOT_INITIALIZED;
   }
 
@@ -635,6 +680,10 @@ NS_IMETHODIMP
 TextInputProcessor::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
                               const IMENotification& aNotification)
 {
+  TIP_LIFECYCLE_LOG(
+    "tip-notify tip=%p fromDispatcher=%p dispatcher=%p type=%s callback=%p forTests=%d",
+    this, aTextEventDispatcher, mDispatcher, widget::ToChar(aNotification.mMessage),
+    mCallback.get(), mForTests);
   // If This is called while this is being initialized, ignore the call.
   // In such case, this method should return NS_ERROR_NOT_IMPLEMENTED because
   // we can say, TextInputProcessor doesn't implement any handlers of the
@@ -672,7 +721,13 @@ TextInputProcessor::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
     }
     MOZ_RELEASE_ASSERT(notification);
     bool result = false;
+    TIP_LIFECYCLE_LOG("tip-callback-begin tip=%p type=%s callback=%p",
+      this, widget::ToChar(aNotification.mMessage), mCallback.get());
     nsresult rv = mCallback->OnNotify(this, notification, &result);
+    TIP_LIFECYCLE_LOG(
+      "tip-callback tip=%p type=%s callbackNow=%p rv=0x%08lx result=%d dispatcherNow=%p",
+      this, widget::ToChar(aNotification.mMessage), mCallback.get(),
+      static_cast<unsigned long>(rv), result, mDispatcher);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
@@ -700,6 +755,8 @@ TextInputProcessor::NotifyIME(TextEventDispatcher* aTextEventDispatcher,
 NS_IMETHODIMP_(void)
 TextInputProcessor::OnRemovedFrom(TextEventDispatcher* aTextEventDispatcher)
 {
+  TIP_LIFECYCLE_LOG("tip-removed tip=%p fromDispatcher=%p dispatcher=%p callback=%p forTests=%d",
+    this, aTextEventDispatcher, mDispatcher, mCallback.get(), mForTests);
   // If This is called while this is being initialized, ignore the call.
   if (!mDispatcher) {
     return;
@@ -1030,5 +1087,7 @@ TextInputProcessor::ModifierKeyDataArray::ToggleModifierKey(
   }
   RemoveElementAt(index);
 }
+
+#undef TIP_LIFECYCLE_LOG
 
 } // namespace mozilla

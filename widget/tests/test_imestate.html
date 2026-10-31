@@ -9,7 +9,7 @@
   <link rel="stylesheet" type="text/css"
           href="chrome://mochikit/content/tests/SimpleTest/test.css" />
 </head>
-<body onload="setTimeout(runTests, 0);" style="ime-mode: disabled;">
+<body onload="SimpleTest.waitForFocus(runTests);" style="ime-mode: disabled;">
 <script>
 setTestPluginEnabledState(SpecialPowers.Ci.nsIPluginTag.STATE_ENABLED);
 </script>
@@ -165,8 +165,9 @@ function runBasicTest(aIsEditable, aInDesignMode, aDescription)
 
   var TIP = Components.classes["@mozilla.org/text-input-processor;1"]
               .createInstance(Components.interfaces.nsITextInputProcessor);
-  if (!TIP.beginInputTransactionForTests(window, TIPCallback)) {
-    ok(false, "runBasicTest(): failed to begin input transaction");
+  var transactionStarted = TIP.beginInputTransactionForTests(window, TIPCallback);
+  ok(transactionStarted, "runBasicTest(): input transaction starts in the focused test window");
+  if (!transactionStarted) {
     return;
   }
 
@@ -1401,8 +1402,9 @@ function runEditorReframeTests(aCallback)
 
   var TIP = Components.classes["@mozilla.org/text-input-processor;1"]
               .createInstance(Components.interfaces.nsITextInputProcessor);
-  if (!TIP.beginInputTransactionForTests(window, TIPCallback)) {
-    ok(false, "runEditorReframeTests(): failed to begin input transaction");
+  var transactionStarted = TIP.beginInputTransactionForTests(window, TIPCallback);
+  ok(transactionStarted, "runEditorReframeTests(): input transaction starts in the focused test window");
+  if (!transactionStarted) {
     return;
   }
 
@@ -1466,6 +1468,10 @@ function runTests()
 {
   if (!kIMEEnabledSupported && !kIMEOpenSupported)
     return;
+
+  // Like current Firefox's parent-process IME tests, establish focus before
+  // creating a TIP. Loading the document does not imply native activation.
+  ok(document.hasFocus(), "The IME test window has focus before creating a text input processor");
 
   // test for normal contents.
   runBasicTest(false, false, "Testing of normal contents");

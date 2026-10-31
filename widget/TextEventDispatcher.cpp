@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/Preferences.h"
+#include "mozilla/Logging.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TextEventDispatcher.h"
 #include "nsIDocShell.h"
@@ -15,6 +16,18 @@
 
 namespace mozilla {
 namespace widget {
+
+// Correlate ownership and notification routing with TextInputProcessor even in
+// optimized builds. Disabled unless TextInputLifecycle is explicitly enabled.
+static LazyLogModule sTextEventDispatcherLifecycleLog("TextInputLifecycle");
+#define DISPATCHER_LIFECYCLE_LOG(...)                                      \
+  do {                                                                    \
+    if (mozilla::detail::log_test(sTextEventDispatcherLifecycleLog,          \
+                                 LogLevel::Debug)) {                        \
+      mozilla::detail::log_print(sTextEventDispatcherLifecycleLog,           \
+                                LogLevel::Debug, __VA_ARGS__);              \
+    }                                                                     \
+  } while (0)
 
 /******************************************************************************
  * TextEventDispatcher
@@ -86,6 +99,12 @@ TextEventDispatcher::BeginInputTransactionInternal(
     return NS_ERROR_INVALID_ARG;
   }
   nsCOMPtr<TextEventDispatcherListener> listener = do_QueryReferent(mListener);
+  DISPATCHER_LIFECYCLE_LOG(
+    "dispatcher-begin dispatcher=%p widget=%p oldListener=%p newListener=%p "
+    "oldType=%u newType=%u composing=%d dispatching=%d",
+    this, mWidget, listener.get(), aListener,
+    static_cast<unsigned>(mInputTransactionType), static_cast<unsigned>(aType),
+    IsComposing(), IsDispatchingEvent());
   if (listener) {
     if (listener == aListener && mInputTransactionType == aType) {
       return NS_OK;
@@ -101,6 +120,8 @@ TextEventDispatcher::BeginInputTransactionInternal(
   mListener = do_GetWeakReference(aListener);
   mInputTransactionType = aType;
   if (listener && listener != aListener) {
+    DISPATCHER_LIFECYCLE_LOG("dispatcher-replace dispatcher=%p oldListener=%p newListener=%p newType=%u",
+      this, listener.get(), aListener, static_cast<unsigned>(mInputTransactionType));
     listener->OnRemovedFrom(this);
   }
   return NS_OK;
@@ -109,6 +130,8 @@ TextEventDispatcher::BeginInputTransactionInternal(
 void
 TextEventDispatcher::EndInputTransaction(TextEventDispatcherListener* aListener)
 {
+  DISPATCHER_LIFECYCLE_LOG("dispatcher-end dispatcher=%p widget=%p listener=%p type=%u",
+    this, mWidget, aListener, static_cast<unsigned>(mInputTransactionType));
   if (NS_WARN_IF(IsComposing()) || NS_WARN_IF(IsDispatchingEvent())) {
     return;
   }
@@ -131,6 +154,8 @@ TextEventDispatcher::EndInputTransaction(TextEventDispatcherListener* aListener)
 void
 TextEventDispatcher::OnDestroyWidget()
 {
+  DISPATCHER_LIFECYCLE_LOG("dispatcher-destroy-widget dispatcher=%p widget=%p type=%u",
+    this, mWidget, static_cast<unsigned>(mInputTransactionType));
   mWidget = nullptr;
   mPendingComposition.Clear();
   nsCOMPtr<TextEventDispatcherListener> listener = do_QueryReferent(mListener);
@@ -343,8 +368,16 @@ TextEventDispatcher::NotifyIME(const IMENotification& aIMENotification)
 
   // First, send the notification to current input transaction's listener.
   nsCOMPtr<TextEventDispatcherListener> listener = do_QueryReferent(mListener);
+  DISPATCHER_LIFECYCLE_LOG(
+    "dispatcher-notify dispatcher=%p widget=%p listener=%p transactionType=%u type=%s",
+    this, mWidget, listener.get(), static_cast<unsigned>(mInputTransactionType),
+    ToChar(aIMENotification.mMessage));
   if (listener) {
     rv = listener->NotifyIME(this, aIMENotification);
+    DISPATCHER_LIFECYCLE_LOG(
+      "dispatcher-notify-result dispatcher=%p listener=%p type=%s rv=0x%08lx transactionTypeNow=%u",
+      this, listener.get(), ToChar(aIMENotification.mMessage),
+      static_cast<unsigned long>(rv), static_cast<unsigned>(mInputTransactionType));
   }
 
   if (mInputTransactionType == eNativeInputTransaction || !mWidget) {
@@ -786,6 +819,8 @@ TextEventDispatcher::PendingComposition::Flush(
 
   return NS_OK;
 }
+
+#undef DISPATCHER_LIFECYCLE_LOG
 
 } // namespace widget
 } // namespace mozilla

@@ -47,6 +47,7 @@ static const char* kPrefNameEnableTSF = "intl.tsf.enable";
  */
 
 LazyLogModule sTextStoreLog("nsTextStoreWidgets");
+static LazyLogModule sTextInputTSFLifecycleLog("TextInputLifecycle");
 
 static const char*
 GetBoolName(bool aBool)
@@ -1747,6 +1748,15 @@ TSFTextStore::DispatchEvent(WidgetGUIEvent& aEvent)
 void
 TSFTextStore::FlushPendingActions()
 {
+  // Observe whether a lock with no native edits attempts to take ownership of
+  // an existing test transaction. Keep this available in optimized builds.
+  if (mozilla::detail::log_test(sTextInputTSFLifecycleLog, LogLevel::Debug)) {
+    mozilla::detail::log_print(sTextInputTSFLifecycleLog, LogLevel::Debug,
+      "tsf-flush store=%p widget=%p dispatcher=%p pending=%u lock=%lu destroyed=%d",
+      this, mWidget.get(), mDispatcher.get(),
+      static_cast<unsigned>(mPendingActions.Length()),
+      static_cast<unsigned long>(mLock), mDestroyed);
+  }
   if (!mWidget || mWidget->Destroyed()) {
     // Note that don't clear mContentForTSF because TIP may try to commit
     // composition with a document lock.  In such case, TSFTextStore needs to
@@ -1754,6 +1764,13 @@ TSFTextStore::FlushPendingActions()
     mPendingActions.Clear();
     mPendingSelectionChangeData.Clear();
     mHasReturnedNoLayoutError = false;
+    return;
+  }
+
+  // A text service can request a lock without queuing any edits, for example
+  // MS-IME for Japanese during deactivation. As in newer Firefox, preserve the
+  // dispatcher's current transaction when there is no native input to send.
+  if (mPendingActions.IsEmpty()) {
     return;
   }
 
