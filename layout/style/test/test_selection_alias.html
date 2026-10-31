@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Legacy selection spelling participates in the standard selection cascade</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<style id="selection-style"></style>
+<div id="target" class="target">Selection alias text</div>
+<script>
+"use strict";
+// Fork-specific legacy-alias supplement: the unchanged upstream WPT specificity
+// reftest is registered in layout/reftests/selection/selection-alias.list.
+// These cases additionally check the legacy spelling, CSSOM and Inspector API.
+
+let style = document.getElementById("selection-style");
+let target = document.getElementById("target");
+let domUtils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"]
+                 .getService(SpecialPowers.Ci.inIDOMUtils);
+const names = domUtils.getCSSPseudoElementNames();
+is(names.filter(name => name === ":selection").length, 1,
+   "Inspector enumerates one canonical selection pseudo");
+ok(!names.includes(":-moz-selection"),
+   "The legacy spelling does not make the actor enumerate duplicate selection rules");
+const CASES = [
+  ["legacy-only", "#target::-moz-selection {color: red; background-color: blue}",
+   "rgb(255, 0, 0)", "rgb(0, 0, 255)"],
+  ["standard-only", "#target::selection {color: green; background-color: yellow}",
+   "rgb(0, 128, 0)", "rgb(255, 255, 0)"],
+  ["later legacy wins", "#target::selection {color: red; background-color: blue}" +
+   "#target::-moz-selection {color: green; background-color: yellow}",
+   "rgb(0, 128, 0)", "rgb(255, 255, 0)"],
+  ["later standard wins", "#target::-moz-selection {color: green; background-color: yellow}" +
+   "#target::selection {color: red; background-color: blue}",
+   "rgb(255, 0, 0)", "rgb(0, 0, 255)"],
+  ["specific legacy wins", "#target::-moz-selection {color: red; background-color: blue}" +
+   ".target::selection {color: green; background-color: yellow}",
+   "rgb(255, 0, 0)", "rgb(0, 0, 255)"],
+  ["important legacy wins", ".target::-moz-selection {color: red!important; background-color: blue!important}" +
+   "#target::selection {color: green; background-color: yellow}",
+   "rgb(255, 0, 0)", "rgb(0, 0, 255)"],
+  ["important standard wins", "#target::-moz-selection {color: green; background-color: yellow}" +
+   ".target::selection {color: red!important; background-color: blue!important}",
+   "rgb(255, 0, 0)", "rgb(0, 0, 255)"]
+];
+for (let [description, css, color, background] of CASES) {
+  style.textContent = css;
+  for (let rule of style.sheet.cssRules) {
+    ok(rule.selectorText.includes("::selection"),
+       description + ": CSSOM serializes the canonical selection spelling");
+    ok(!rule.selectorText.includes("::-moz-selection"),
+       description + ": CSSOM does not retain the legacy pseudo spelling");
+  }
+  for (let pseudo of ["::selection", "::-moz-selection"]) {
+    let computed = getComputedStyle(target, pseudo);
+    is(computed.color, color, description + ": " + pseudo + " color follows the combined cascade");
+    is(computed.backgroundColor, background,
+       description + ": " + pseudo + " background follows the combined cascade");
+    // inIDOMUtils takes its internal single-colon pseudo name; the DOM
+    // computed-style API above accepts the authored double-colon spelling.
+    let rules = domUtils.getCSSStyleRules(target, pseudo.slice(1));
+    ok(rules, description + ": " + pseudo + " has matching rules");
+    let matched = [];
+    for (let i = 0; rules && i < rules.Count(); i++) {
+      let rule = rules.GetElementAt(i).QueryInterface(SpecialPowers.Ci.nsIDOMCSSStyleRule);
+      if (SpecialPowers.unwrap(rule.parentStyleSheet) === style.sheet) {
+        matched.push(SpecialPowers.unwrap(rule));
+      }
+    }
+    for (let rule of style.sheet.cssRules) {
+      ok(domUtils.selectorMatchesElement(target, rule, 0, pseudo.slice(1)),
+         description + ": " + pseudo + " matches through the Inspector selector API");
+    }
+    is(matched.length, style.sheet.cssRules.length,
+       description + ": " + pseudo + " inspector finds both selector spellings");
+    for (let i = 0; i < matched.length; i++) {
+      ok(Array.from(style.sheet.cssRules).includes(matched[i]),
+         description + ": returned CSSOM rules retain source identity");
+    }
+  }
+}
+style.sheet.cssRules[1].style.setProperty("color", "purple", "important");
+is(getComputedStyle(target, "::selection").color, "rgb(128, 0, 128)",
+   "A live edit of the later important rule follows source-order precedence");
+is(getComputedStyle(target, "::-moz-selection").color,
+   getComputedStyle(target, "::selection").color,
+   "The legacy getter remains identical after a CSSOM update");
+
+style.sheet.cssRules[1].selectorText = ".target::-moz-selection";
+is(style.sheet.cssRules[1].selectorText, ".target::selection",
+   "Replacing selectorText canonicalizes the legacy spelling");
+is(getComputedStyle(target, "::selection").color, "rgb(128, 0, 128)",
+   "Replacing selectorText preserves the combined cascade");
+let inserted = style.sheet.insertRule(
+  "#target::-moz-selection { color: orange !important; }",
+  style.sheet.cssRules.length);
+is(style.sheet.cssRules[inserted].selectorText, "#target::selection",
+   "insertRule canonicalizes a legacy selector");
+for (let pseudo of ["::selection", "::-moz-selection"]) {
+  is(getComputedStyle(target, pseudo).color, "rgb(255, 165, 0)",
+     pseudo + " follows the newly inserted important rule");
+}
+</script>

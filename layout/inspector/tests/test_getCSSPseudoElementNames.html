@@ -12,6 +12,8 @@
   let expected = new Set([
     ":after",
     ":before",
+    ":slotted",
+    ":part",
     ":backdrop",
     ":first-letter",
     ":first-line",
@@ -29,7 +31,6 @@
     ":-moz-range-progress",
     ":-moz-range-thumb",
     ":-moz-range-track",
-    ":-moz-selection",
   ]);
 
   let names = utils.getCSSPseudoElementNames();

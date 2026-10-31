@@ -1,0 +1,8 @@
+# Borrowed from Firefox 309a5a01511293cd91f86d82c9c2f7130dd38ebc:
+# testing/web-platform/tests/css/css-pseudo/highlight-cascade/cascade-highlight-001.html
+# and its reference plus ../support/highlights.css. Both tests focus their content
+# window before selecting, as required by this native reftest harness. The second changes
+# only the higher-specificity selector to the accepted legacy spelling; its
+# expected pixels and all declarations remain the upstream test's assertions.
+needs-focus == upstream/css-pseudo/highlight-cascade/cascade-highlight-001.html upstream/css-pseudo/highlight-cascade/cascade-highlight-001-ref.html
+needs-focus == upstream/css-pseudo/highlight-cascade/cascade-highlight-selection-alias.html upstream/css-pseudo/highlight-cascade/cascade-highlight-001-ref.html

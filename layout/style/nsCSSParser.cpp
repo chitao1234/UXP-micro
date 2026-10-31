@@ -7328,6 +7328,12 @@ CSSParserImpl::ParsePseudoSelector(int32_t&              aDataMask,
 
     if (0 == (aDataMask & SEL_MASK_PELEM)) {
       aDataMask |= SEL_MASK_PELEM;
+      // Store the canonical atom as well as the canonical type, so selector
+      // serialization agrees with the alias used by matching and computed style.
+      if (pseudoElementType == CSSPseudoElementType::selection &&
+          pseudo == nsCSSPseudoElements::mozSelection) {
+        pseudo = nsCSSPseudoElements::selection;
+      }
       NS_ADDREF(*aPseudoElement = pseudo);
       *aPseudoElementType = pseudoElementType;
 

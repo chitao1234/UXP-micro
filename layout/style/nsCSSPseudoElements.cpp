@@ -104,6 +104,10 @@ nsCSSPseudoElements::GetPseudoType(nsIAtom *aAtom, EnabledState aEnabledState)
       if (type == CSSPseudoElementType::mozPlaceholder) {
         type = CSSPseudoElementType::placeholder;
       }
+      // The legacy selection spelling is an alias, not a separate cascade.
+      if (type == CSSPseudoElementType::mozSelection) {
+        type = CSSPseudoElementType::selection;
+      }
       return IsEnabled(type, aEnabledState) ? type : Type::NotPseudo;
     }
   }

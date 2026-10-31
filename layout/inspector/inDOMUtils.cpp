@@ -1226,6 +1226,11 @@ inDOMUtils::GetCSSPseudoElementNames(uint32_t* aLength, char16_t*** aNames)
     static_cast<CSSPseudoElementTypeBase>(CSSPseudoElementType::Count);
   for (CSSPseudoElementTypeBase i = 0; i < pseudoCount; ++i) {
     CSSPseudoElementType type = static_cast<CSSPseudoElementType>(i);
+    // Expose the canonical selection pseudo once. The legacy spelling still
+    // parses and works in computed-style queries, but is not another pseudo.
+    if (type == CSSPseudoElementType::mozSelection) {
+      continue;
+    }
     if (nsCSSPseudoElements::IsEnabled(type, CSSEnabledState::eForAllContent)) {
       nsIAtom* atom = nsCSSPseudoElements::GetPseudoAtom(type);
       array.AppendElement(atom);
