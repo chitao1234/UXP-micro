@@ -15,4 +15,6 @@ SOURCES += ['NativeOSFileInternals.cpp']
 
 EXTRA_PP_JS_MODULES += ['osfile.jsm']
 
+XPCSHELL_TESTS_MANIFESTS += ['tests/xpcshell/xpcshell.ini']
+
 FINAL_LIBRARY = 'xul'
