@@ -53,20 +53,23 @@ content_process_main(int argc, char* argv[])
         SetDllDirectoryW(L"");
     }
 #endif
-#ifdef MOZ_PLUGIN_CONTAINER
-#ifdef MOZ_GMP
+#if defined(MOZ_PLUGIN_CONTAINER) && defined(MOZ_GMP)
     // On desktop, the GMPLoader lives in plugin-container, so that its
     // code can be covered by an EME/GMP vendor's voucher.
     nsAutoPtr<mozilla::gmp::SandboxStarter> starter(MakeSandboxStarter());
     if (XRE_GetProcessType() == GeckoProcessType_GMPlugin) {
         childData.gmpLoader = mozilla::gmp::CreateGMPLoader(starter);
     }
+#endif
+
+    // Both plugin-container and the browser's -contentproc entry point must
+    // initialize the child process. Only the standalone container owns GMP.
+#ifdef MOZ_GMP
     nsresult rv = XRE_InitChildProcess(argc, argv, &childData);
 #else
     nsresult rv = XRE_InitChildProcess(argc, argv);
 #endif
     NS_ENSURE_SUCCESS(rv, 1);
-#endif
 
     return 0;
 }

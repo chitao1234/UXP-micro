@@ -15,6 +15,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1209621
   var Ci = Components.interfaces;
   var Cr = Components.results;
   var Cu = Components.utils;
+  var readyCleanups = [];
   function ok(cond, msg) {
     opener.wrappedJSObject.ok(cond, msg);
   }
@@ -23,7 +24,92 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1209621
     opener.wrappedJSObject.is(actual, expected, msg);
   }
 
+  function cleanupReadyListeners() {
+    while (readyCleanups.length) {
+      readyCleanups.pop()();
+    }
+  }
+
+  function finish() {
+    cleanupReadyListeners();
+    opener.setTimeout("done()", 0);
+    window.close();
+  }
+
+  function waitForRemoteBrowser(browser, parentProcessID) {
+    return new Promise((resolve, reject) => {
+      const messageName = "Test1209621:Ready";
+      const manager = browser.messageManager;
+      let listening = true;
+      function cleanup() {
+        if (!listening) {
+          return;
+        }
+        listening = false;
+        manager.removeMessageListener(messageName, onReady);
+        browser.removeEventListener("oop-browser-crashed", onCrashed);
+      }
+      function onReady(message) {
+        if (message.data.id !== browser.id) {
+          return;
+        }
+        cleanup();
+        const data = message.data;
+        const isContent = data.processType === Ci.nsIXULRuntime.PROCESS_TYPE_CONTENT;
+        const isChild = data.processID > 0 && data.processID !== parentProcessID;
+        is(data.processType, Ci.nsIXULRuntime.PROCESS_TYPE_CONTENT,
+           browser.id + " frame script runs in a content process");
+        ok(isChild, browser.id + " frame script runs outside the parent process");
+        opener.wrappedJSObject.info("Remote browser ready: " + JSON.stringify(data));
+        if (!isContent || !isChild) {
+          reject(new Error(browser.id + " did not start a real content process"));
+          return;
+        }
+        resolve();
+      }
+      function onCrashed() {
+        cleanup();
+        reject(new Error(browser.id + " content process crashed before readiness"));
+      }
+      function frameScript(id) {
+        const runtime = Components.classes["@mozilla.org/xre/app-info;1"]
+          .getService(Components.interfaces.nsIXULRuntime);
+        sendAsyncMessage("Test1209621:Ready", {
+          id,
+          processType: runtime.processType,
+          processID: runtime.processID,
+        });
+      }
+      readyCleanups.push(cleanup);
+      manager.addMessageListener(messageName, onReady);
+      browser.addEventListener("oop-browser-crashed", onCrashed);
+      manager.loadFrameScript("data:application/javascript," +
+        encodeURIComponent("(" + frameScript.toString() + ")(" +
+                           JSON.stringify(browser.id) + ");"), false);
+    });
+  }
+
   function run() {
+    window.addEventListener("unload", cleanupReadyListeners);
+    opener.wrappedJSObject.SimpleTest.registerCleanupFunction(() => {
+      cleanupReadyListeners();
+      if (!window.closed) {
+        window.close();
+      }
+    });
+    const runtime = Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULRuntime);
+    // TabParent allocation alone does not prove that a child opened its IPC
+    // channel. Wait for both remote frame scripts before checking tree owners.
+    Promise.all([
+      waitForRemoteBrowser(document.getElementById("remote"), runtime.processID),
+      waitForRemoteBrowser(document.getElementById("remote2"), runtime.processID),
+    ]).then(runChecks, error => {
+      ok(false, "Remote browser startup failed: " + error);
+      finish();
+    });
+  }
+
+  function runChecks() {
     var docshell = window.getInterface(Ci.nsIDocShell);
     ok(docshell, "Active window should have a DocShell");
     var treeOwner = docshell.treeOwner;
@@ -68,8 +154,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1209621
     is(treeOwner.primaryContentShell, null,
        "There shouldn't be primaryContentShell because no browser has type=content-primary.");
 
-    opener.setTimeout("done()", 0);
-    window.close();
+    finish();
   }
 
   ]]></script>
