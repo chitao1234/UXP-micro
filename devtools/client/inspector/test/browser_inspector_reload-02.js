@@ -23,15 +23,20 @@ const TEST_URI = 'data:text/xml,<?xml version="1.0" standalone="no"?>' +
 "</svg>";
 
 add_task(function* () {
-  let { inspector, testActor } = yield openInspectorForURL(TEST_URI);
+  let { inspector, toolbox } = yield openInspectorForURL(TEST_URI);
+  let target = toolbox.target;
+  let navigationCount = 0;
+  let newRootCount = 0;
+  let onNavigate = () => navigationCount++;
+  let onNewRoot = () => newRootCount++;
+  target.on("navigate", onNavigate);
+  inspector.on("new-root", onNewRoot);
+  registerCleanupFunction(() => {
+    target.off("navigate", onNavigate);
+    inspector.off("new-root", onNewRoot);
+  });
 
-  let markupLoaded = inspector.once("markuploaded");
-
-  info("Reloading page.");
-  yield testActor.eval("location.reload()");
-
-  info("Waiting for markupview to load after reload.");
-  yield markupLoaded;
+  yield reloadAndCheck(1);
 
   let svgFront = yield getNodeFront("svg", inspector);
   is(inspector.selection.nodeFront, svgFront, "<svg> selected after reload.");
@@ -39,9 +44,22 @@ add_task(function* () {
   info("Selecting a node to see that inspector still works.");
   yield selectNode("rect", inspector);
 
-  info("Reloading page.");
-  yield testActor.eval("location.reload");
+  yield reloadAndCheck(2);
 
   let rectFront = yield getNodeFront("rect", inspector);
   is(inspector.selection.nodeFront, rectFront, "<rect> selected after reload.");
+
+  function* reloadAndCheck(expectedCount) {
+    let previousRoot = inspector.walker.rootNode.actorID;
+    let onNavigated = target.once("navigate");
+
+    info("Reloading page " + expectedCount + ".");
+    yield navigateTo(inspector, TEST_URI);
+    yield onNavigated;
+
+    is(navigationCount, expectedCount, "The navigation completed.");
+    is(newRootCount, expectedCount, "The inspector received a new root.");
+    isnot(inspector.walker.rootNode.actorID, previousRoot,
+          "The reloaded document has a new root actor.");
+  }
 });
