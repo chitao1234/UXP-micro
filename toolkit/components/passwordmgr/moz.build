@@ -6,6 +6,12 @@
 if CONFIG['MOZ_PHOENIX']:
     DEFINES['MOZ_BUILD_APP_IS_BROWSER'] = True
 
+# Retained JSON storage and LoginManager coverage, restored from the parent of
+# test-removal commit 0ddd00f195. Browser/UI suites remain separately scoped.
+XPCSHELL_TESTS_MANIFESTS += ['test/unit/xpcshell.ini']
+
+TESTING_JS_MODULES += ['test/LoginTestUtils.jsm']
+
 XPIDL_SOURCES += [
     'nsILoginInfo.idl',
     'nsILoginManager.idl',
