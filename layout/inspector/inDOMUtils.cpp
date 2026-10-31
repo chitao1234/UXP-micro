@@ -960,8 +960,9 @@ inDOMUtils::GetCSSValuesForProperty(const nsAString& aProperty,
   nsTArray<nsString> array;
   // We start collecting the values, BUT colors need to go in first, because array
   // needs to stay sorted, and the colors are sorted, so we just append them.
-  if (propertyID == eCSSPropertyExtra_variable) {
-    // No other values we can report.
+  if (propertyID == eCSSPropertyExtra_variable ||
+      propertyID == eCSSProperty_all) {
+    // No property-specific values to report: 'all' takes only CSS-wide keywords.
   } else if (!nsCSSProps::IsShorthand(propertyID)) {
     // Property is longhand.
     uint32_t propertyParserVariant = nsCSSProps::ParserVariant(propertyID);

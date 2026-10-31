@@ -152,6 +152,14 @@ function runTests() {
     "space", ...imageFunctions
   ]);
 
+  // Regression test for bug 1255401, borrowed from current Firefox's
+  // test_bug877690.html at 309a5a01511293cd91f86d82c9c2f7130dd38ebc.
+  // Preserve its complete-array assertion; getValues bridges the old XPCOM API.
+  var prop = "all";
+  var values = getValues(prop);
+  var expected = [...CSS_WIDE_KEYWORDS];
+  ok(testValues(values, expected), "property all's values.");
+
   // Function-parsed properties still have enumerable keyword tables.  The
   // background-size case comes from Firefox 78; expand its direct-longhand
   // coverage to the other tables used by the shorthand cases above.
