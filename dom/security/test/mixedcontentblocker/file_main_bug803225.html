@@ -70,15 +70,17 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=803225
 
   testContent.appendChild(resource_script);
 
-  // Test 4: moz-icon within an img tag
+  // Test 4: moz-icon is local, but restricted to privileged UI principals.
   var image=document.createElement("img");
-  image.src = "moz-icon://dummy.exe?size=16";
   image.onload = function() {
-    parent.postMessage({"test": "mozicon", "msg": "resource with mozicon protocol loaded"}, "http://mochi.test:8888");
+    parent.postMessage({"test": "mozicon", "msg": "resource with mozicon protocol loaded",
+                        "width": image.naturalWidth}, "http://mochi.test:8888");
   }
   image.onerror = function() {
-    parent.postMessage({"test": "mozicon", "msg": "resource with mozicon protocol did not load"}, "http://mochi.test:8888");
+    parent.postMessage({"test": "mozicon", "msg": "resource with mozicon protocol did not load",
+                        "width": image.naturalWidth}, "http://mochi.test:8888");
   }
+  image.src = "moz-icon://dummy.exe?size=16";
   // We don't need to append the image to the document. Doing so causes the image test to run twice.
 
   // Test 5: about unsafe protocol within an iframe

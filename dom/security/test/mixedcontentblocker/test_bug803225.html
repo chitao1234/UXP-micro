@@ -75,6 +75,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=803225
   var firstTest = true;
 
   function receiveMessage(event) {
+    const frame = document.getElementById("testHarness");
+    if (!frame || event.source !== frame.contentWindow ||
+        event.origin !== "https://example.com") {
+      return;
+    }
+    ok(!testsToRun[event.data.test], "Each protocol settles once in the current frame");
     if(firstTest) {
       log("blockDisplay set to "+blockDisplay+", blockActive set to "+blockActive+".");
       firstTest = false;
@@ -98,7 +104,11 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=803225
         break;
 
       case "mozicon":
-        ok(event.data.msg == "resource with mozicon protocol loaded", "resource with mozicon protocol did not load");
+        // Like the current Firefox checkLoadURI matrix, ordinary web content
+        // must not access UI-resource icons, regardless of mixed-content prefs.
+        is(event.data.msg, "resource with mozicon protocol did not load",
+           "Mixed-content settings do not bypass moz-icon privilege checks");
+        is(event.data.width, 0, "The denied icon exposes no decoded pixels");
         testsToRun["mozicon"] = true;
         break;
 
