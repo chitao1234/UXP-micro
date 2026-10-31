@@ -108,14 +108,14 @@ function* testTables() {
   gUI.tree.expandAll();
 
   // First tree item is already selected so no clicking and waiting for update
-  for (let [treeItem, items] of testCases.slice(1)) {
-    yield selectTreeItem(treeItem);
+  for (let id of testCases[0][1]) {
+    ok(doc.querySelector(".table-widget-cell[data-id='" + id + "']"),
        "Table item " + id + " should be present");
   }
 
   // Click rest of the tree items and wait for the table to be updated
-  for (let item of testCases.slice(1)) {
-    yield selectTreeItem(item[0]);
+  for (let [treeItem, items] of testCases.slice(1)) {
+    yield selectTreeItem(treeItem);
 
     // Check whether correct number of items are present in the table
     is(doc.querySelectorAll(
