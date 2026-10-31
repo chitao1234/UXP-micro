@@ -98,7 +98,10 @@ RequestWatcher = {
     // have the flag, so we just ignore them.
     // We also see, eg, resource://gre-resources/loading-image.png, so
     // skip resource:// URLs too.
-    if (req.name.startsWith("about:") || req.name.startsWith("resource:")) {
+    // Theme images belong to browser chrome, not the content resource list.
+    // Firefox 78 and current Firefox exclude these requests as well.
+    if (req.name.startsWith("about:") || req.name.startsWith("resource:") ||
+        req.name.startsWith("chrome:")) {
       return;
     }
     is(req.loadFlags & TEST_FLAGS, TEST_FLAGS, "request " + req.name + " has the expected flags");

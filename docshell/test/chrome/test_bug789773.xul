@@ -31,15 +31,48 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=789773
    */
   SimpleTest.waitForExplicitFinish();
 
-  var calledListenerForBrowserXUL = false;
+  Cu.import("resource://gre/modules/Services.jsm");
+  var browserChromeURI = Services.io.newURI(
+    Services.prefs.getCharPref("browser.chromeURL"), null, null);
+  var targetURI = Services.io.newURI("about:mozilla", null, null);
+  var restrictionPref = "browser.link.open_newwindow.restriction";
+  var hadRestrictionPref = Services.prefs.prefHasUserValue(restrictionPref);
+  var oldRestriction = Services.prefs.getIntPref(restrictionPref);
+  var listenerRegistered = false;
+  var popup = null;
+  SimpleTest.registerCleanupFunction(function() {
+    if (listenerRegistered) {
+      webProgress.removeProgressListener(testProgressListener);
+      listenerRegistered = false;
+    }
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    if (hadRestrictionPref) {
+      Services.prefs.setIntPref(restrictionPref, oldRestriction);
+    } else {
+      Services.prefs.clearUserPref(restrictionPref);
+    }
+  });
+
+  var calledListenerForBrowserChrome = false;
   var testProgressListener = {
     START_DOC: Ci.nsIWebProgressListener.STATE_START | Ci.nsIWebProgressListener.STATE_IS_DOCUMENT,
     onStateChange: function(wp, req, stateFlags, status) {
-      if (/browser.xul/.test(req.name)) {
-        wp.DOMWindow; // Force the lazy creation of a DOM window.
-        calledListenerForBrowserXUL = true;
+      // Chrome channels have a resolved file/resource name. Match their
+      // original URI against the canonical configured browser chrome URI.
+      var channel;
+      try {
+        channel = req.QueryInterface(Ci.nsIChannel);
+      } catch (e) {
+        return;
       }
-      if (/mozilla.xhtml/.test(req.name) && (stateFlags & Ci.nsIWebProgressListener.STATE_STOP))
+      var requestURI = channel.originalURI;
+      if (requestURI.equals(browserChromeURI)) {
+        wp.DOMWindow; // Force the lazy creation of a DOM window.
+        calledListenerForBrowserChrome = true;
+      }
+      if (requestURI.equals(targetURI) && (stateFlags & Ci.nsIWebProgressListener.STATE_STOP))
         finishTest();
     },
     QueryInterface: function(iid) {
@@ -53,15 +86,20 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=789773
    // Add our progress listener
    var webProgress = Cc['@mozilla.org/docloaderservice;1'].getService(Ci.nsIWebProgress);
    webProgress.addProgressListener(testProgressListener, Ci.nsIWebProgress.NOTIFY_STATE_REQUEST);
+   listenerRegistered = true;
 
-   // Open the window.
-   var popup = window.open("about:mozilla", "_blank", "width=640,height=400");
+   // This regression requires creating native browser chrome, not diverting
+   // the feature-requesting popup into a tab (the app default since 653eb56).
+   Services.prefs.setIntPref(restrictionPref, 2);
+   popup = window.open(targetURI.spec, "_blank", "width=640,height=400");
 
    // Wait for the window to load.
    function finishTest() {
      webProgress.removeProgressListener(testProgressListener);
+     listenerRegistered = false;
      ok(true, "Loaded the popup window without spinning forever in the event loop!");
-     ok(calledListenerForBrowserXUL, "Should have called the progress listener for browser.xul");
+     ok(calledListenerForBrowserChrome,
+        "Should have called the progress listener for " + browserChromeURI.spec);
      popup.close();
      SimpleTest.finish();
    }
