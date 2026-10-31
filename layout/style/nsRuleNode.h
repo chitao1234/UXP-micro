@@ -780,6 +780,9 @@ protected:
                           nscoord aScriptLevelAdjustedParentSize,
                           bool aUsedStartStruct,
                           bool aAtRoot,
+                          uint8_t aFontSizeKeyword,
+                          float aFontSizeFactor,
+                          bool aRecomputeKeywordSize,
                           mozilla::RuleNodeCacheConditions& aConditions);
 
   static void SetFont(nsPresContext* aPresContext,
@@ -1062,14 +1065,6 @@ public:
   static nscoord CalcFontPointSize(int32_t aHTMLSize, int32_t aBasePointSize,
                                    nsPresContext* aPresContext,
                                    nsFontSizeType aFontSizeType = eFontSize_HTML);
-
-  static nscoord FindNextSmallerFontSize(nscoord aFontSize, int32_t aBasePointSize,
-                                         nsPresContext* aPresContext,
-                                         nsFontSizeType aFontSizeType = eFontSize_HTML);
-
-  static nscoord FindNextLargerFontSize(nscoord aFontSize, int32_t aBasePointSize,
-                                        nsPresContext* aPresContext,
-                                        nsFontSizeType aFontSizeType = eFontSize_HTML);
 
   /**
    * @param aValue The color value, returned from nsCSSParser::ParseColorString

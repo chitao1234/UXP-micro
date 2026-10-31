@@ -204,6 +204,14 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleFont
                         // mFont.size should be used for display purposes
                         // while mSize is the value to return in
                         // getComputedStyle() for example.
+
+  // Keep the origin of keyword-derived sizes so a language or generic-family
+  // change can apply that language's font preferences.  Absolute lengths,
+  // calc(), and font-relative lengths other than em break this dependency.
+  static const uint8_t kNoFontSizeKeyword = 0xff;
+  float mFontSizeFactor;       // [inherited] em/percentage/relative-size scale
+  uint8_t mFontSizeKeyword;    // [inherited] NS_STYLE_FONT_SIZE_* or none
+
   uint8_t mGenericID;   // [inherited] generic CSS font family, if any;
                         // value is a kGenericFont_* constant, see nsFont.h.
 
@@ -223,6 +231,10 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleFont
   // should calls to ZoomText() and UnZoomText() be made to the font
   // size on this nsStyleFont?
   bool mAllowZoom;               // [inherited]
+
+  // An initial family follows the language's default generic.  An authored
+  // generic (including one that happens to equal that default) does not.
+  bool mFontFamilyIsInitial;     // [inherited]
 
   // The value mSize would have had if scriptminsize had never been applied
   nscoord mScriptUnconstrainedSize;

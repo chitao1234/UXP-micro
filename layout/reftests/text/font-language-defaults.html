@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Keyword sizes follow language; explicit lengths remain lengths</title>
+<style>
+  body { margin: 0 }
+  .box { width: 1em; height: 1em; background: green }
+  .em { font-size: 2em }
+  .px { font-size: 17px }
+  .mono { font-family: monospace }
+  .rem { font-size: 2rem }
+  .calc { font-size: calc(1em + 3px) }
+</style>
+<script>
+if (location.search) {
+  document.documentElement.className = "reftest-wait";
+  addEventListener("load", function() {
+    document.body.style.fontSize = "24px";
+    document.getElementById("chinese").getBoundingClientRect();
+    document.body.style.fontSize = "medium";
+    document.getElementById("chinese").getBoundingClientRect();
+    document.documentElement.lang = "zh-CN";
+    document.body.getBoundingClientRect();
+    document.documentElement.lang = "en";
+    document.documentElement.className = "";
+  });
+}
+</script>
+<body>
+<div class="box"></div>
+<div lang="zh-CN"><div class="box" id="chinese"></div>
+  <div lang="en" class="box"></div></div>
+<div class="em"><div class="box"></div>
+  <div lang="zh-CN" class="box"></div></div>
+<div class="px"><div class="box"></div>
+  <div lang="zh-CN" class="box"></div></div>
+<div class="mono"><div class="box"></div>
+  <div lang="zh-CN" class="box"></div></div>
+<div class="rem"><div class="box"></div>
+  <div lang="zh-CN" class="box"></div></div>
+<div class="calc"><div class="box"></div>
+  <div lang="zh-CN" class="box"></div></div>

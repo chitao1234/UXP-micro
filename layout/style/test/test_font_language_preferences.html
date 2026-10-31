@@ -1,0 +1,275 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Language-aware default fonts and keyword-derived sizes</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<body>
+<script>
+SimpleTest.waitForExplicitFinish();
+
+// Stylo's keyword provenance and initial-family handling, rather than the
+// host's locale, determine all expectations here. See Mozilla bugs 1391341
+// (size inheritance) and 1367860 (implicit language-specific family).
+const FONT_PREFS = [
+  ["font.default.x-western", "serif"],
+  ["font.default.zh-CN", "sans-serif"],
+  ["font.size.variable.x-western", 24],
+  ["font.size.variable.zh-CN", 16],
+  ["font.size.variable.x-math", 28],
+  ["font.size.fixed.x-western", 12],
+  ["font.size.fixed.zh-CN", 10],
+  ["font.size.serif.x-western", 0],
+  ["font.size.serif.zh-CN", 0],
+  ["font.size.sans-serif.x-western", 0],
+  ["font.size.sans-serif.zh-CN", 0],
+  ["font.size.monospace.x-western", 0],
+  ["font.size.monospace.zh-CN", 0],
+  ["font.minimum-size.x-western", 0],
+  ["font.minimum-size.zh-CN", 0],
+  ["font.minimum-size.x-math", 0]
+];
+
+function prefs(values) {
+  return new Promise(resolve => SpecialPowers.pushPrefEnv({set: values}, resolve));
+}
+
+function frame() {
+  return new Promise(resolve => {
+    let f = document.createElement("iframe");
+    f.onload = () => resolve(f);
+    f.srcdoc = `<!doctype html><html lang="en"><meta charset="utf-8">
+      <style>
+        .shared { margin-left: 1em }
+        .em { font-size: 2em }
+        .percent { font-size: 150% }
+        .px { font-size: 17px }
+        .rem { font-size: 2rem }
+        .calc { font-size: calc(1em + 3px) }
+        .large { font-size: larger }
+        .small { font-size: smaller }
+        .serif { font-family: serif }
+        .sans { font-family: sans-serif }
+        .mono { font-family: monospace }
+      </style><body>
+      <div id="default"><span id="chinese" lang="zh-CN" class="shared">
+        <span id="english" lang="en" class="shared"></span></span></div>
+      <div class="em" id="em"><span id="em-chinese" lang="zh-CN"></span></div>
+      <div class="percent" id="percent"><span id="percent-chinese" lang="zh-CN"></span></div>
+      <div class="px" id="px"><span id="px-chinese" lang="zh-CN"></span>
+        <span class="em" lang="zh-CN" id="px-em"></span></div>
+      <div class="rem" id="rem"><span id="rem-chinese" lang="zh-CN"></span></div>
+      <div class="calc" id="calc"><span id="calc-chinese" lang="zh-CN"></span></div>
+      <div class="large" id="large"><span id="large-chinese" lang="zh-CN"></span></div>
+      <div class="small" id="small"><span id="small-chinese" lang="zh-CN"></span></div>
+      <div class="serif" id="serif"><span id="serif-chinese" lang="zh-CN"></span></div>
+      <div class="sans" id="sans"><span id="sans-chinese" lang="zh-CN"></span></div>
+      <div class="mono" id="mono"><span id="mono-chinese" lang="zh-CN"></span></div>
+      <div id="family"><span id="family-chinese" lang="zh-CN"></span></div>
+      <div id="size"><span id="size-chinese" lang="zh-CN"></span></div>
+      <div id="specified" lang="zh-CN" style="font-size:2em"></div>
+      <div id="zero" lang="zh-CN" style="font-size:0;margin-left:1em"></div>
+      <div id="minimum" lang="zh-CN" style="margin-left:1em"></div>
+      <div id="minimum-px" lang="zh-CN" style="font-size:10px;margin-left:1em"></div>
+      <div id="siblings"><span class="shared" lang="en" id="sibling-en1"></span>
+        <span class="shared" lang="zh-CN" id="sibling-zh"></span>
+        <span class="shared" lang="en" id="sibling-en2"></span></div>
+      <math><mstyle id="math-root" style="font-size:24px"
+          scriptsizemultiplier="0.5" scriptminsize="10px">
+        <mstyle id="math-one" scriptlevel="+1" lang="zh-CN">
+          <mrow><mi>x</mi><mstyle id="math-two" scriptlevel="+1">
+            <mi>y</mi><mstyle id="math-back" scriptlevel="0"><mi>z</mi></mstyle>
+          </mstyle></mrow>
+        </mstyle>
+      </mstyle></math>
+      <math id="math-keyword-outer"><mstyle id="math-keyword-parent" style="font-size:medium" scriptsizemultiplier="0.5"
+          scriptminsize="0px">
+        <mstyle id="math-keyword" scriptlevel="+1" lang="zh-CN">
+          <mi id="math-keyword-child" lang="en">x</mi>
+        </mstyle>
+      </mstyle></math>
+      <div style="display:none">
+        <div id="zero-relative" style="font-size:0em">
+          <div id="zero-overflow-em" style="font-size:1e999em" lang="zh-CN">
+            <div id="zero-overflow-em-child" style="font-size:2em" lang="en"></div>
+          </div>
+          <div id="zero-overflow-percent" style="font-size:1e999%" lang="zh-CN">
+            <div id="zero-overflow-percent-child" style="font-size:200%" lang="en"></div>
+          </div>
+        </div>
+        <div id="huge-relative" style="font-size:1e999em">
+          <div id="huge-relative-again" style="font-size:1e999em">
+            <div id="huge-relative-zero" style="font-size:0em">
+              <div id="huge-relative-zero-child" lang="zh-CN"></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(f);
+  });
+}
+
+(async function() {
+  let f;
+  let oldZoom;
+  try {
+    await prefs(FONT_PREFS);
+    await new Promise(resolve => SpecialPowers.pushPrefEnv({clear: [
+      ["font.name.variable.x-western"], ["font.name.variable.zh-CN"]
+    ]}, resolve));
+    f = await frame();
+    let win = f.contentWindow;
+    let doc = f.contentDocument;
+    oldZoom = SpecialPowers.getTextZoom(win);
+    function elt(id) { return doc.getElementById(id); }
+    function style(id) { return win.getComputedStyle(elt(id)); }
+    function size(id, expected, label) {
+      let actual = parseFloat(style(id).fontSize);
+      // One app unit, accounting for CSSOM decimal serialization.
+      ok(Number.isFinite(actual) && Math.abs(actual - expected) < 0.017,
+         (label || id) + ": expected " + expected + "px, got " + actual + "px");
+    }
+    function family(id, expected, label) {
+      is(style(id).fontFamily, expected, label || id);
+    }
+    function extremeSizes(label) {
+      for (let id of ["zero-relative", "zero-overflow-em", "zero-overflow-em-child",
+                      "zero-overflow-percent", "zero-overflow-percent-child",
+                      "huge-relative-zero", "huge-relative-zero-child"]) {
+        size(id, 0, label + ": " + id + " remains exactly zero");
+      }
+      for (let id of ["huge-relative", "huge-relative-again"]) {
+        let actual = parseFloat(style(id).fontSize);
+        ok(Number.isFinite(actual) && actual > 24,
+           label + ": " + id + " saturates to a finite positive size");
+      }
+    }
+    function baseline() {
+      size("default", 24);
+      size("chinese", 16);
+      size("english", 24);
+      size("em", 48);
+      size("em-chinese", 32);
+      size("percent", 36);
+      size("percent-chinese", 24);
+      size("px", 17);
+      size("px-chinese", 17);
+      size("px-em", 34);
+      size("rem", 48);
+      size("rem-chinese", 48);
+      size("calc", 27);
+      size("calc-chinese", 27);
+      size("specified", 32, "a language change on the em declaration itself");
+      size("large", 28.8, "modern larger is a factor of 1.2");
+      size("large-chinese", 19.2);
+      size("small", 20, "modern smaller is a factor of 1/1.2");
+      size("small-chinese", 16 / 1.2);
+      size("serif-chinese", 16, "authored generic size follows its language");
+      size("sans-chinese", 16);
+      size("mono", 12);
+      size("mono-chinese", 10);
+      family("default", "serif");
+      family("chinese", "sans-serif", "initial family follows language");
+      family("english", "serif");
+      family("serif-chinese", "serif", "authored serif remains serif");
+      family("sans-chinese", "sans-serif");
+      family("mono-chinese", "monospace");
+      size("sibling-en1", 24);
+      size("sibling-zh", 16);
+      size("sibling-en2", 24, "shared rules do not cross language groups");
+    }
+    baseline();
+    extremeSizes("initial extreme-size chains");
+    for (let lang of ["en", "zh-CN"]) {
+      for (let id of ["zero-overflow-em", "zero-overflow-percent",
+                      "huge-relative-zero-child"]) {
+        elt(id).lang = lang;
+      }
+      extremeSizes("extreme-size language " + lang);
+    }
+    for (let fontFamily of ["monospace", "serif", "initial"]) {
+      for (let id of ["zero-overflow-em", "zero-overflow-percent",
+                      "huge-relative-zero-child"]) {
+        elt(id).style.fontFamily = fontFamily;
+      }
+      extremeSizes("extreme-size family " + fontFamily);
+    }
+
+    for (let value of ["inherit", "unset", "revert"]) {
+      elt("chinese").style.fontSize = value;
+      size("chinese", 16, value + " preserves keyword origin");
+    }
+    elt("chinese").style.fontSize = "";
+
+    // Parent pixels do not change, so these require a NeutralChange for the
+    // provenance itself. Descendants must not reuse the previous font struct.
+    size("size-chinese", 16);
+    elt("size").style.fontSize = "24px";
+    size("size", 24);
+    size("size-chinese", 24, "same-size explicit length clears keyword origin");
+    elt("size").style.fontSize = "medium";
+    size("size-chinese", 16, "same-size keyword restores language dependency");
+    elt("family").style.fontFamily = "serif";
+    family("family-chinese", "serif", "same-family authored generic stops following language");
+    elt("family").style.fontFamily = "initial";
+    family("family-chinese", "sans-serif", "same-family initial restores language dependency");
+
+    // Change the root without altering any descendant declaration.
+    doc.documentElement.lang = "zh-CN";
+    size("default", 16, "dynamic root language");
+    size("em", 32);
+    size("english", 24);
+    size("px", 17);
+    family("default", "sans-serif");
+    doc.documentElement.lang = "en";
+    baseline();
+
+    // Minimum font size affects used em units, not the exposed computed size.
+    await prefs([["font.minimum-size.zh-CN", 20]]);
+    size("minimum", 16);
+    is(style("minimum").marginLeft, "20px", "minimum applies after keyword recomputation");
+    size("minimum-px", 10);
+    is(style("minimum-px").marginLeft, "20px", "explicit size keeps its used minimum");
+    size("zero", 0);
+    is(style("zero").marginLeft, "0px", "minimum does not reveal zero-size text");
+    await prefs([["font.minimum-size.zh-CN", 0]]);
+
+    SpecialPowers.setTextZoom(win, 2);
+    size("default", 48, "text zoom applied exactly once to default");
+    size("chinese", 32, "text zoom applied exactly once after language change");
+    size("em-chinese", 64);
+    size("px-chinese", 34, "explicit pixels still receive text zoom");
+    doc.documentElement.lang = "zh-CN";
+    size("default", 32, "dynamic language at nondefault text zoom");
+    size("english", 48);
+    doc.documentElement.lang = "en";
+    SpecialPowers.setTextZoom(win, oldZoom);
+
+    size("math-root", 24);
+    size("math-one", 12, "scriptlevel scaling is separate from language");
+    size("math-two", 10, "scriptminsize still clamps the scriptlevel result");
+    size("math-back", 24, "leaving scriptminsize recovers unconstrained size");
+    elt("math-one").setAttribute("lang", "en");
+    size("math-one", 12, "language restyle preserves explicit-pixel math scaling");
+    size("math-two", 10);
+    // Both Gecko's nsHTMLStyleSheet and Stylo's MathML hint set the internal
+    // language on <math> to x-math, overriding the surrounding English group.
+    // Give that group its own size to test the actual dependency explicitly.
+    size("math-keyword-outer", 28, "math uses its internal language group");
+    size("math-keyword-parent", 28, "medium resolves against x-math preferences");
+    size("math-keyword", 14, "scriptlevel retains its separate legacy adjustment");
+    size("math-keyword-child", 14, "descendant language cannot erase script scaling");
+    elt("math-keyword-child").setAttribute("lang", "zh-CN");
+    size("math-keyword-child", 14, "dynamic descendant language preserves math result");
+  } catch (error) {
+    ok(false, "font language test failed: " + error + "\n" + error.stack);
+  } finally {
+    if (f) {
+      if (oldZoom !== undefined) {
+        SpecialPowers.setTextZoom(f.contentWindow, oldZoom);
+      }
+      f.remove();
+    }
+    SimpleTest.finish();
+  }
+})();
+</script>

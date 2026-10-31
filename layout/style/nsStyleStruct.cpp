@@ -124,6 +124,8 @@ static bool AreShadowArraysEqual(nsCSSShadowArray* lhs, nsCSSShadowArray* rhs);
 nsStyleFont::nsStyleFont(const nsFont& aFont, nsPresContext* aContext)
   : mFont(aFont)
   , mSize(nsStyleFont::ZoomText(aContext, mFont.size))
+  , mFontSizeFactor(1.0f)
+  , mFontSizeKeyword(NS_STYLE_FONT_SIZE_MEDIUM)
   , mGenericID(kGenericFont_NONE)
   , mScriptLevel(0)
   , mMathVariant(NS_MATHML_MATHVARIANT_NONE)
@@ -131,6 +133,7 @@ nsStyleFont::nsStyleFont(const nsFont& aFont, nsPresContext* aContext)
   , mMinFontSizeRatio(100) // 100%
   , mExplicitLanguage(false)
   , mAllowZoom(true)
+  , mFontFamilyIsInitial(false)
   , mScriptUnconstrainedSize(mSize)
   , mScriptMinSize(nsPresContext::CSSTwipsToAppUnits(
       NS_POINTS_TO_TWIPS(NS_MATHML_DEFAULT_SCRIPT_MIN_SIZE_PT)))
@@ -144,6 +147,8 @@ nsStyleFont::nsStyleFont(const nsFont& aFont, nsPresContext* aContext)
 nsStyleFont::nsStyleFont(const nsStyleFont& aSrc)
   : mFont(aSrc.mFont)
   , mSize(aSrc.mSize)
+  , mFontSizeFactor(aSrc.mFontSizeFactor)
+  , mFontSizeKeyword(aSrc.mFontSizeKeyword)
   , mGenericID(aSrc.mGenericID)
   , mScriptLevel(aSrc.mScriptLevel)
   , mMathVariant(aSrc.mMathVariant)
@@ -151,6 +156,7 @@ nsStyleFont::nsStyleFont(const nsStyleFont& aSrc)
   , mMinFontSizeRatio(aSrc.mMinFontSizeRatio)
   , mExplicitLanguage(aSrc.mExplicitLanguage)
   , mAllowZoom(aSrc.mAllowZoom)
+  , mFontFamilyIsInitial(aSrc.mFontFamilyIsInitial)
   , mScriptUnconstrainedSize(aSrc.mScriptUnconstrainedSize)
   , mScriptMinSize(aSrc.mScriptMinSize)
   , mScriptSizeMultiplier(aSrc.mScriptSizeMultiplier)
@@ -163,6 +169,7 @@ nsStyleFont::nsStyleFont(nsPresContext* aContext)
   : nsStyleFont(*(aContext->GetDefaultFont(
       kPresContext_DefaultVariableFont_ID, nullptr)), aContext)
 {
+  mFontFamilyIsInitial = true;
 }
 
 void
@@ -209,6 +216,9 @@ nsStyleFont::CalcDifference(const nsStyleFont& aNewData) const
 
   // XXX Should any of these cause a non-nsChangeHint_NeutralChange change?
   if (mGenericID != aNewData.mGenericID ||
+      mFontSizeKeyword != aNewData.mFontSizeKeyword ||
+      mFontSizeFactor != aNewData.mFontSizeFactor ||
+      mFontFamilyIsInitial != aNewData.mFontFamilyIsInitial ||
       mScriptLevel != aNewData.mScriptLevel ||
       mScriptUnconstrainedSize != aNewData.mScriptUnconstrainedSize ||
       mScriptMinSize != aNewData.mScriptMinSize ||

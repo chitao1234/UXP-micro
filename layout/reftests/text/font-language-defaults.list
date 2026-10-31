@@ -1,0 +1,5 @@
+# Explicit groups make these tests independent of the Windows/system locale.
+# Unset optional monospace overrides use the declared fixed-font sizes.
+default-preferences pref(font.size.variable.x-western,24) pref(font.size.variable.zh-CN,16) pref(font.size.fixed.x-western,12) pref(font.size.fixed.zh-CN,10) pref(font.minimum-size.x-western,0) pref(font.minimum-size.zh-CN,0)
+== font-language-defaults.html font-language-defaults-ref.html
+== font-language-defaults.html?dynamic font-language-defaults-ref.html

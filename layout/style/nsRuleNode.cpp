@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <limits>
 
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
@@ -4013,138 +4014,6 @@ nsRuleNode::CalcFontPointSize(int32_t aHTMLSize, int32_t aBasePointSize,
 }
 
 
-//------------------------------------------------------------------------------
-//
-//------------------------------------------------------------------------------
-
-/* static */ nscoord
-nsRuleNode::FindNextSmallerFontSize(nscoord aFontSize, int32_t aBasePointSize,
-                                    nsPresContext* aPresContext,
-                                    nsFontSizeType aFontSizeType)
-{
-  int32_t index;
-  int32_t indexMin;
-  int32_t indexMax;
-  float relativePosition;
-  nscoord smallerSize;
-  nscoord indexFontSize = aFontSize; // XXX initialize to quell a spurious gcc3.2 warning
-  nscoord smallestIndexFontSize;
-  nscoord largestIndexFontSize;
-  nscoord smallerIndexFontSize;
-  nscoord largerIndexFontSize;
-
-  nscoord onePx = nsPresContext::CSSPixelsToAppUnits(1);
-
-  if (aFontSizeType == eFontSize_HTML) {
-    indexMin = 1;
-    indexMax = 7;
-  } else {
-    indexMin = 0;
-    indexMax = 6;
-  }
-
-  smallestIndexFontSize = CalcFontPointSize(indexMin, aBasePointSize, aPresContext, aFontSizeType);
-  largestIndexFontSize = CalcFontPointSize(indexMax, aBasePointSize, aPresContext, aFontSizeType);
-  if (aFontSize > smallestIndexFontSize) {
-    if (aFontSize < NSToCoordRound(float(largestIndexFontSize) * 1.5)) { // smaller will be in HTML table
-      // find largest index smaller than current
-      for (index = indexMax; index >= indexMin; index--) {
-        indexFontSize = CalcFontPointSize(index, aBasePointSize, aPresContext, aFontSizeType);
-        if (indexFontSize < aFontSize) {
-          break;
-        }
-      }
-      // set up points beyond table for interpolation purposes
-      if (indexFontSize == smallestIndexFontSize) {
-        smallerIndexFontSize = indexFontSize - onePx;
-        largerIndexFontSize = CalcFontPointSize(index+1, aBasePointSize, aPresContext, aFontSizeType);
-      } else if (indexFontSize == largestIndexFontSize) {
-        smallerIndexFontSize = CalcFontPointSize(index-1, aBasePointSize, aPresContext, aFontSizeType);
-        largerIndexFontSize = NSToCoordRound(float(largestIndexFontSize) * 1.5);
-      } else {
-        smallerIndexFontSize = CalcFontPointSize(index-1, aBasePointSize, aPresContext, aFontSizeType);
-        largerIndexFontSize = CalcFontPointSize(index+1, aBasePointSize, aPresContext, aFontSizeType);
-      }
-      // compute the relative position of the parent size between the two closest indexed sizes
-      relativePosition = float(aFontSize - indexFontSize) / float(largerIndexFontSize - indexFontSize);
-      // set the new size to have the same relative position between the next smallest two indexed sizes
-      smallerSize = smallerIndexFontSize + NSToCoordRound(relativePosition * (indexFontSize - smallerIndexFontSize));
-    } else {  // larger than HTML table, drop by 33%
-      smallerSize = NSToCoordRound(float(aFontSize) / 1.5);
-    }
-  } else { // smaller than HTML table, drop by 1px
-    smallerSize = std::max(aFontSize - onePx, onePx);
-  }
-  return smallerSize;
-}
-
-//------------------------------------------------------------------------------
-//
-//------------------------------------------------------------------------------
-
-/* static */ nscoord
-nsRuleNode::FindNextLargerFontSize(nscoord aFontSize, int32_t aBasePointSize,
-                                   nsPresContext* aPresContext,
-                                   nsFontSizeType aFontSizeType)
-{
-  int32_t index;
-  int32_t indexMin;
-  int32_t indexMax;
-  float relativePosition;
-  nscoord adjustment;
-  nscoord largerSize;
-  nscoord indexFontSize = aFontSize; // XXX initialize to quell a spurious gcc3.2 warning
-  nscoord smallestIndexFontSize;
-  nscoord largestIndexFontSize;
-  nscoord smallerIndexFontSize;
-  nscoord largerIndexFontSize;
-
-  nscoord onePx = nsPresContext::CSSPixelsToAppUnits(1);
-
-  if (aFontSizeType == eFontSize_HTML) {
-    indexMin = 1;
-    indexMax = 7;
-  } else {
-    indexMin = 0;
-    indexMax = 6;
-  }
-
-  smallestIndexFontSize = CalcFontPointSize(indexMin, aBasePointSize, aPresContext, aFontSizeType);
-  largestIndexFontSize = CalcFontPointSize(indexMax, aBasePointSize, aPresContext, aFontSizeType);
-  if (aFontSize > (smallestIndexFontSize - onePx)) {
-    if (aFontSize < largestIndexFontSize) { // larger will be in HTML table
-      // find smallest index larger than current
-      for (index = indexMin; index <= indexMax; index++) {
-        indexFontSize = CalcFontPointSize(index, aBasePointSize, aPresContext, aFontSizeType);
-        if (indexFontSize > aFontSize) {
-          break;
-        }
-      }
-      // set up points beyond table for interpolation purposes
-      if (indexFontSize == smallestIndexFontSize) {
-        smallerIndexFontSize = indexFontSize - onePx;
-        largerIndexFontSize = CalcFontPointSize(index+1, aBasePointSize, aPresContext, aFontSizeType);
-      } else if (indexFontSize == largestIndexFontSize) {
-        smallerIndexFontSize = CalcFontPointSize(index-1, aBasePointSize, aPresContext, aFontSizeType);
-        largerIndexFontSize = NSCoordSaturatingMultiply(largestIndexFontSize, 1.5);
-      } else {
-        smallerIndexFontSize = CalcFontPointSize(index-1, aBasePointSize, aPresContext, aFontSizeType);
-        largerIndexFontSize = CalcFontPointSize(index+1, aBasePointSize, aPresContext, aFontSizeType);
-      }
-      // compute the relative position of the parent size between the two closest indexed sizes
-      relativePosition = float(aFontSize - smallerIndexFontSize) / float(indexFontSize - smallerIndexFontSize);
-      // set the new size to have the same relative position between the next largest two indexed sizes
-      adjustment = NSCoordSaturatingNonnegativeMultiply(largerIndexFontSize - indexFontSize, relativePosition);
-      largerSize = NSCoordSaturatingAdd(indexFontSize, adjustment);
-    } else {  // larger than HTML table, increase by 50%
-      largerSize = NSCoordSaturatingMultiply(aFontSize, 1.5);
-    }
-  } else { // smaller than HTML table, increase by 1px
-    largerSize = NSCoordSaturatingAdd(aFontSize, onePx);
-  }
-  return largerSize;
-}
-
 struct SetFontSizeCalcOps : public css::BasicCoordCalcOps,
                             public css::NumbersAlreadyNormalizedOps
 {
@@ -4172,6 +4041,23 @@ struct SetFontSizeCalcOps : public css::BasicCoordCalcOps,
 
   result_type ComputeLeafValue(const nsCSSValue& aValue)
   {
+    // Numeric CSS tokens can overflow to infinity. As in modern Gecko's
+    // normalized font lengths, zero times a non-finite scale is zero, not
+    // NaN passed to an integer coordinate conversion. Keep the same cache
+    // dependencies as the ordinary em and percentage paths below.
+    if (mParentSize == 0 &&
+        ((aValue.GetUnit() == eCSSUnit_EM &&
+          !mozilla::IsFinite(aValue.GetFloatValue())) ||
+         (aValue.GetUnit() == eCSSUnit_Percent &&
+          !mozilla::IsFinite(aValue.GetPercentValue())))) {
+      if (aValue.GetUnit() == eCSSUnit_EM) {
+        mConditions.SetFontSizeDependency(mParentSize);
+      } else {
+        mConditions.SetUncacheable();
+      }
+      return 0;
+    }
+
     nscoord size;
     if (aValue.IsLengthUnit()) {
       // Note that font-based length units use the parent's size
@@ -4212,6 +4098,9 @@ nsRuleNode::SetFontSize(nsPresContext* aPresContext,
                         nscoord aScriptLevelAdjustedParentSize,
                         bool aUsedStartStruct,
                         bool aAtRoot,
+                        uint8_t aFontSizeKeyword,
+                        float aFontSizeFactor,
+                        bool aRecomputeKeywordSize,
                         RuleNodeCacheConditions& aConditions)
 {
   // If false, means that *aSize has not been zoomed.  If true, means that
@@ -4235,29 +4124,12 @@ nsRuleNode::SetFontSize(nsPresContext* aPresContext,
              NS_STYLE_FONT_SIZE_SMALLER == value) {
       aConditions.SetUncacheable();
 
-      // Un-zoom so we use the tables correctly.  We'll then rezoom due
-      // to the |zoom = true| above.
-      // Note that relative units here use the parent's size unadjusted
-      // for scriptlevel changes. A scriptlevel change between us and the parent
-      // is simply ignored.
-      nscoord parentSize = aParentSize;
-      if (aParentFont->mAllowZoom) {
-        parentSize = nsStyleFont::UnZoomText(aPresContext, parentSize);
-      }
-
-      if (NS_STYLE_FONT_SIZE_LARGER == value) {
-        *aSize = FindNextLargerFontSize(parentSize,
-                         baseSize, aPresContext, eFontSize_CSS);
-
-        NS_ASSERTION(*aSize >= parentSize,
-                     "FindNextLargerFontSize failed");
-      } else {
-        *aSize = FindNextSmallerFontSize(parentSize,
-                         baseSize, aPresContext, eFontSize_CSS);
-        NS_ASSERTION(*aSize < parentSize ||
-                     parentSize <= nsPresContext::CSSPixelsToAppUnits(1),
-                     "FindNextSmallerFontSize failed");
-      }
+      // Match modern Gecko's relative-size rule.  A fixed factor also keeps
+      // keyword provenance exact across language changes; inferring a factor
+      // from the rounded result of the old next-size tables would not.
+      float factor = value == NS_STYLE_FONT_SIZE_LARGER ? 1.2f : 1.0f / 1.2f;
+      *aSize = NSCoordSaturatingNonnegativeMultiply(aParentSize, factor);
+      sizeIsZoomedAccordingToParent = true;
     } else {
       NS_NOTREACHED("unexpected value");
     }
@@ -4307,9 +4179,20 @@ nsRuleNode::SetFontSize(nsPresContext* aPresContext,
       aConditions.SetUncacheable();
       *aSize = aScriptLevelAdjustedParentSize;
       sizeIsZoomedAccordingToParent = true;
-    } else {
+    } else if (!aRecomputeKeywordSize ||
+               aFontSizeKeyword == nsStyleFont::kNoFontSizeKeyword) {
       return;
     }
+  }
+
+  if (aRecomputeKeywordSize &&
+      aFontSizeKeyword != nsStyleFont::kNoFontSizeKeyword) {
+    MOZ_ASSERT(aFontSizeKeyword <= NS_STYLE_FONT_SIZE_XXXLARGE);
+    nscoord keywordSize = CalcFontPointSize(aFontSizeKeyword, baseSize,
+      aPresContext, aFontSizeKeyword == NS_STYLE_FONT_SIZE_XXXLARGE
+        ? eFontSize_HTML : eFontSize_CSS);
+    *aSize = NSCoordSaturatingNonnegativeMultiply(keywordSize, aFontSizeFactor);
+    sizeIsZoomedAccordingToParent = false;
   }
 
   // We want to zoom the cascaded size so that em-based measurements,
@@ -4341,6 +4224,12 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
                     RuleNodeCacheConditions& aConditions)
 {
   bool atRoot = !aContext->GetParent();
+
+  // A fully reset font can be its own fake parent.  Capture provenance before
+  // changing the result, just as we capture the MathML sizes below.
+  const uint8_t parentFontSizeKeyword = aParentFont->mFontSizeKeyword;
+  const float parentFontSizeFactor = aParentFont->mFontSizeFactor;
+  const bool parentFontFamilyIsInitial = aParentFont->mFontFamilyIsInitial;
 
   // -x-text-zoom: none, inherit, initial
   bool allowZoom;
@@ -4457,6 +4346,7 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
   NS_ASSERTION(eCSSUnit_Enumerated != familyValue->GetUnit(),
                "system fonts should not be in mFamily anymore");
   if (eCSSUnit_FontFamilyList == familyValue->GetUnit()) {
+    aFont->mFontFamilyIsInitial = false;
     // set the correct font if we are using DocumentFonts OR we are overriding for XUL
     // MJA: bug 31816
     bool useDocumentFonts =
@@ -4489,6 +4379,7 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
     // SetGenericFont (bug 380915).
     aFont->mGenericID = aGenericFontID;
   } else if (eCSSUnit_System_Font == familyValue->GetUnit()) {
+    aFont->mFontFamilyIsInitial = false;
     aFont->mFont.fontlist = systemFont.fontlist;
     aFont->mFont.systemFont = true;
     aFont->mGenericID = kGenericFont_NONE;
@@ -4499,10 +4390,25 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
     aFont->mFont.fontlist = aParentFont->mFont.fontlist;
     aFont->mFont.systemFont = aParentFont->mFont.systemFont;
     aFont->mGenericID = aParentFont->mGenericID;
+    aFont->mFontFamilyIsInitial = parentFontFamilyIsInitial;
   } else if (eCSSUnit_Initial == familyValue->GetUnit()) {
     aFont->mFont.fontlist = defaultVariableFont->fontlist;
     aFont->mFont.systemFont = defaultVariableFont->systemFont;
     aFont->mGenericID = kGenericFont_NONE;
+    aFont->mFontFamilyIsInitial = true;
+  }
+
+  if (eCSSUnit_Ident == langValue->GetUnit()) {
+    if (aFont->mFontFamilyIsInitial) {
+      // Do not inherit the previous language's chosen default generic as an
+      // authored family.  Explicit serif/sans-serif still keep their identity.
+      aFont->mFont.fontlist = defaultVariableFont->fontlist;
+    } else if (!aFont->mFont.systemFont &&
+               aFont->mFont.fontlist.GetDefaultFontType() != eFamily_none) {
+      // The implicit fallback is separate from the authored family list.
+      aFont->mFont.fontlist.SetDefaultFontType(
+        defaultVariableFont->fontlist.FirstGeneric());
+    }
   }
 
   // When we're in the loop in SetGenericFont, we must ensure that we
@@ -4837,6 +4743,68 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
 
   nscoord scriptLevelAdjustedUnconstrainedParentSize;
 
+  // Track the dependency, not a ratio reconstructed from rounded sizes.
+  // This is the same keyword/em/percentage propagation used by Stylo.  In
+  // particular calc(), rem, ex/ch, absolute lengths, and system fonts resolve
+  // to lengths and stop following language-specific default sizes.
+  const nsCSSValue* sizeValue = aRuleData->ValueForFontSize();
+  if (eCSSUnit_Inherit == sizeValue->GetUnit() ||
+      eCSSUnit_Unset == sizeValue->GetUnit() ||
+      eCSSUnit_Revert == sizeValue->GetUnit()) {
+    aFont->mFontSizeKeyword = parentFontSizeKeyword;
+    aFont->mFontSizeFactor = parentFontSizeFactor;
+  } else if (eCSSUnit_Initial == sizeValue->GetUnit()) {
+    aFont->mFontSizeKeyword = NS_STYLE_FONT_SIZE_MEDIUM;
+    aFont->mFontSizeFactor = 1.0f;
+  } else if (eCSSUnit_Null != sizeValue->GetUnit()) {
+    aFont->mFontSizeKeyword = nsStyleFont::kNoFontSizeKeyword;
+    aFont->mFontSizeFactor = 1.0f;
+    float relativeFactor = 1.0f;
+    bool isRelative = false;
+    if (eCSSUnit_Enumerated == sizeValue->GetUnit()) {
+      int32_t value = sizeValue->GetIntValue();
+      if (value >= NS_STYLE_FONT_SIZE_XXSMALL &&
+          value <= NS_STYLE_FONT_SIZE_XXXLARGE) {
+        aFont->mFontSizeKeyword = uint8_t(value);
+      } else if (value == NS_STYLE_FONT_SIZE_LARGER ||
+                 value == NS_STYLE_FONT_SIZE_SMALLER) {
+        relativeFactor = value == NS_STYLE_FONT_SIZE_LARGER ? 1.2f : 1.0f / 1.2f;
+        isRelative = true;
+      }
+    } else if (eCSSUnit_EM == sizeValue->GetUnit()) {
+      relativeFactor = sizeValue->GetFloatValue();
+      isRelative = true;
+    } else if (eCSSUnit_Percent == sizeValue->GetUnit()) {
+      relativeFactor = sizeValue->GetPercentValue();
+      isRelative = true;
+    }
+    if (isRelative && parentFontSizeKeyword != nsStyleFont::kNoFontSizeKeyword) {
+      aFont->mFontSizeKeyword = parentFontSizeKeyword;
+      // Numeric tokens can overflow to infinity. Normalize the factor before
+      // multiplying so a zero-size ancestor still contributes exactly zero.
+      // Keep all stored factors finite, including after repeated huge ems.
+      const float maxFactor = std::numeric_limits<float>::max();
+      relativeFactor = std::min(std::max(0.0f, relativeFactor), maxFactor);
+      MOZ_ASSERT(parentFontSizeFactor >= 0.0f &&
+                 parentFontSizeFactor <= maxFactor);
+      aFont->mFontSizeFactor = float(std::min(
+        double(parentFontSizeFactor) * relativeFactor,
+        double(maxFactor)));
+    }
+  }
+
+  bool inheritedSize = eCSSUnit_Null == sizeValue->GetUnit() ||
+                       eCSSUnit_Inherit == sizeValue->GetUnit() ||
+                       eCSSUnit_Unset == sizeValue->GetUnit() ||
+                       eCSSUnit_Revert == sizeValue->GetUnit();
+  bool recomputeKeywordSize =
+    (eCSSUnit_Ident == langValue->GetUnit() ||
+     eCSSUnit_Null != familyValue->GetUnit()) &&
+    // As in Stylo, a separate inherited MathML scriptlevel adjustment wins
+    // over language-dependent keyword recomputation.  Never bake that
+    // adjustment (or scriptminsize) into the keyword's factor.
+    !(inheritedSize && aFont->mScriptLevel != aParentFont->mScriptLevel);
+
   // font-size: enum, length, percent, inherit
   nscoord scriptLevelAdjustedParentSize =
     ComputeScriptLevelSize(aFont, aParentFont, aPresContext,
@@ -4856,7 +4824,9 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
               aRuleData, aFont, aParentFont,
               &aFont->mSize,
               systemFont, aParentFont->mSize, scriptLevelAdjustedParentSize,
-              aUsedStartStruct, atRoot, aConditions);
+              aUsedStartStruct, atRoot,
+              aFont->mFontSizeKeyword, aFont->mFontSizeFactor,
+              recomputeKeywordSize, aConditions);
   if (!aPresContext->Document()->GetMathMLEnabled()) {
     MOZ_ASSERT(!affectedByScriptMinSize);
     // If MathML is not enabled, we don't need to mark this node as
@@ -4888,10 +4858,23 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
                 &aFont->mScriptUnconstrainedSize,
                 systemFont, aParentFont->mScriptUnconstrainedSize,
                 scriptLevelAdjustedUnconstrainedParentSize,
-                aUsedStartStruct, atRoot, unconstrainedConditions);
+                aUsedStartStruct, atRoot,
+                aFont->mFontSizeKeyword, aFont->mFontSizeFactor,
+                recomputeKeywordSize, unconstrainedConditions);
   }
   NS_ASSERTION(aFont->mScriptUnconstrainedSize <= aFont->mSize,
                "scriptminsize should never be making things bigger");
+
+  if (inheritedSize &&
+      (aFont->mScriptLevel != aParentFont->mScriptLevel ||
+       aFont->mSize != aFont->mScriptUnconstrainedSize)) {
+    // MathML scriptlevel/minimum sizing is not an em/percentage dependency.
+    // Do not let a later language change in an unchanged scriptlevel child
+    // replace this result with the original unscaled keyword.  A subsequent
+    // explicit font-size can establish a new keyword dependency normally.
+    aFont->mFontSizeKeyword = nsStyleFont::kNoFontSizeKeyword;
+    aFont->mFontSizeFactor = 1.0f;
+  }
 
   nscoord fontSize = aFont->mSize;
 
