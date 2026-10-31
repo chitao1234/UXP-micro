@@ -539,7 +539,25 @@ var SettingsRequestManager = {
     // Due to the fact there may have multiple set operations to clear, and
     // they're all async, callbacks are gathered into promises, and the promises
     // are processed with Promises.all().
-    let checkPromises = [];
+    // Request success does not mean that the transaction has committed. In
+    // particular, promise reactions can run before IndexedDB dispatches its
+    // complete event. Removing the lock at that point would abort the writes.
+    // Listen without replacing getObjectStore's lifecycle handlers.
+    let transaction = store.transaction;
+    let transactionComplete = new Promise(function(resolve, reject) {
+      function onTransactionEvent(event) {
+        transaction.removeEventListener("complete", onTransactionEvent);
+        transaction.removeEventListener("abort", onTransactionEvent);
+        if (event.type === "complete") {
+          resolve();
+        } else {
+          reject();
+        }
+      }
+      transaction.addEventListener("complete", onTransactionEvent);
+      transaction.addEventListener("abort", onTransactionEvent);
+    });
+    let checkPromises = [transactionComplete];
     let finalValues = {};
     for (let i = 0; i < keys.length; i++) {
       let key = keys[i];
@@ -587,8 +605,8 @@ var SettingsRequestManager = {
       defer.reject = reject;
     });
 
-    // Once all transactions are done, or any have failed, remove the lock and
-    // start processing the tasks from the next lock in the queue.
+    // Keep the lock at the head of the queue until its transaction commits.
+    // Abort/error cleanup still removes the lock and aborts any active writes.
     Promise.all(checkPromises).then(function() {
       // If all commits were successful, notify observers
       for (let i = 0; i < keys.length; i++) {
