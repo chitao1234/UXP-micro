@@ -134,7 +134,7 @@ function waitForDebuggerMessage(dbg, message) {
 function waitForWindowMessage(window, message) {
   return new Promise(function (resolve) {
     let onmessage = function (event) {
-      if (event.data !== event.data) {
+      if (event.data !== message) {
         return;
       }
       window.removeEventListener("message", onmessage, false);

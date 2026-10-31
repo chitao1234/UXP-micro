@@ -48,9 +48,6 @@ function waitForServiceWorkerRegistrationChange(registration, callback) {
     let listener = {
       onChange: function () {
         registration.removeListener(listener);
-        if (callback) {
-          callback();
-        }
         resolve(callback ? callback() : undefined);
       }
     };

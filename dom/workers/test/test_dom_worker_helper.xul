@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<!-- Any copyright is dedicated to the Public Domain.
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        title="Worker window-message helper regression" onload="test();">
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+  <script src="dom_worker_helper.js"/>
+  <script><![CDATA[
+"use strict";
+SimpleTest.waitForExplicitFinish();
+
+function postAndWaitForDelivery(message) {
+  return new Promise(resolve => {
+    function delivered(event) {
+      if (event.data !== message) return;
+      window.removeEventListener("message", delivered);
+      resolve();
+    }
+    window.addEventListener("message", delivered);
+    window.postMessage(message, "*");
+  });
+}
+
+function test() {
+  Task.spawn(function* () {
+    let firstResolved = false;
+    let secondResolved = false;
+    const first = waitForWindowMessage(window, "helper-expected-first").then(() => {
+      firstResolved = true;
+    });
+    const second = waitForWindowMessage(window, "helper-expected-second").then(() => {
+      secondResolved = true;
+    });
+
+    yield postAndWaitForDelivery("helper-unrelated");
+    ok(!firstResolved, "An unrelated native window message leaves the first wait pending");
+    ok(!secondResolved, "An unrelated native window message leaves the second wait pending");
+
+    yield postAndWaitForDelivery("helper-expected-first");
+    yield first;
+    ok(firstResolved, "The first wait resolves after its matching native message");
+    ok(!secondResolved, "Another wait's matching message does not resolve the second wait");
+
+    yield postAndWaitForDelivery("helper-expected-second");
+    yield second;
+    ok(secondResolved, "The second wait remains registered until its own message arrives");
+  }).then(SimpleTest.finish, error => {
+    ok(false, "Worker message-helper regression failed: " + error + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+}
+  ]]></script>
+  <body xmlns="http://www.w3.org/1999/xhtml">
+    <p id="display"/><div id="content"/><pre id="test"/>
+  </body>
+</window>

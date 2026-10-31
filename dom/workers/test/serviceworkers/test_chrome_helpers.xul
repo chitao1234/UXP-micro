@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!-- Any copyright is dedicated to the Public Domain.
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        title="Service-worker registration helper regression" onload="test();">
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+  <script src="chrome_helpers.js"/>
+  <script><![CDATA[
+"use strict";
+SimpleTest.waitForExplicitFinish();
+
+// Drive listener notifications synchronously, just as the native registration
+// interface does, while controlling the callback promise's settlement.
+function registrationNotifications() {
+  const listeners = new Set();
+  return {
+    addListener(listener) { listeners.add(listener); },
+    removeListener(listener) { listeners.delete(listener); },
+    get listenerCount() { return listeners.size; },
+    notify() {
+      for (let listener of Array.from(listeners)) listener.onChange();
+    }
+  };
+}
+
+function test() {
+  Task.spawn(function* () {
+    const registration = registrationNotifications();
+    let release;
+    const callbackResult = new Promise(resolve => { release = resolve; });
+    let calls = 0;
+    let resolved = false;
+    const wait = waitForServiceWorkerRegistrationChange(registration, () => {
+      ++calls;
+      is(registration.listenerCount, 0, "The one-shot listener is removed before the callback");
+      return callbackResult;
+    }).then(value => {
+      resolved = true;
+      return value;
+    });
+    is(registration.listenerCount, 1, "The change listener is armed synchronously");
+    registration.notify();
+    is(calls, 1, "One registration change invokes the callback exactly once");
+    registration.notify();
+    is(calls, 1, "A later change does not invoke the removed callback again");
+    yield Promise.resolve();
+    ok(!resolved, "The helper stays pending while the callback's returned promise is pending");
+    const result = {};
+    release(result);
+    is(yield wait, result, "The helper adopts the callback promise's resolved value");
+    is(calls, 1, "Promise settlement does not invoke the callback again");
+
+    const noCallback = waitForServiceWorkerRegistrationChange(registration);
+    registration.notify();
+    is(yield noCallback, undefined, "A registration change also works without a callback");
+    is(registration.listenerCount, 0, "The no-callback wait also removes its listener");
+
+    const expectedError = new Error("Callback promise rejection");
+    const rejection = waitForServiceWorkerRegistrationChange(registration, () =>
+      Promise.reject(expectedError));
+    registration.notify();
+    try {
+      yield rejection;
+      ok(false, "The helper must adopt the callback promise's rejection");
+    } catch (error) {
+      is(error, expectedError, "The helper preserves the callback promise's rejection");
+    }
+  }).then(SimpleTest.finish, error => {
+    ok(false, "Service-worker helper regression failed: " + error + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+}
+  ]]></script>
+  <body xmlns="http://www.w3.org/1999/xhtml">
+    <p id="display"/><div id="content"/><pre id="test"/>
+  </body>
+</window>
