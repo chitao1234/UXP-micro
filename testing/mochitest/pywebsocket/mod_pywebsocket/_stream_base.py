@@ -159,7 +159,7 @@ class StreamBase(object):
             new_read_bytes = self._read(length)
             read_bytes.append(new_read_bytes)
             length -= len(new_read_bytes)
-        return ''.join(read_bytes)
+        return b''.join(read_bytes)
 
     def _read_until(self, delim_char):
         """Reads bytes until we encounter delim_char. The result will not
@@ -175,7 +175,7 @@ class StreamBase(object):
             if ch == delim_char:
                 break
             read_bytes.append(ch)
-        return ''.join(read_bytes)
+        return b''.join(read_bytes)
 
 
 # vi:sts=4 sw=4 et

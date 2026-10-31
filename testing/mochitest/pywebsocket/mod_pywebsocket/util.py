@@ -52,6 +52,7 @@ import io
 import logging
 import os
 import re
+import six
 import socket
 import traceback
 import zlib
@@ -147,7 +148,7 @@ def wrap_popen3_for_win(cygwin_path):
 
 
 def hexify(s):
-    return ' '.join(['%02x' % ord(x) for x in s])
+    return ' '.join(['%02x' % x for x in six.iterbytes(s)])
 
 
 def get_class_logger(o):
@@ -186,12 +187,13 @@ class RepeatedXorMasker(object):
         return masked_data
 
     def _mask_using_array(self, s):
-        result = array.array('B')
-        result.fromstring(s)
+        if isinstance(s, six.text_type):
+            raise TypeError('Masking requires bytes, not Unicode text')
+        result = bytearray(s)
 
         # Use temporary local variables to eliminate the cost to access
         # attributes
-        masking_key = list(map(ord, self._masking_key))
+        masking_key = list(six.iterbytes(self._masking_key))
         masking_key_size = len(masking_key)
         masking_key_index = self._masking_key_index
 
@@ -201,7 +203,7 @@ class RepeatedXorMasker(object):
 
         self._masking_key_index = masking_key_index
 
-        return result.tostring()
+        return bytes(result)
 
     if 'fast_masking' in globals():
         mask = _mask_using_swig
@@ -258,7 +260,7 @@ class _Inflater(object):
         self._logger = get_class_logger(self)
         self._window_bits = window_bits
 
-        self._unconsumed = ''
+        self._unconsumed = b''
 
         self.reset()
 
@@ -266,7 +268,7 @@ class _Inflater(object):
         if not (size == -1 or size > 0):
             raise Exception('size must be -1 or positive')
 
-        data = ''
+        data = b''
 
         while True:
             if size == -1:
@@ -274,7 +276,7 @@ class _Inflater(object):
                 # See Python bug http://bugs.python.org/issue12050 to
                 # understand why the same code cannot be used for updating
                 # self._unconsumed for here and else block.
-                self._unconsumed = ''
+                self._unconsumed = b''
             else:
                 data += self._decompress.decompress(
                     self._unconsumed, size - len(data))
@@ -338,7 +340,7 @@ class _RFC1979Deflater(object):
         if bfinal:
             result = self._deflater.compress_and_finish(bytes)
             # Add a padding block with BFINAL = 0 and BTYPE = 0.
-            result = result + chr(0)
+            result = result + b'\x00'
             self._deflater = None
             return result
 
@@ -365,7 +367,7 @@ class _RFC1979Inflater(object):
     def filter(self, bytes):
         # Restore stripped LEN and NLEN field of a non-compressed block added
         # for Z_SYNC_FLUSH.
-        self._inflater.append(bytes + '\x00\x00\xff\xff')
+        self._inflater.append(bytes + b'\x00\x00\xff\xff')
         return self._inflater.decompress(-1)
 
 
@@ -402,7 +404,7 @@ class DeflateSocket(object):
 
             read_data = self._socket.recv(DeflateSocket._RECV_SIZE)
             if not read_data:
-                return ''
+                return b''
             self._inflater.append(read_data)
 
     def sendall(self, bytes):

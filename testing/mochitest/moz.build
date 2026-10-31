@@ -27,6 +27,10 @@ MOCHITEST_MANIFESTS += [
 ]
 MOCHITEST_CHROME_MANIFESTS += ['chrome/chrome.ini']
 
+PYTHON_UNIT_TESTS += [
+    'test_pywebsocket_transport.py',
+]
+
 GENERATED_FILES += [
     'automation.py',
 ]

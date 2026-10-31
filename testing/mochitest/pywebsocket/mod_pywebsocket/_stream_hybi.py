@@ -39,6 +39,7 @@ http://tools.ietf.org/html/rfc6455
 from collections import deque
 import logging
 import os
+import six
 import struct
 import time
 
@@ -58,7 +59,7 @@ _NOOP_MASKER = util.NoopMasker()
 class Frame(object):
 
     def __init__(self, fin=1, rsv1=0, rsv2=0, rsv3=0,
-                 opcode=None, payload=''):
+                 opcode=None, payload=b''):
         self.fin = fin
         self.rsv1 = rsv1
         self.rsv2 = rsv2
@@ -90,11 +91,11 @@ def create_length_header(length, mask):
     if length < 0:
         raise ValueError('length must be non negative integer')
     elif length <= 125:
-        return chr(mask_bit | length)
+        return struct.pack('!B', mask_bit | length)
     elif length < (1 << 16):
-        return chr(mask_bit | 126) + struct.pack('!H', length)
+        return struct.pack('!BH', mask_bit | 126, length)
     elif length < (1 << 63):
-        return chr(mask_bit | 127) + struct.pack('!Q', length)
+        return struct.pack('!BQ', mask_bit | 127, length)
     else:
         raise ValueError('Payload is too big for one frame')
 
@@ -115,12 +116,12 @@ def create_header(opcode, payload_length, fin, rsv1, rsv2, rsv3, mask):
     if (fin | rsv1 | rsv2 | rsv3) & ~1:
         raise ValueError('FIN bit and Reserved bit parameter must be 0 or 1')
 
-    header = ''
+    header = b''
 
     first_byte = ((fin << 7)
                   | (rsv1 << 6) | (rsv2 << 5) | (rsv3 << 4)
                   | opcode)
-    header += chr(first_byte)
+    header += struct.pack('!B', first_byte)
     header += create_length_header(payload_length, mask)
 
     return header
@@ -191,14 +192,14 @@ def parse_frame(receive_bytes, logger=None,
 
     received = receive_bytes(2)
 
-    first_byte = ord(received[0])
+    first_byte = six.indexbytes(received, 0)
     fin = (first_byte >> 7) & 1
     rsv1 = (first_byte >> 6) & 1
     rsv2 = (first_byte >> 5) & 1
     rsv3 = (first_byte >> 4) & 1
     opcode = first_byte & 0xf
 
-    second_byte = ord(received[1])
+    second_byte = six.indexbytes(received, 1)
     mask = (second_byte >> 7) & 1
     payload_length = second_byte & 0x7f
 
@@ -368,7 +369,7 @@ def create_close_frame(body, mask=False, frame_filters=[]):
 
 
 def create_closing_handshake_body(code, reason):
-    body = ''
+    body = b''
     if code is not None:
         if (code > common.STATUS_USER_PRIVATE_MAX or
             code < common.STATUS_NORMAL_CLOSURE):
@@ -378,7 +379,15 @@ def create_closing_handshake_body(code, reason):
             code == common.STATUS_TLS_HANDSHAKE):
             raise BadOperationException('Status code is reserved pseudo '
                 'code')
-        encoded_reason = reason.encode('utf-8')
+        if isinstance(reason, bytes):
+            # The retained handler API accepts UTF-8 bytes as well as text.
+            try:
+                reason.decode('utf-8')
+            except UnicodeDecodeError:
+                raise BadOperationException('close reason must be valid UTF-8')
+            encoded_reason = reason
+        else:
+            encoded_reason = reason.encode('utf-8')
         body = struct.pack('!H', code) + encoded_reason
     return body
 
@@ -501,9 +510,9 @@ class Stream(StreamBase):
             raise BadOperationException(
                 'Requested send_message after sending out a closing handshake')
 
-        if binary and isinstance(message, str):
+        if binary and isinstance(message, six.text_type):
             raise BadOperationException(
-                'Message for binary frame must be instance of str')
+                'Message for binary frame must be bytes, not Unicode text')
 
         for message_filter in self._options.outgoing_message_filters:
             message = message_filter.filter(message, end, binary)
@@ -566,7 +575,7 @@ class Stream(StreamBase):
             if frame.fin:
                 # End of fragmentation frame
                 self._received_fragments.append(frame.payload)
-                message = ''.join(self._received_fragments)
+                message = b''.join(self._received_fragments)
                 self._received_fragments = []
                 return message
             else:
@@ -837,9 +846,10 @@ class Stream(StreamBase):
                     'close reason must not be specified if code is None')
             reason = ''
         else:
-            if not isinstance(reason, str) and not isinstance(reason, str):
+            if (not isinstance(reason, bytes) and
+                not isinstance(reason, six.text_type)):
                 raise BadOperationException(
-                    'close reason must be an instance of str or unicode')
+                    'close reason must be an instance of bytes or Unicode')
 
         self._send_closing_handshake(code, reason)
         self._logger.debug(
@@ -867,6 +877,8 @@ class Stream(StreamBase):
         # note: mod_python Connection (mp_conn) doesn't have close method.
 
     def send_ping(self, body=''):
+        if isinstance(body, six.text_type):
+            body = body.encode('UTF-8')
         frame = create_ping_frame(
             body,
             self._options.mask_send,

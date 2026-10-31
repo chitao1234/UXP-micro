@@ -375,7 +375,7 @@ class Handshaker(object):
             key,
             util.hexify(decoded_key))
 
-        return key
+        return key.encode('UTF-8')
 
     def _create_stream(self, stream_options):
         return Stream(self._request, stream_options)
@@ -391,7 +391,7 @@ class Handshaker(object):
         response.append(format_header(
             common.CONNECTION_HEADER, common.UPGRADE_CONNECTION_TYPE))
         response.append(format_header(
-            common.SEC_WEBSOCKET_ACCEPT_HEADER, accept))
+            common.SEC_WEBSOCKET_ACCEPT_HEADER, accept.decode('ASCII')))
         if self._request.ws_protocol is not None:
             response.append(format_header(
                 common.SEC_WEBSOCKET_PROTOCOL_HEADER,
@@ -417,7 +417,7 @@ class Handshaker(object):
 
     def _send_handshake(self, accept):
         raw_response = self._create_handshake_response(accept)
-        self._request.connection.write(raw_response)
+        self._request.connection.write(raw_response.encode('UTF-8'))
         self._logger.debug('Sent server\'s opening handshake: %r',
                            raw_response)
 
