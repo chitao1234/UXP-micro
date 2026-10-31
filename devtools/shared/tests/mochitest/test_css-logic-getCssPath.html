@@ -13,7 +13,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1323700
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 let { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
-const CssLogic = require("devtools/shared/inspector/css-logic");
+const { CssLogic } = require("devtools/server/css-logic");
 
 var _tests = [];
 function addTest(test) {
@@ -30,6 +30,7 @@ function runNextTest() {
 
 window.onload = function() {
   SimpleTest.waitForExplicitFinish();
+  is(typeof CssLogic.getCssPath, "function", "The inspector CSS-path API is available");
   runNextTest();
 }
 
@@ -40,7 +41,8 @@ addTest(function getCssPathForUnattachedElement() {
     CssLogic.getCssPath(unattached);
     ok(false, "Unattached node did not throw")
   } catch(e) {
-    ok(e, "Unattached node throws an exception");
+    is(e.message, "getCssPath received element not inside document",
+       "Unattached node is rejected by the CSS-path API");
   }
 
   var unattachedChild = document.createElement("div");
@@ -49,7 +51,8 @@ addTest(function getCssPathForUnattachedElement() {
     CssLogic.getCssPath(unattachedChild);
     ok(false, "Unattached child node did not throw")
   } catch(e) {
-    ok(e, "Unattached child node throws an exception");
+    is(e.message, "getCssPath received element not inside document",
+       "Unattached child node is rejected by the CSS-path API");
   }
 
   var unattachedBody = document.createElement("body");
@@ -57,7 +60,8 @@ addTest(function getCssPathForUnattachedElement() {
     CssLogic.getCssPath(unattachedBody);
     ok(false, "Unattached body node did not throw")
   } catch(e) {
-    ok(e, "Unattached body node throws an exception");
+    is(e.message, "getCssPath received element not inside document",
+       "Unattached body node is rejected by the CSS-path API");
   }
 
   runNextTest();

@@ -31,13 +31,16 @@ window.onload = function() {
     "t3jVw2dwTPwJq1KYG3gAklCgu37yGxeScYKyiCc+7DR34hPVQiuQ7UhJMagyEb" +
     "lymmzJk0a9q8iTOnzp0NCgAAOw==";
 
-  Task.spawn(function() {
+  Task.spawn(function*() {
     let result = yield QR.decodeFromURI(testImage);
     is(result, "HELLO", "Decoded data URI result matches");
     let canvas = yield drawToCanvas(testImage);
     result = QR.decodeFromCanvas(canvas);
     is(result, "HELLO", "Decoded canvas result matches");
-  }).then(SimpleTest.finish, ok.bind(null, false));
+  }).then(SimpleTest.finish, error => {
+    ok(false, "QR decoding failed: " + error);
+    SimpleTest.finish();
+  });
 
   function drawToCanvas(src) {
     let deferred = defer();
