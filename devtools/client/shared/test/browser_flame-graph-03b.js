@@ -77,13 +77,12 @@ function testGraph(graph) {
 }
 
 // EventUtils just doesn't work!
+// testX/testY are local CSS pixels; the graph applies its chosen sharpness.
 
 var HORIZONTAL_AXIS = 1;
 var VERTICAL_AXIS = 2;
 
 function scroll(graph, wheel, axis, x, y = 1) {
-  x /= window.devicePixelRatio;
-  y /= window.devicePixelRatio;
   graph._onMouseMove({ testX: x, testY: y });
   graph._onMouseWheel({ testX: x, testY: y, axis, detail: wheel,
     HORIZONTAL_AXIS,

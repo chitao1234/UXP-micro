@@ -49,64 +49,70 @@ function* performTest() {
 function testGraph(graph) {
   graph.setData(TEST_DATA);
 
+  // This tree's native MouseEventInit declares screen coordinates as long.
+  // Prove that contract instead of assuming fractional CSS inputs survive.
+  let sentinel = new MouseEvent("mousemove", {screenX: 7.75, screenY: -7.75});
+  is(sentinel.screenX, 7, "Native screenX truncates fractional CSS input");
+  is(sentinel.screenY, -7, "Native screenY truncates toward zero");
+
   info("Making a selection.");
 
-  dragStart(graph, 300);
+  let expectedStart = dragStart(graph, 300);
   ok(graph.hasSelectionInProgress(),
     "The selection should start (1).");
-  is(graph.getSelection().start, 300,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (1).");
-  is(graph.getSelection().end, 300,
+  is(graph.getSelection().end, expectedStart,
     "The current selection end value is correct (1).");
 
-  hover(graph, 400);
+  let expectedEnd = hover(graph, 400);
   ok(graph.hasSelectionInProgress(),
     "The selection should still be in progress (2).");
-  is(graph.getSelection().start, 300,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (2).");
-  is(graph.getSelection().end, 400,
+  is(graph.getSelection().end, expectedEnd,
     "The current selection end value is correct (2).");
 
-  dragStop(graph, 500);
+  expectedEnd = dragStop(graph, 500);
   ok(!graph.hasSelectionInProgress(),
     "The selection should have stopped (3).");
-  is(graph.getSelection().start, 300,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (3).");
-  is(graph.getSelection().end, 500,
+  is(graph.getSelection().end, expectedEnd,
     "The current selection end value is correct (3).");
 
   info("Making a new selection.");
 
-  dragStart(graph, 200);
+  expectedStart = dragStart(graph, 200);
   ok(graph.hasSelectionInProgress(),
     "The selection should start (4).");
-  is(graph.getSelection().start, 200,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (4).");
-  is(graph.getSelection().end, 200,
+  is(graph.getSelection().end, expectedStart,
     "The current selection end value is correct (4).");
 
-  hover(graph, 300);
+  expectedEnd = hover(graph, 300);
   ok(graph.hasSelectionInProgress(),
     "The selection should still be in progress (5).");
-  is(graph.getSelection().start, 200,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (5).");
-  is(graph.getSelection().end, 300,
+  is(graph.getSelection().end, expectedEnd,
     "The current selection end value is correct (5).");
 
-  dragStop(graph, 400);
+  expectedEnd = dragStop(graph, 400);
   ok(!graph.hasSelectionInProgress(),
     "The selection should have stopped (6).");
-  is(graph.getSelection().start, 200,
+  is(graph.getSelection().start, expectedStart,
     "The current selection start value is correct (6).");
-  is(graph.getSelection().end, 400,
+  is(graph.getSelection().end, expectedEnd,
     "The current selection end value is correct (6).");
 }
 
 // EventUtils just doesn't work!
 
 function dispatchEvent(graph, x, y, type) {
-  x /= window.devicePixelRatio;
-  y /= window.devicePixelRatio;
+  x /= graph._pixelRatio;
+  y /= graph._pixelRatio;
   let quad = graph._canvas.getBoxQuads({
     relativeTo: window.document
   })[0];
@@ -114,6 +120,9 @@ function dispatchEvent(graph, x, y, type) {
   let screenX = window.screenX + quad.p1.x + x;
   let screenY = window.screenY + quad.p1.y + y;
 
+  // Derive the expected injected point from the WebIDL long conversion,
+  // independently of the graph's event mapper or resulting selection.
+  let expectedX = ((screenX | 0) - window.screenX - quad.p1.x) * graph._pixelRatio;
   graph._canvas.dispatchEvent(new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
@@ -122,18 +131,19 @@ function dispatchEvent(graph, x, y, type) {
     screenX: screenX,
     screenY: screenY,
   }));
+  return expectedX;
 }
 
 function hover(graph, x, y = 1) {
-  dispatchEvent(graph, x, y, "mousemove");
+  return dispatchEvent(graph, x, y, "mousemove");
 }
 
 function dragStart(graph, x, y = 1) {
   dispatchEvent(graph, x, y, "mousemove");
-  dispatchEvent(graph, x, y, "mousedown");
+  return dispatchEvent(graph, x, y, "mousedown");
 }
 
 function dragStop(graph, x, y = 1) {
   dispatchEvent(graph, x, y, "mousemove");
-  dispatchEvent(graph, x, y, "mouseup");
+  return dispatchEvent(graph, x, y, "mouseup");
 }

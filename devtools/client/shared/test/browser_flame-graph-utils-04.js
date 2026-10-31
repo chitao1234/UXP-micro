@@ -104,21 +104,21 @@ var EXPECTED_OUTPUT = [{
     text: "http://A"
   }]
 }, {
-  blocks: []
-}, {
-  blocks: []
-}, {
-  blocks: []
-}, {
   blocks: [{
     startTime: 0,
-    frameKey: "Gecko",
+    frameKey: "Goanna",
     x: 0,
     y: 45,
     width: 50,
     height: 15,
-    text: "Gecko"
+    text: "Goanna"
   }]
+}, {
+  blocks: []
+}, {
+  blocks: []
+}, {
+  blocks: []
 }, {
   blocks: []
 }, {

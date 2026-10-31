@@ -133,23 +133,18 @@ function testGraph(graph) {
 }
 
 // EventUtils just doesn't work!
+// testX/testY are local CSS pixels; the graph applies its chosen sharpness.
 
 function hover(graph, x, y = 1) {
-  x /= window.devicePixelRatio;
-  y /= window.devicePixelRatio;
   graph._onMouseMove({ testX: x, testY: y });
 }
 
 function dragStart(graph, x, y = 1) {
-  x /= window.devicePixelRatio;
-  y /= window.devicePixelRatio;
   graph._onMouseMove({ testX: x, testY: y });
   graph._onMouseDown({ testX: x, testY: y });
 }
 
 function dragStop(graph, x, y = 1) {
-  x /= window.devicePixelRatio;
-  y /= window.devicePixelRatio;
   graph._onMouseMove({ testX: x, testY: y });
   graph._onMouseUp({ testX: x, testY: y });
 }

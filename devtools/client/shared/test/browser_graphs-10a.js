@@ -56,15 +56,18 @@ function* performTest() {
 
 function* testGraph(host, graph) {
   graph.setData(TEST_DATA);
-  let initialBounds = host.frame.getBoundingClientRect();
+  let initialOuterWidth = host._window.outerWidth;
+  let initialOuterHeight = host._window.outerHeight;
 
   host._window.resizeBy(-100, -100);
   yield graph.once("refresh");
   let newBounds = host.frame.getBoundingClientRect();
 
-  is(initialBounds.width - newBounds.width, 100,
+  // resizeBy takes integer CSS deltas. A float DOMRect subtraction need not
+  // retain that integer exactly at fractional device scales.
+  is(initialOuterWidth - host._window.outerWidth, 100,
     "The window was properly resized (1).");
-  is(initialBounds.height - newBounds.height, 100,
+  is(initialOuterHeight - host._window.outerHeight, 100,
     "The window was properly resized (2).");
 
   is(graph.width, newBounds.width * window.devicePixelRatio,
@@ -102,9 +105,9 @@ function* testGraph(host, graph) {
   yield graph.once("refresh");
   let newerBounds = host.frame.getBoundingClientRect();
 
-  is(initialBounds.width - newerBounds.width, 0,
+  is(initialOuterWidth - host._window.outerWidth, 0,
     "The window was properly resized (3).");
-  is(initialBounds.height - newerBounds.height, 0,
+  is(initialOuterHeight - host._window.outerHeight, 0,
     "The window was properly resized (4).");
 
   is(graph.width, newerBounds.width * window.devicePixelRatio,
