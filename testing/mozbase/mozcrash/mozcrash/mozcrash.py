@@ -422,8 +422,9 @@ if mozinfo.isWin:
                 log.error("minidumpwriter not found in %s" % utility_path)
                 return
 
-            if isinstance(file_name, str):
-                # Convert to a byte string before sending to the shell.
+            # Keep Unicode for CreateProcessW on Python 3, including 3.7's
+            # subprocess quoting, which cannot accept bytes arguments.
+            if sys.version_info[0] < 3 and isinstance(file_name, type(u'')):
                 file_name = file_name.encode(sys.getfilesystemencoding())
 
             status = subprocess.Popen([minidumpwriter, str(pid), file_name]).wait()
