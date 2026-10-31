@@ -1,0 +1,59 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Submitter method and encoding reflection</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/SpawnTask.js"></script>
+  <script src="../reflect.js"></script>
+  <link rel="stylesheet" href="/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+// Reflection matrices adapted from mozilla-central revision
+// 309a5a01511293cd91f86d82c9c2f7130dd38ebc:
+// dom/html/test/forms/test_input_attributes_reflection.html (.formEnctype)
+// dom/html/test/forms/test_button_attributes_reflection.html (.formMethod).
+// Input submit and image controls must use the same encoding table as buttons.
+function checkSubmitterEnums(dialogEnabled) {
+  for (let [tag, type] of [["input", "submit"], ["input", "image"],
+                           ["button", "submit"]]) {
+    info(tag + " type=" + type + "; dialog enabled=" + dialogEnabled);
+    let encodingControl = document.createElement(tag);
+    encodingControl.type = type;
+    reflectLimitedEnumerated({
+      element: encodingControl,
+      attribute: "formEnctype",
+      validValues: ["application/x-www-form-urlencoded", "multipart/form-data",
+                    "text/plain"],
+      invalidValues: ["", "foo", "tulip", "multipart/foo", "get", "post", "dialog"],
+      defaultValue: {invalid: "application/x-www-form-urlencoded", missing: ""}
+    });
+
+    let methodControl = document.createElement(tag);
+    methodControl.type = type;
+    reflectLimitedEnumerated({
+      element: methodControl,
+      attribute: "formMethod",
+      validValues: dialogEnabled ? ["get", "post", "dialog"] : ["get", "post"],
+      invalidValues: ["", "foo", "tulip", "multipart/form-data", "text/plain"]
+                     .concat(dialogEnabled ? [] : ["dialog"]),
+      defaultValue: {invalid: "get", missing: ""}
+    });
+  }
+}
+
+add_task(function* test_default_dialog_enabled() {
+  ok(SpecialPowers.getBoolPref("dom.dialog_element.enabled"),
+     "The default configuration supports dialog form submission");
+  checkSubmitterEnums(true);
+});
+
+add_task(function* test_dialog_disabled() {
+  yield SpecialPowers.pushPrefEnv({set: [["dom.dialog_element.enabled", false]]});
+  checkSubmitterEnums(false);
+  yield SpecialPowers.popPrefEnv();
+});
+</script>
+</body>
+</html>
