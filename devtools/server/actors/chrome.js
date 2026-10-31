@@ -149,7 +149,7 @@ ChromeActor.prototype._detach = function () {
     this._progressListener.unwatch(docShell);
   }
 
-  TabActor.prototype._detach.call(this);
+  return TabActor.prototype._detach.call(this);
 };
 
 /* ThreadActor hooks. */

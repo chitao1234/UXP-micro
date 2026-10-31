@@ -1,0 +1,75 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Debugger parent-process discovery and access control</title>
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
+  <link rel="stylesheet" href="chrome://mochikit/content/tests/SimpleTest/test.css">
+</head>
+<body>
+<script>
+"use strict";
+
+const { require } = Components.utils.import("resource://devtools/shared/Loader.jsm", {});
+const { DebuggerClient } = require("devtools/shared/client/main");
+const { DebuggerServer } = require("devtools/server/main");
+const { Task } = require("devtools/shared/task");
+
+SimpleTest.waitForExplicitFinish();
+window.onload = function() {
+  Task.spawn(function* () {
+    DebuggerServer.init();
+    DebuggerServer.addBrowserActors();
+    const previousPermission = DebuggerServer.allowChromeProcess;
+    const client = new DebuggerClient(DebuggerServer.connectPipe());
+    try {
+      yield client.connect();
+      const response = yield client.mainRoot.listProcesses();
+      const parents = response.processes.filter(process => process.parent);
+      is(parents.length, 1, "The process list contains exactly one parent");
+      is(parents[0].id, 0, "The parent has the documented process ID");
+
+      DebuggerServer.allowChromeProcess = false;
+      yield client.getProcess(0).then(
+        () => ok(false, "Access without permission must be rejected"),
+        error => is(error.error, "forbidden", "Chrome debugging requires permission"));
+
+      DebuggerServer.allowChromeProcess = true;
+      yield client.request({ to: "root", type: "getProcess", id: "invalid" }).then(
+        () => ok(false, "An invalid process ID must be rejected"),
+        error => is(error.error, "wrongParameter", "Process IDs must be numbers"));
+
+      const explicit = yield client.getProcess(0);
+      const implicit = yield client.getProcess();
+      ok(explicit.form.consoleActor, "The parent exposes its console actor");
+      is(implicit.form.actor, explicit.form.actor,
+         "Default and explicit parent lookups reuse the same actor");
+      // This tree's parent is a ChromeActor/TabActor. Its thread is created
+      // on attach, rather than supplied as a legacy chromeDebugger field.
+      const attached = yield new Promise(resolve => {
+        client.attachTab(explicit.form.actor, (response, tabClient) => {
+          resolve({ response, tabClient });
+        });
+      });
+      ok(attached.response.threadActor, "Attaching the parent exposes its debugger actor");
+      const evaluation = yield client.request({
+        to: explicit.form.consoleActor,
+        type: "evaluateJS",
+        text: "6 * 7"
+      });
+      is(evaluation.result, 42, "The discovered parent console evaluates JavaScript");
+      const detached = yield attached.tabClient.detach();
+      is(detached.type, "detached", "The parent reports successful detachment");
+    } finally {
+      yield client.close();
+      DebuggerServer.allowChromeProcess = previousPermission;
+      DebuggerServer.destroy();
+    }
+  }).then(SimpleTest.finish, error => {
+    ok(false, "Parent-process debugging failed: " + JSON.stringify(error) + "\n" + error.stack);
+    SimpleTest.finish();
+  });
+};
+</script>
+</body>
+</html>
