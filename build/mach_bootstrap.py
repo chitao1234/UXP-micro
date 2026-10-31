@@ -191,7 +191,18 @@ def bootstrap(topsrcdir, mozilla_dir=None):
     # case. For default behavior, we educate users and give them an opportunity
     # to react. We always exit after creating the directory because users don't
     # like surprises.
-    sys.path[0:0] = [os.path.join(mozilla_dir, path) for path in SEARCH_PATHS]
+    search_paths = [os.path.join(mozilla_dir, path) for path in SEARCH_PATHS]
+    if sys.platform == 'win32':
+        # Native psutil must match the host Python, not the browser target.
+        # Prefer the installed wheel; the legacy source is only a fallback.
+        vendor_psutil = os.path.join(mozilla_dir, 'python', 'psutil')
+        vendor_key = os.path.normcase(os.path.abspath(vendor_psutil))
+        search_paths = [path for path in search_paths
+                        if os.path.normcase(os.path.abspath(path)) != vendor_key]
+        sys.path[:] = [path for path in sys.path
+                       if os.path.normcase(os.path.abspath(path)) != vendor_key]
+        sys.path.append(vendor_psutil)
+    sys.path[0:0] = search_paths
     import mach.main
 
     def get_state_dir():
