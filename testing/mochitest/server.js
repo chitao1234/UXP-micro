@@ -7,6 +7,12 @@
 // and because they're constants it's not safe to redefine them.  Scope leakage
 // sucks.
 
+// This HTTP infrastructure process has no profile. MIME lookup must not scan
+// installed browser plugins and initialize their profile-dependent blocklist.
+// Browser plugin preferences belong to the separate test-browser process.
+Cc["@mozilla.org/preferences-service;1"].getService(Ci.nsIPrefBranch)
+  .setBoolPref("plugin.disable", true);
+
 // Disable automatic network detection, so tests work correctly when
 // not connected to a network.
 var ios = Cc["@mozilla.org/network/io-service;1"]
