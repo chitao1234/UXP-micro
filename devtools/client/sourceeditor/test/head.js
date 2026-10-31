@@ -149,7 +149,7 @@ function codemirrorSetStatus(statusMsg, type, customMsg) {
       break;
     case "error":
     case "fail":
-      ok(0, statusMsg);
+      ok(0, statusMsg + (typeof customMsg == "string" ? ": " + customMsg : ""));
       break;
     default:
       info(statusMsg);

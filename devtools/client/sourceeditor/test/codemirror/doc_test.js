@@ -257,11 +257,12 @@
   });
 
   testDoc("docKeepsMode", "A='1+1'", function(a) {
-    var other = CodeMirror.Doc("hi", "text/x-markdown");
+    // Exercise two actually bundled modes; Markdown is not packaged here.
+    var other = CodeMirror.Doc("hi", "text/css");
     a.setOption("mode", "text/javascript");
     var old = a.swapDoc(other);
-    eq(a.getOption("mode"), "text/x-markdown");
-    eq(a.getMode().name, "markdown");
+    eq(a.getOption("mode"), "text/css");
+    eq(a.getMode().name, "css");
     a.swapDoc(old);
     eq(a.getOption("mode"), "text/javascript");
     eq(a.getMode().name, "javascript");

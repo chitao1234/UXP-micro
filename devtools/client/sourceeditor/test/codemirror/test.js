@@ -1069,11 +1069,17 @@ testCM("wrappingAndResizing", function(cm) {
     }
   }
   // Ensure that putting the cursor at the end of the maximally long
-  // line doesn't cause wrapping to happen.
+  // line doesn't cause wrapping to happen. Compare the same sized nonempty
+  // document: an empty line's estimated height may differ from rendered text.
+  eq(cm.charCoords(Pos(0, doc.length - 1), "local").top,
+     cm.charCoords(Pos(0, 0), "local").top, "the sized text fits one visual line");
+  var singleLineHeight = wrap.offsetHeight;
   cm.setCursor(Pos(0, doc.length));
-  eq(wrap.offsetHeight, h0);
+  eq(wrap.offsetHeight, singleLineHeight, "moving the cursor does not wrap the line");
   cm.replaceSelection("x");
-  is(wrap.offsetHeight > h0, "wrapping happens");
+  is(wrap.offsetHeight > singleLineHeight, "wrapping happens");
+  is(cm.charCoords(Pos(0, doc.length), "local").top >
+     cm.charCoords(Pos(0, 0), "local").top, "the inserted character wraps to a new visual line");
   // Now add a max-height and, in a document consisting of
   // almost-wrapped lines, go over it so that a scrollbar appears.
   cm.setValue(doc + "\n" + doc + "\n");

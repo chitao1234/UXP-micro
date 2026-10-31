@@ -12,6 +12,11 @@ function test() {
   waitForExplicitFinish();
 
   addTab(URI).then(function (tab) {
-    runCodeMirrorTest(tab.linkedBrowser);
+    // The unfiltered declared scripts register 246 cases. A second driver.js
+    // initialization can silently erase 162 core/comment/document cases.
+    runCodeMirrorTest(tab.linkedBrowser, {
+      minimumTests: 246,
+      requiredTests: ["core_fromTextArea", "comment_block", "doc_basic"]
+    });
   });
 }
