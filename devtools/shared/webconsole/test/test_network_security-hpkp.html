@@ -17,50 +17,34 @@
 SimpleTest.waitForExplicitFinish();
 
 let gCurrentTestCase = -1;
-const HPKP_ENABLED_PREF = "security.cert_pinning.hpkp.enabled";
-const PROCESS_HPKP_FROM_NON_BUILTIN_ROOTS_PREF = "security.cert_pinning.process_headers_from_non_builtin_roots";
-
-// Static pins tested by unit/test_security-info-static-hpkp.js.
+// UXP 55aa6ce7b3 removed HPKP; 3bc5d67c98 stopped its DevTools query.
+// HTTPS security information must keep reporting no pinning even when an
+// obsolete Public-Key-Pins response header is present.
 const TEST_CASES = [
   {
     desc: "no Public Key Pinning",
     url: "https://example.com",
     usesPinning: false,
+    hasHeader: false,
   },
   {
-    desc: "dynamic Public Key Pinning with this request",
-    url: "https://include-subdomains.pinning-dynamic.example.com/" +
-         "browser/browser/base/content/test/general/pinning_headers.sjs",
-    usesPinning: true,
+    desc: "an obsolete Public-Key-Pins response header",
+    url: "https://example.com/" +
+         "chrome/devtools/shared/webconsole/test/network_security_headers.sjs?hpkp",
+    usesPinning: false,
+    hasHeader: true,
   },
   {
-    desc: "dynamic Public Key Pinning with previous request",
-    url: "https://include-subdomains.pinning-dynamic.example.com/",
-    usesPinning: true,
+    desc: "no pinning after the obsolete header",
+    url: "https://example.com/",
+    usesPinning: false,
+    hasHeader: false,
   }
 ];
 
 function startTest()
 {
-  Services.prefs.setBoolPref(HPKP_ENABLED_PREF, true);
-  Services.prefs.setBoolPref(PROCESS_HPKP_FROM_NON_BUILTIN_ROOTS_PREF, true);
-  SimpleTest.registerCleanupFunction(() => {
-    Services.prefs.setBoolPref(HPKP_ENABLED_PREF, false);
-    Services.prefs.setBoolPref(PROCESS_HPKP_FROM_NON_BUILTIN_ROOTS_PREF, false);
-
-    // Reset pinning state.
-    let gSSService = Cc["@mozilla.org/ssservice;1"]
-                       .getService(Ci.nsISiteSecurityService);
-
-    let gIOService = Cc["@mozilla.org/network/io-service;1"]
-                       .getService(Ci.nsIIOService);
-    for (let {url} of TEST_CASES) {
-      let uri = gIOService.newURI(url, null, null);
-      gSSService.removeState(Ci.nsISiteSecurityService.HEADER_HPKP, uri, 0);
-    }
-  });
-
-  info("Test detection of Public Key Pinning.");
+  info("Test that obsolete HPKP does not affect HTTPS security information.");
   removeEventListener("load", startTest);
   attachConsoleToTab(["NetworkActivity"], onAttach);
 }
@@ -82,6 +66,7 @@ function runNextCase(aState) {
   }
 
   let { desc, url } = TEST_CASES[gCurrentTestCase];
+  aState.securityUpdates = new Map();
   info("Testing site with " + desc);
 
   let iframe = document.querySelector("iframe").contentWindow;
@@ -92,13 +77,28 @@ function onNetworkEventUpdate(aState, aType, aPacket)
 {
   function onSecurityInfo(packet) {
     let data = TEST_CASES[gCurrentTestCase];
+    is(packet.securityInfo.state, "secure", "The HTTPS request remains secure without HPKP");
     is(packet.securityInfo.hpkp, data.usesPinning,
       "Public Key Pinning detected correctly.");
 
-    runNextCase(aState);
+    aState.client.getResponseHeaders(aPacket.from, response => {
+      let header = response.headers.find(item => item.name.toLowerCase() === "public-key-pins");
+      is(!!header, data.hasHeader, "The expected Public-Key-Pins header crosses the network actor");
+      if (header) {
+        ok(header.value.includes("max-age=60"), "The obsolete pin header was served by the fixture");
+      }
+      runNextCase(aState);
+    });
   }
 
-  if (aPacket.updateType === "securityInfo") {
+  if (aPacket.updateType === "securityInfo" || aPacket.updateType === "responseHeaders") {
+    let updates = aState.securityUpdates.get(aPacket.from) || new Set();
+    updates.add(aPacket.updateType);
+    aState.securityUpdates.set(aPacket.from, updates);
+    if (!updates.has("securityInfo") || !updates.has("responseHeaders") || updates.has("requested")) {
+      return;
+    }
+    updates.add("requested");
     aState.client.getSecurityInfo(aPacket.from, onSecurityInfo);
   }
 }

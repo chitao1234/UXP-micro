@@ -22,22 +22,30 @@ const TEST_CASES = [
     desc: "no HSTS",
     url: "https://example.com",
     usesHSTS: false,
+    hasHeader: false,
   },
   {
     desc: "HSTS from this response",
     url: "https://example.com/"+
-         "browser/browser/base/content/test/general/browser_star_hsts.sjs",
+         "chrome/devtools/shared/webconsole/test/network_security_headers.sjs?hsts",
     usesHSTS: true,
+    hasHeader: true,
   },
   {
     desc: "stored HSTS from previous response",
     url: "https://example.com/",
     usesHSTS: true,
+    hasHeader: false,
   }
 ];
 
 function startTest()
 {
+  // Own the dynamic state independently of earlier chrome tests.
+  let siteSecurity = Cc["@mozilla.org/ssservice;1"]
+                       .getService(Ci.nsISiteSecurityService);
+  siteSecurity.removeState(Ci.nsISiteSecurityService.HEADER_HSTS,
+    Services.io.newURI(TEST_CASES[0].url, null, null), 0);
 
   SimpleTest.registerCleanupFunction(() => {
     // Reset HSTS state.
@@ -73,6 +81,7 @@ function runNextCase(aState) {
   }
 
   let { desc, url } = TEST_CASES[gCurrentTestCase];
+  aState.securityUpdates = new Map();
   info("Testing site with " + desc);
 
   let iframe = document.querySelector("iframe").contentWindow;
@@ -83,13 +92,33 @@ function onNetworkEventUpdate(aState, aType, aPacket)
 {
   function onSecurityInfo(packet) {
     let data = TEST_CASES[gCurrentTestCase];
+    is(packet.securityInfo.state, "secure", "The security info comes from a trusted HTTPS request");
     is(packet.securityInfo.hsts, data.usesHSTS,
       "Strict Transport Security detected correctly.");
+    let siteSecurity = Cc["@mozilla.org/ssservice;1"]
+                         .getService(Ci.nsISiteSecurityService);
+    is(siteSecurity.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+                                "example.com", 0), data.usesHSTS,
+       "The network actor matches the dynamic HSTS state");
 
-    runNextCase(aState);
+    aState.client.getResponseHeaders(aPacket.from, response => {
+      let header = response.headers.find(item => item.name.toLowerCase() === "strict-transport-security");
+      is(!!header, data.hasHeader, "The expected HSTS header crosses the network actor");
+      if (header) {
+        is(header.value, "max-age=60", "The fixture serves the dynamic HSTS policy");
+      }
+      runNextCase(aState);
+    });
   }
 
-  if (aPacket.updateType === "securityInfo") {
+  if (aPacket.updateType === "securityInfo" || aPacket.updateType === "responseHeaders") {
+    let updates = aState.securityUpdates.get(aPacket.from) || new Set();
+    updates.add(aPacket.updateType);
+    aState.securityUpdates.set(aPacket.from, updates);
+    if (!updates.has("securityInfo") || !updates.has("responseHeaders") || updates.has("requested")) {
+      return;
+    }
+    updates.add("requested");
     aState.client.getSecurityInfo(aPacket.from, onSecurityInfo);
   }
 }
