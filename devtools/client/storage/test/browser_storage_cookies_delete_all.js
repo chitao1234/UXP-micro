@@ -110,21 +110,21 @@ add_task(function* () {
   info("delete all session cookies");
   // delete only session cookies
   id = getCookieId("cs2", ".example.org", "/");
-  yield performDelete(["cookies", "sectest1.example.org"], id,
+  yield performDelete(["cookies", "http://sectest1.example.org"], id,
     "deleteAllSessionCookies");
 
   info("test state after delete all session cookies");
   yield checkState([
     // Cookies with expiry date must not be deleted.
     [
-      ["cookies", "test1.example.org"],
+      ["cookies", "http://test1.example.org"],
       [
         getCookieId("c4", ".example.org", "/"),
         getCookieId("uc2", ".example.org", "/")
       ]
     ],
     [
-      ["cookies", "sectest1.example.org"],
+      ["cookies", "https://sectest1.example.org"],
       [
         getCookieId("c4", ".example.org", "/"),
         getCookieId("uc2", ".example.org", "/"),
