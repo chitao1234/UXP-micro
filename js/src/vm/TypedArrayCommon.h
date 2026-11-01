@@ -469,20 +469,14 @@ class ElementSpecific
             if (!valueToNative(cx, v, &n))
                 return false;
 
-            // Both the element lookup and its conversion can run script. Check
-            // detachment after these side effects, as in SetFromNonTypedArray.
-            if (target->hasDetachedBuffer()) {
-                JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                          JSMSG_TYPED_ARRAY_DETACHED);
-                return false;
-            }
-
-            // Resizing can invalidate this index, including for a fixed-length
-            // view. Keep visiting the remaining source elements: later getters
-            // can grow the buffer and make subsequent indices accessible again.
+            // Ignore writes invalidated by detachment or resizing, but keep
+            // retrieving and converting every source element for its observable
+            // side effects. A later getter can grow a resizable buffer again.
             targetLength = target->length();
             if (offset >= targetLength || i >= targetLength - offset)
                 continue;
+
+            MOZ_ASSERT(!target->hasDetachedBuffer());
 
             // Compute every iteration in case getElement/valueToNative is wacky.
             SharedMem<T*> dest =

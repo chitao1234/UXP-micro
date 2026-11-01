@@ -36,8 +36,8 @@ Object.defineProperty(src, 4, {
   }
 });
 
-// Detachment is reported after retrieving and converting the source element.
-assertThrowsInstanceOf(() => a.set(src), TypeError);
+// Detachment during source access skips writes without throwing.
+assertEq(a.set(src), undefined);
 
 // Not really needed
 Array.reverse(a_2);

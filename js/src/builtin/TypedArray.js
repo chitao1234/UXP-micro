@@ -22,10 +22,8 @@ function IsDetachedBuffer(buffer) {
 
     // Shared array buffers are not detachable.
     //
-    // This check is more expensive than desirable, but IsDetachedBuffer is
-    // only hot for non-shared memory in SetFromNonTypedArray, so there is an
-    // optimization in place there to avoid incurring the cost here.  An
-    // alternative is to give SharedArrayBuffer the same layout as ArrayBuffer.
+    // An alternative to this check is to give SharedArrayBuffer the same
+    // layout as ArrayBuffer.
     if (IsSharedArrayBuffer(buffer))
         return false;
 
@@ -1035,7 +1033,7 @@ function TypedArrayWith(index, value) {
 }
 
 // ES6 draft 20150220 22.2.3.22.1 %TypedArray%.prototype.set(array [, offset])
-function SetFromNonTypedArray(target, array, targetOffset, targetLength, targetBuffer) {
+function SetFromNonTypedArray(target, array, targetOffset, targetLength) {
     assert(!IsPossiblyWrappedTypedArray(array),
            "typed arrays must be passed to SetFromTypedArray");
 
@@ -1055,30 +1053,17 @@ function SetFromNonTypedArray(target, array, targetOffset, targetLength, targetB
     // Step 22.
     var k = 0;
 
-    // Optimization: if the buffer is shared then it is not detachable
-    // and also not inline, so avoid checking overhead inside the loop in
-    // that case.
-    var isShared = targetBuffer !== null && IsSharedArrayBuffer(targetBuffer);
+    var isBigIntContentType = IsBigInt64TypedArray(target) || IsBigUint64TypedArray(target);
 
     // Steps 12-15, 21, 23-24.
     while (targetOffset < limitOffset) {
         // Steps 24a-c.
-        var kNumber = ToNumeric(src[k]);
+        var kNumber = isBigIntContentType ? ToBigInt(src[k]) : ToNumber(src[k]);
 
-        // Step 24d.  This explicit check will be unnecessary when we implement
-        // throw-on-getting/setting-element-in-detached-buffer semantics.
-        if (!isShared) {
-            if (targetBuffer === null) {
-                // A typed array previously using inline storage may acquire a
-                // buffer, so we must check with the source.
-                targetBuffer = ViewedArrayBufferIfReified(target);
-            }
-            if (IsDetachedBuffer(targetBuffer))
-                ThrowTypeError(JSMSG_TYPED_ARRAY_DETACHED);
-        }
-
-        // Step 24e.
-        target[targetOffset] = kNumber;
+        // Detachment or resizing can invalidate a write. Conversion still runs
+        // for every source element, including errors and observable callbacks.
+        if (targetOffset < TypedArrayLength(target))
+            target[targetOffset] = kNumber;
 
         // Steps 24f-g.
         k++;
@@ -1141,7 +1126,7 @@ function TypedArraySet(overloaded, offset = 0) {
         ThrowRangeError(JSMSG_TYPED_ARRAY_NEGATIVE_ARG, "2");
 
     // Steps 9-10.
-    var targetBuffer = GetAttachedArrayBuffer(target);
+    GetAttachedArrayBuffer(target);
 
     ThrowIfTypedArrayOutOfBounds(target);
 
@@ -1156,7 +1141,7 @@ function TypedArraySet(overloaded, offset = 0) {
         return SetFromTypedArray(target, overloaded, targetOffset, targetLength);
     }
 
-    return SetFromNonTypedArray(target, overloaded, targetOffset, targetLength, targetBuffer);
+    return SetFromNonTypedArray(target, overloaded, targetOffset, targetLength);
 }
 
 // ES2017 draft rev 6859bb9ccaea9c6ede81d71e5320e3833b92cb3e
