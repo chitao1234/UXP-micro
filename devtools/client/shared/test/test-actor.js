@@ -1110,9 +1110,15 @@ function isInside(point, polygon) {
 
   // loop through all edges of the polygon
   for (let i = 0; i < n; i++) {
-    // Accept points on the edges
-    let r = isLeft(newPoints[i], newPoints[i + 1], point);
-    if (r === 0) {
+    // Accept points on the edge segment, not on its infinite line.
+    let start = newPoints[i];
+    let end = newPoints[i + 1];
+    let r = isLeft(start, end, point);
+    if (r === 0 &&
+        point[0] >= Math.min(start[0], end[0]) &&
+        point[0] <= Math.max(start[0], end[0]) &&
+        point[1] >= Math.min(start[1], end[1]) &&
+        point[1] <= Math.max(start[1], end[1])) {
       return true;
     }
     if (newPoints[i][1] <= point[1]) {

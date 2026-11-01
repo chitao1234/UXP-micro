@@ -609,10 +609,10 @@ HTMLBreadcrumbs.prototype = {
     this.selection.off("attribute-changed", this.updateSelectors);
     this.inspector.off("markupmutation", this.update);
 
-    this.container.removeEventListener("click", this, true);
-    this.container.removeEventListener("mouseover", this, true);
-    this.container.removeEventListener("mouseout", this, true);
-    this.container.removeEventListener("focus", this, true);
+    this.outer.removeEventListener("click", this, true);
+    this.outer.removeEventListener("mouseover", this, true);
+    this.outer.removeEventListener("mouseout", this, true);
+    this.outer.removeEventListener("focus", this, true);
     this.shortcuts.destroy();
 
     this.empty();

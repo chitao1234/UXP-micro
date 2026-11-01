@@ -28,13 +28,13 @@ add_task(function* () {
 
   info("Moving mouse over outerFrameDiv");
   yield moveMouseOver(outerFrameDiv);
-  ok((yield testActor.assertHighlightedNode(outerFrameDiv)),
-     "outerFrameDiv is highlighted.");
+  ok((yield testActor.isHighlighting()), "The outer iframe highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted(outerFrameDiv, is, "outer iframe");
 
   info("Moving mouse over innerFrameDiv");
   yield moveMouseOver(innerFrameDiv);
-  ok((yield testActor.assertHighlightedNode(innerFrameDiv)),
-     "innerFrameDiv is highlighted.");
+  ok((yield testActor.isHighlighting()), "The nested iframe highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted(innerFrameDiv, is, "nested iframe");
 
   info("Selecting root node");
   yield selectNode(inspector.walker.rootNode, inspector);
@@ -54,10 +54,12 @@ add_task(function* () {
 
   function moveMouseOver(selector) {
     info("Waiting for element " + selector + " to be highlighted");
-    testActor.synthesizeMouse({
+    let onHovered = inspector.toolbox.once("picker-node-hovered");
+    let onMouseMove = testActor.synthesizeMouse({
       selector: selector,
       options: {type: "mousemove"},
       center: true
-    }).then(() => inspector.toolbox.once("picker-node-hovered"));
+    });
+    return Promise.all([onMouseMove, onHovered]);
   }
 });

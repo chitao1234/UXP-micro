@@ -23,8 +23,7 @@ add_task(function* () {
   let isVisible = yield testActor.isHighlighting();
   ok(isVisible, "The highlighter is shown on a markup container hover");
 
-  ok((yield testActor.assertHighlightedNode("body")),
-     "The highlighter highlights the right node");
+  yield testActor.isNodeCorrectlyHighlighted("body", is, "breadcrumb hover");
 
   let onNodeUnhighlighted = toolbox.once("node-unhighlight");
   // move outside of the breadcrumb trail to trigger unhighlight
@@ -42,6 +41,5 @@ add_task(function* () {
   isVisible = yield testActor.isHighlighting();
   ok(isVisible, "The highlighter is shown on a markup container hover");
 
-  ok((yield testActor.assertHighlightedNode("span")),
-     "The highlighter highlights the right node");
+  yield testActor.isNodeCorrectlyHighlighted("span", is, "breadcrumb hover");
 });

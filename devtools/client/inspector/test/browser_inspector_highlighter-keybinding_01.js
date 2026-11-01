@@ -16,30 +16,30 @@ add_task(function* () {
   info("Selecting the simple-div1 DIV");
   yield moveMouseOver("#simple-div1");
 
-  ok((yield testActor.assertHighlightedNode("#simple-div1")),
-     "The highlighter shows #simple-div1. OK.");
+  ok((yield testActor.isHighlighting()), "The picker highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted("#simple-div1", is, "picker hover");
 
   // First Child selection
   info("Testing first-child selection.");
 
   yield doKeyHover({key: "VK_RIGHT", options: {}});
-  ok((yield testActor.assertHighlightedNode("#useless-para")),
-     "The highlighter shows #useless-para. OK.");
+  ok((yield testActor.isHighlighting()), "The first-child highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted("#useless-para", is, "first child");
 
   info("Selecting the useful-para paragraph DIV");
   yield moveMouseOver("#useful-para");
-  ok((yield testActor.assertHighlightedNode("#useful-para")),
-     "The highlighter shows #useful-para. OK.");
+  ok((yield testActor.isHighlighting()), "The picker highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted("#useful-para", is, "picker hover");
 
   yield doKeyHover({key: "VK_RIGHT", options: {}});
-  ok((yield testActor.assertHighlightedNode("#bold")),
-     "The highlighter shows #bold. OK.");
+  ok((yield testActor.isHighlighting()), "The first-child highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted("#bold", is, "first child");
 
   info("Going back up to the simple-div1 DIV");
   yield doKeyHover({key: "VK_LEFT", options: {}});
   yield doKeyHover({key: "VK_LEFT", options: {}});
-  ok((yield testActor.assertHighlightedNode("#simple-div1")),
-     "The highlighter shows #simple-div1. OK.");
+  ok((yield testActor.isHighlighting()), "The parent highlighter is visible");
+  yield testActor.isNodeCorrectlyHighlighted("#simple-div1", is, "parent navigation");
 
   info("First child selection test Passed.");
 
