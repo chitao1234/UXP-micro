@@ -1,8 +1,17 @@
 <!DOCTYPE html>
 <!-- Any copyright is dedicated to the Public Domain.
-   - http://creativecommons.org/publicdomain/zero/1.0/ -->
-<html>
-<body>
-  <img src="downscale-1-smallimage.png">
-</body>
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<html class="reftest-wait">
+<head>
+  <meta charset="utf-8">
+  <script src="css-oracle-premises.js"></script>
+  <script>installCSSOraclePremise(20, 8, "reference", "#oracle", true);</script>
+  <style>
+    body { margin: 8px; }
+    #oracle { position: relative; width: 20px; height: 20px; }
+    #right { position: absolute; right: 0; top: 0; width: 4px; height: 20px; background: black; }
+    #bottom { position: absolute; left: 0; bottom: 0; width: 20px; height: 4px; background: black; }
+  </style>
+</head>
+<body><div id="oracle"><div id="right"></div><div id="bottom"></div></div></body>
 </html>

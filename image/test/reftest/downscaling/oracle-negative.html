@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- Any copyright is dedicated to the Public Domain.
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<html class="reftest-wait">
+<meta charset="utf-8">
+<title>Deliberately wrong source geometry for oracle sensitivity</title>
+<style>
+  body { margin:0; }
+  #oracle { position:relative; }
+  .bar { position:absolute; background:black; }
+</style>
+<body><div id="oracle"></div>
+<script>
+"use strict";
+var kind = location.search.substring(1);
+var box = document.getElementById("oracle");
+function bar(styles) {
+  var node = document.createElement("div");
+  node.className = "bar";
+  node.style.cssText = styles;
+  box.appendChild(node);
+}
+if (kind === "blank32" || kind === "wrong-half32" ||
+    kind === "blank-jpeg32" || kind === "wrong-half-jpeg32") {
+  box.style.width = box.style.height = "32px";
+  if (kind === "wrong-half32") {
+    box.style.background = "lime";
+  } else if (kind === "wrong-half-jpeg32") {
+    box.style.background = "rgb(0, 255, 1)";
+  }
+} else {
+  document.body.style.margin = "8px";
+  box.style.width = box.style.height = "20px";
+  if (kind === "missing-right20") {
+    bar("left:0;bottom:0;width:20px;height:4px");
+  } else if (kind === "missing-bottom20") {
+    bar("right:0;top:0;width:4px;height:20px");
+  } else {
+    throw new Error("Unknown negative control " + kind);
+  }
+}
+document.documentElement.classList.remove("reftest-wait");
+</script>
+</html>

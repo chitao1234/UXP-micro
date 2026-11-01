@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- Any copyright is dedicated to the Public Domain.
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<meta charset="utf-8">
+<title>Independent1x golden and CSS-oracle semantic controls</title>
+<style>iframe { width:128px; height:128px; border:0; } img { display:none; }</style>
+<iframe id="l-frame" src="downscale-1-ref.html"></iframe>
+<iframe id="split-frame" src="downscale-32px-ref.html"></iframe>
+<iframe id="jpeg-frame" src="downscale-32px-jpeg-ref.html"></iframe>
+<img id="jpeg-golden" src="lime-red-256px.jpg">
+<img id="l-golden" src="downscale-1-smallimage.png">
+<img id="split-golden" src="lime-red-32px.png">
+<script src="oracle-controls.js"></script>

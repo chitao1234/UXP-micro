@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- Any copyright is dedicated to the Public Domain.
+     http://creativecommons.org/publicdomain/zero/1.0/ -->
+<html class="reftest-wait">
+<head>
+  <!-- Original JPEG native RGB plateaus, independently decoded at256x256; not downscaled output. -->
+  <meta charset="utf-8">
+  <script src="css-oracle-premises.js"></script>
+  <script>installCSSOraclePremise(32, 0, "reference", "#oracle", true);</script>
+  <style>
+    body { margin: 0; }
+    #oracle { position: relative; width: 32px; height: 32px; background: rgb(0, 255, 1); }
+    #right { position: absolute; right: 0; top: 0; width: 16px; height: 32px; background: rgb(254, 0, 0); }
+  </style>
+</head>
+<body><div id="oracle"><div id="right"></div></div></body>
+</html>

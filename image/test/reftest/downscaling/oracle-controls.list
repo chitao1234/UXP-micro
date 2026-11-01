@@ -1,0 +1,9 @@
+# Independent decoded1x golden/geometry checks plus actual painted negatives.
+# No preferences, DPI/backend overrides, fuzzy bounds, or source downscaling path.
+script oracle-controls.html
+!= oracle-negative.html?blank32 downscale-32px-ref.html
+!= oracle-negative.html?wrong-half32 downscale-32px-ref.html
+!= oracle-negative.html?missing-right20 downscale-1-ref.html
+!= oracle-negative.html?missing-bottom20 downscale-1-ref.html
+!= oracle-negative.html?blank-jpeg32 downscale-32px-jpeg-ref.html
+!= oracle-negative.html?wrong-half-jpeg32 downscale-32px-jpeg-ref.html
