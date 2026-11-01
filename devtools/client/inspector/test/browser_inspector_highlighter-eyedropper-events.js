@@ -93,7 +93,10 @@ add_task(function* () {
 function* respondsToMoveEvents(helper, testActor) {
   info("Checking that the eyedropper responds to events from the mouse and keyboard");
   let {mouse} = helper;
-  let {width, height} = yield testActor.getBoundingClientRect("html");
+  // Mouse coordinates and the eyedropper's keyboard limits use the integer
+  // viewport APIs, while the html element's CSS rect may have a fractional size.
+  let {width, height} = yield testActor.eval(
+    "({width: window.innerWidth, height: window.innerHeight})");
 
   for (let {type, x, y, key, shift, expected, desc} of MOVE_EVENTS_DATA) {
     x = typeof x === "function" ? x(width, height) : x;

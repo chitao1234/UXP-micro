@@ -2,8 +2,8 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 "use strict";
 
-// Test that the start and end buttons on the breadcrumb trail bring the right
-// crumbs into the visible area, for both LTR and RTL
+// Test that the start and end buttons reveal each ancestor in the breadcrumb
+// scrollport, for both LTR and RTL and independently of native font metrics.
 
 let { Toolbox } = require("devtools/client/framework/toolbox");
 
@@ -15,30 +15,16 @@ const NODE_FOUR = "div#aFourthOneToExceedTheTruncationLimit";
 const NODE_FIVE = "div#aFifthOneToExceedTheTruncationLimit";
 const NODE_SIX = "div#aSixthOneToExceedTheTruncationLimit";
 const NODE_SEVEN = "div#aSeventhOneToExceedTheTruncationLimit";
-
-const NODES = [
-  { action: "start", title: NODE_SIX },
-  { action: "start", title: NODE_FIVE },
-  { action: "start", title: NODE_FOUR },
-  { action: "start", title: NODE_THREE },
-  { action: "start", title: NODE_TWO },
-  { action: "start", title: NODE_ONE },
-  { action: "end", title: NODE_TWO },
-  { action: "end", title: NODE_THREE },
-  { action: "end", title: NODE_FOUR },
-  { action: "end", title: NODE_FIVE },
-  { action: "end", title: NODE_SIX }
-];
+const CRUMB_TITLES = ["html", "body", NODE_ONE, NODE_TWO, NODE_THREE,
+                      NODE_FOUR, NODE_FIVE, NODE_SIX, NODE_SEVEN];
 
 add_task(function* () {
-  // This test needs specific initial size of the sidebar.
   yield pushPref("devtools.toolsidebar-width.inspector", 350);
   yield pushPref("devtools.toolsidebar-height.inspector", 150);
 
   let { inspector, toolbox } = yield openInspectorForURL(TEST_URI);
 
-  // No way to wait for scrolling to end (Bug 1172171)
-  // Rather than wait a max time; limit test to instant scroll behavior
+  // Instant scrolling makes each click observable through its real scroll event.
   inspector.breadcrumbs.arrowScrollBox.scrollBehavior = "instant";
 
   yield toolbox.switchHost(Toolbox.HostType.WINDOW);
@@ -47,63 +33,147 @@ add_task(function* () {
   let originalHeight = hostWindow.outerHeight;
   hostWindow.resizeTo(640, 300);
 
-  info("Testing transitions ltr");
-  yield pushPref("intl.uidirection.en-US", "ltr");
-  yield testBreadcrumbTransitions(hostWindow, inspector);
-
-  info("Testing transitions rtl");
-  yield pushPref("intl.uidirection.en-US", "rtl");
-  yield testBreadcrumbTransitions(hostWindow, inspector);
-
-  hostWindow.resizeTo(originalWidth, originalHeight);
+  let root = inspector.panelDoc.documentElement;
+  let originalDirection = root.getAttribute("dir");
+  try {
+    for (let direction of ["ltr", "rtl"]) {
+      // Toolbox sets this public HTML input once when opening the panel. A
+      // later XUL locale-pref change does not update that explicit attribute.
+      // ArrowScrollBox reads computed direction on each action, so set it
+      // before selection/layout. This tests component direction, not live
+      // locale switching or the locale-dependent arrow artwork.
+      root.setAttribute("dir", direction);
+      yield testBreadcrumbTransitions(inspector, direction);
+    }
+  } finally {
+    root.setAttribute("dir", originalDirection);
+    hostWindow.resizeTo(originalWidth, originalHeight);
+  }
 });
 
-function* testBreadcrumbTransitions(hostWindow, inspector) {
+function* testBreadcrumbTransitions(inspector, direction) {
   let breadcrumbs = inspector.panelDoc.getElementById("inspector-breadcrumbs");
-  let startBtn = breadcrumbs.querySelector(".scrollbutton-up");
-  let endBtn = breadcrumbs.querySelector(".scrollbutton-down");
   let container = breadcrumbs.querySelector(".html-arrowscrollbox-inner");
-  let breadcrumbsUpdated = inspector.once("breadcrumbs-updated");
+  is(inspector.panelWin.getComputedStyle(container).direction, direction,
+     "The breadcrumb component actually uses " + direction);
 
-  info("Selecting initial node");
+  // Select a different node first, so both direction passes get a real update.
+  yield selectNode(NODE_ONE, inspector);
+  let updated = inspector.once("breadcrumbs-updated");
   yield selectNode(NODE_SEVEN, inspector);
+  yield updated;
 
-  // So just need to wait for a duration
-  yield breadcrumbsUpdated;
-  let initialCrumb = container.querySelector("button[checked]");
-  is(isElementInViewport(hostWindow, initialCrumb), true,
-     "initial element was visible");
+  let buttons = Array.from(container.querySelectorAll("button"));
+  is(buttons.map(button => button.getAttribute("title")).join("\n"),
+     CRUMB_TITLES.join("\n"), "All nine ancestor crumbs are present");
+  ok(container.scrollWidth > container.clientWidth,
+     "The native-size breadcrumb fixture really overflows");
+  let port = getScrollport(container);
+  ok(buttons.every(button => button.getBoundingClientRect().width <= port.width),
+     "Each individual crumb can fit fully inside the scrollport");
+  ok(isElementInScrollport(container, container.querySelector("button[checked]")),
+     "The selected final crumb is fully visible initially");
+  ok(!isElementInScrollport(container, buttons[0]),
+     "The visibility oracle rejects the initially clipped first crumb");
 
-  for (let node of NODES) {
-    info("Checking for visibility of crumb " + node.title);
-    if (node.action === "end") {
-      info("Simulating click of end button");
-      EventUtils.synthesizeMouseAtCenter(endBtn, {}, inspector.panelWin);
-    } else if (node.action === "start") {
-      info("Simulating click of start button");
-      EventUtils.synthesizeMouseAtCenter(startBtn, {}, inspector.panelWin);
-    }
-
-    yield breadcrumbsUpdated;
-    let selector = "button[title=\"" + node.title + "\"]";
-    let relevantCrumb = container.querySelector(selector);
-    is(isElementInViewport(hostWindow, relevantCrumb), true,
-       node.title + " crumb is visible");
+  for (let action of ["start", "end"]) {
+    yield walkBreadcrumbs(inspector, container, buttons, direction, action);
   }
 }
 
-function isElementInViewport(window, el) {
-  let rect = el.getBoundingClientRect();
+function* walkBreadcrumbs(inspector, container, buttons, direction, action) {
+  let visited = new Set();
+  recordVisibleCrumbs(container, buttons, visited);
+  let button = inspector.panelDoc.querySelector(action == "start"
+    ? "#inspector-breadcrumbs .scrollbutton-up"
+    : "#inspector-breadcrumbs .scrollbutton-down");
+  let clicks = 0;
 
-  return (
-    rect.top >= 0 &&
-    rect.left >= 0 &&
-    rect.bottom <= window.innerHeight &&
-    rect.right <= window.innerWidth
-  );
+  // A successful click reveals the next outside/partial crumb; at most one
+  // click per crumb is needed. Do not assume only one crumb was initially
+  // visible, or use the widget's private target finder as the test oracle.
+  for (let step = 0; step < buttons.length; step++) {
+    let target = nextOutsideCrumb(container, buttons, direction, action);
+    if (!target) {
+      break;
+    }
+
+    let title = target.getAttribute("title");
+    info(direction + " " + action + ": revealing " + title);
+    let before = buttons[0].getBoundingClientRect().left;
+    let onScroll;
+    let scrolled = new Promise(resolve => {
+      onScroll = resolve;
+      container.addEventListener("scroll", onScroll);
+    });
+
+    try {
+      EventUtils.synthesizeMouseAtCenter(button, {}, inspector.panelWin);
+      let after = buttons[0].getBoundingClientRect().left;
+      let movingRight = (action == "start") == (direction == "ltr");
+      let progressed = movingRight ? after > before : after < before;
+      ok(progressed, direction + " " + action + " makes real scroll progress");
+      if (!progressed) {
+        return;
+      }
+      yield scrolled;
+    } finally {
+      container.removeEventListener("scroll", onScroll);
+    }
+
+    clicks++;
+    ok(isElementInScrollport(container, target),
+       direction + " " + action + " fully reveals " + title);
+    recordVisibleCrumbs(container, buttons, visited);
+  }
+
+  ok(clicks > 0, direction + " " + action + " exercised its scroll button");
+  ok(!nextOutsideCrumb(container, buttons, direction, action),
+     direction + " " + action + " reaches the end of the trail");
+  for (let crumb of buttons) {
+    ok(visited.has(crumb), direction + " " + action + " fully displayed " +
+       crumb.getAttribute("title"));
+  }
+}
+
+function recordVisibleCrumbs(container, buttons, visited) {
+  for (let button of buttons) {
+    if (isElementInScrollport(container, button)) {
+      visited.add(button);
+    }
+  }
+}
+
+function nextOutsideCrumb(container, buttons, direction, action) {
+  let port = getScrollport(container);
+  let ordered = action == "start" ? buttons.slice().reverse() : buttons;
+  let outsideLeft = (action == "start") == (direction == "ltr");
+  for (let button of ordered) {
+    let rect = button.getBoundingClientRect();
+    if (outsideLeft ? rect.left < port.left : rect.right > port.right) {
+      return button;
+    }
+  }
+  return null;
+}
+
+function getScrollport(container) {
+  let rect = container.getBoundingClientRect();
+  let style = container.ownerDocument.defaultView.getComputedStyle(container);
+  let left = rect.left + parseFloat(style.borderLeftWidth);
+  let right = rect.right - parseFloat(style.borderRightWidth);
+  let top = rect.top + parseFloat(style.borderTopWidth);
+  let bottom = rect.bottom - parseFloat(style.borderBottomWidth);
+  return {left, right, top, bottom, width: right - left};
+}
+
+function isElementInScrollport(container, element) {
+  let rect = element.getBoundingClientRect();
+  let port = getScrollport(container);
+  return rect.left >= port.left && rect.right <= port.right &&
+         rect.top >= port.top && rect.bottom <= port.bottom;
 }
 
 registerCleanupFunction(function () {
-  // Restore the host type for other tests.
   Services.prefs.clearUserPref("devtools.toolbox.host");
 });

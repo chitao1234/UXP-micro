@@ -12,6 +12,7 @@
 const TEST_URL = URL_ROOT + "doc_inspector_highlighter-geometry_01.html";
 const ID = "geometry-editor-";
 const HIGHLIGHTER_TYPE = "GeometryEditorHighlighter";
+const APP_UNITS_PER_CSS_PIXEL = 60;
 
 const handlerMap = {
   "top": {"cx": "x2", "cy": "y2"},
@@ -28,16 +29,42 @@ add_task(function* () {
 
   let { hide, finalize } = helper;
 
+  // Borders snap to native device pixels. Recover integer appunits before
+  // arithmetic because computed CSS serialization can round fractional widths.
+  let borders = yield ContentTask.spawn(gBrowser.selectedBrowser,
+    APP_UNITS_PER_CSS_PIXEL, function* (appUnitsPerCSSPixel) {
+      let parent = content.getComputedStyle(
+        content.document.querySelector("#absolute-container"));
+      let relative = content.getComputedStyle(
+        content.document.querySelector(".relative"));
+      let toAppUnits = value =>
+        Math.round(parseFloat(value) * appUnitsPerCSSPixel);
+      return {
+        parentLeft: toAppUnits(parent.borderLeftWidth),
+        parentTop: toAppUnits(parent.borderTopWidth),
+        relativeTop: toAppUnits(relative.borderTopWidth),
+        relativeBottom: toAppUnits(relative.borderBottomWidth)
+      };
+    });
+  let floorCSSPixels = (pixels, border) =>
+    Math.floor((pixels * APP_UNITS_PER_CSS_PIXEL + border) /
+               APP_UNITS_PER_CSS_PIXEL);
+  let x = pixels => floorCSSPixels(pixels, borders.parentLeft);
+  let y = pixels => floorCSSPixels(pixels, borders.parentTop);
+  let relativeMiddleY = floorCSSPixels(95, borders.parentTop +
+    (borders.relativeTop + borders.relativeBottom) / 2);
+
   yield checkArrowsAndHandlers(helper, ".absolute-all-4", {
-    "top": {x1: 506, y1: 51, x2: 506, y2: 61},
-    "bottom": {x1: 506, y1: 451, x2: 506, y2: 251},
-    "left": {x1: 401, y1: 156, x2: 411, y2: 156},
-    "right": {x1: 901, y1: 156, x2: 601, y2: 156}
+    "top": {x1: x(505), y1: y(50), x2: x(505), y2: y(60)},
+    "bottom": {x1: x(505), y1: y(450), x2: x(505), y2: y(250)},
+    "left": {x1: x(400), y1: y(155), x2: x(410), y2: y(155)},
+    "right": {x1: x(900), y1: y(155), x2: x(600), y2: y(155)}
   });
 
   yield checkArrowsAndHandlers(helper, ".relative", {
-    "top": {x1: 901, y1: 51, x2: 901, y2: 91},
-    "left": {x1: 401, y1: 97, x2: 651, y2: 97}
+    "top": {x1: x(900), y1: y(50), x2: x(900), y2: y(90)},
+    "left": {x1: x(400), y1: relativeMiddleY,
+             x2: x(650), y2: relativeMiddleY}
   });
 
   yield checkArrowsAndHandlers(helper, ".fixed", {
