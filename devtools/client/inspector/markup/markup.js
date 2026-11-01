@@ -565,6 +565,7 @@ MarkupView.prototype = {
    */
   _onNewSelection: function () {
     let selection = this.inspector.selection;
+    let nodeFront = selection.nodeFront;
 
     this.htmlEditor.hide();
     if (this._hoveredNode && this._hoveredNode !== selection.nodeFront) {
@@ -572,7 +573,14 @@ MarkupView.prototype = {
       this._hoveredNode = null;
     }
 
-    if (!selection.isNode()) {
+    // The walker's root document is an unrendered tree wrapper, not an editor
+    // row. Preserve the global selection while clearing the rendered selection.
+    // It must still initialize the tree when the markup view is rebuilt with
+    // the document already selected.
+    if (nodeFront === this.walker.rootNode) {
+      this.importNode(nodeFront);
+    }
+    if (!selection.isNode() || nodeFront === this.walker.rootNode) {
       this.unmarkSelectedNode();
       return;
     }
@@ -582,17 +590,22 @@ MarkupView.prototype = {
 
     // Highlight the element briefly if needed.
     if (this._shouldNewSelectionBeHighlighted()) {
-      onShowBoxModel = this._brieflyShowBoxModel(selection.nodeFront);
+      onShowBoxModel = this._brieflyShowBoxModel(nodeFront);
     }
 
-    onShow = this.showNode(selection.nodeFront).then(() => {
+    onShow = this.showNode(nodeFront).then(() => {
       // We could be destroyed by now.
       if (this._destroyer) {
         return promise.reject("markupview destroyed");
       }
+      // The reveal is asynchronous. A newer selection, including the dummy
+      // document root, must not be replaced by this completed older reveal.
+      if (selection.nodeFront !== nodeFront) {
+        return undefined;
+      }
 
       // Mark the node as selected.
-      this.markNodeAsSelected(selection.nodeFront);
+      this.markNodeAsSelected(nodeFront);
 
       // Make sure the new selection is navigated to.
       this.maybeNavigateToNewSelection();
@@ -694,6 +707,11 @@ MarkupView.prototype = {
     if (this._isInputOrTextarea(event.target)) {
       return;
     }
+    // Relative navigation and editing require a rendered row. Home can recover
+    // an absolute row, while Escape retains its drag/split-console semantics.
+    if (!this._selectedContainer && name !== "Home" && name !== "Esc") {
+      return;
+    }
     switch (name) {
       // Localizable keys
       case "markupView.hide.key": {
@@ -725,7 +743,11 @@ MarkupView.prototype = {
       }
       case "Home": {
         let rootContainer = this.getContainer(this._rootNode);
-        this.navigate(rootContainer.children.firstChild.container);
+        let firstContainer = rootContainer && rootContainer.getChildContainers()[0];
+        if (!firstContainer) {
+          return;
+        }
+        this.navigate(firstContainer);
         break;
       }
       case "Left": {
@@ -1081,7 +1103,9 @@ MarkupView.prototype = {
           addedOrEditedContainers.add(container);
         } else if (type === "childList") {
           // If there has been removals, flash the parent
-          if (removed.length) {
+          // The dummy document root has no rendered row to flash. Still visit
+          // additions below so real new document children receive their flash.
+          if (removed.length && target !== this._rootNode) {
             removedContainers.add(container);
           }
 
@@ -1511,7 +1535,9 @@ MarkupView.prototype = {
   unmarkSelectedNode: function () {
     if (this._selectedContainer) {
       this._selectedContainer.selected = false;
+      this._selectedContainer.clearFocus();
       this._selectedContainer = null;
+      this.getContainer(this._rootNode).elt.removeAttribute("aria-activedescendant");
     }
   },
 
