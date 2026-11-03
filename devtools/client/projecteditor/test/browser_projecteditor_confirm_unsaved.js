@@ -11,6 +11,9 @@ add_task(function* () {
   ok(true, "ProjectEditor has loaded");
 
   let resources = projecteditor.project.allResources();
+  let rootEditor = projecteditor.editorFor(resources.find(resource => resource.isRoot));
+  ok(rootEditor && !rootEditor.isEditable, "The project directory has a read-only editor");
+  ok(rootEditor.isClean(), "Selecting the project directory does not create an unsaved file");
   yield selectFile(projecteditor, resources[2]);
   let editor = projecteditor.currentEditor;
   let originalText = editor.editor.getText();

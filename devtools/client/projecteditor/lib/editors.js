@@ -108,6 +108,23 @@ var ItchEditor = Class({
 });
 exports.ItchEditor = ItchEditor;
 
+// Directories can be selected, but are not text files. The removed WebIDE
+// overview plugin used to supply a read-only root editor; standalone projects
+// must not try to read a directory or treat its empty view as an unsaved file.
+var DirectoryEditor = Class({
+  extends: ItchEditor,
+
+  initialize: function (host) {
+    ItchEditor.prototype.initialize.call(this, host);
+    this.label = "directory";
+    this.appended = promise.resolve();
+  },
+
+  load: function () {
+    return this.appended.then(() => this.emit("load"));
+  }
+});
+
 /**
  * The main implementation of the ItchEditor class.  The TextEditor is used
  * when editing any sort of plain text file, and can be created with different
@@ -284,6 +301,9 @@ function HTMLEditor(host) {
  *          return value is a constructor function.
  */
 function EditorTypeForResource(resource) {
+  if (resource.isDir) {
+    return DirectoryEditor;
+  }
   const categoryMap = {
     "txt": TextEditor,
     "html": HTMLEditor,
