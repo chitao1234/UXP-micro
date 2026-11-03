@@ -28,7 +28,7 @@ function printpreview() {
     onStateChange: function(webProgress, request, stateFlags, status) { },
     onStatusChange: function(webProgress, request, status, message) { },
     QueryInterface: function(iid) {
-      if (iid.equals(Components.interfaces.nsIWebProgessListener) ||
+      if (iid.equals(Components.interfaces.nsIWebProgressListener) ||
           iid.equals(Components.interfaces.nsISupportsWeakReference))
             return this;
       throw Components.results.NS_NOINTERFACE;
@@ -37,10 +37,29 @@ function printpreview() {
   var prefs = Components.classes["@mozilla.org/preferences-service;1"]
                             .getService(Components.interfaces.nsIPrefBranch);
   prefs.setBoolPref('print.show_print_progress', false);
-  //XXX I would have thought this would work, instead I'm forced to use prefs service
-  gWbp.globalPrintSettings.showPrintProgress = false; 
-  gWbp.printPreview(gWbp.globalPrintSettings, window.frames[0], listener);
-  prefs.clearUserPref('print.show_print_progress');
+  // Exercise preview document creation, independently of the host's default
+  // printer. Newer Firefox also uses fresh settings for this regression.
+  // The PDF target supplies page metrics without contacting a Windows driver.
+  let settings = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
+    .getService(Components.interfaces.nsIPrintSettingsService).newPrintSettings;
+  settings.outputFormat = Components.interfaces.nsIPrintSettings.kOutputFormatPDF;
+  settings.showPrintProgress = false;
+  // The legacy Windows PDF target opens its stream even for preview.
+  let outputFile = Components.classes["@mozilla.org/file/directory_service;1"]
+    .getService(Components.interfaces.nsIProperties)
+    .get("TmpD", Components.interfaces.nsIFile);
+  outputFile.append("printpreview_bug482976.pdf");
+  outputFile.createUnique(Components.interfaces.nsIFile.NORMAL_FILE_TYPE, 0o600);
+  // The print engine owns the stream until its viewer is destroyed.
+  Components.classes["@mozilla.org/uriloader/external-helper-app-service;1"]
+    .getService(Components.interfaces.nsPIExternalAppLauncher)
+    .deleteTemporaryFileOnExit(outputFile);
+  settings.toFileName = outputFile.path;
+  try {
+    gWbp.printPreview(settings, window.frames[0], listener);
+  } finally {
+    prefs.clearUserPref('print.show_print_progress');
+  }
 }
 
 function exitprintpreview() {
@@ -56,27 +75,16 @@ function finish() {
 function run1()
 {
 /** Test for Bug 482976 **/
-  var printService = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
-                               .getService(Components.interfaces.nsIPrintSettingsService);
-
   try {
-    Components.classes["@mozilla.org/gfx/printerenumerator;1"]
-              .getService(Components.interfaces.nsIPrinterEnumerator);
-  } catch(e) {
-    todo(false, "Test skipped on MacOSX, as the print preview code doesn't work there");
-    finish();
-    return;
-  }
-
-  if (printService.defaultPrinterName != '') {
     printpreview();
     ok(gWbp.doingPrintPreview, "Should be doing print preview");
     exitprintpreview();
     ok(!gWbp.doingPrintPreview, "Should not be doing print preview anymore");
-  } else {
-    todo(false, "No printer seems installed on this machine, that is necessary for this test");
+  } catch (error) {
+    ok(false, "Print preview failed: " + error);
+  } finally {
+    finish();
   }
-  finish();
 }
 ]]></script>
 </window>
