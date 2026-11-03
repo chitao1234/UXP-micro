@@ -949,14 +949,33 @@ TConstantUnion *TIntermConstantUnion::foldBinary(TOperator op,
                     }
                     else
                     {
+                        int lhs = leftArray[i].getIConst();
+                        int divisor = rightArray[i].getIConst();
                         if (op == EOpDiv)
                         {
-                            resultArray[i].setIConst(leftArray[i].getIConst() / rightArray[i].getIConst());
+                            // ESSL permits either extreme for INT_MIN / -1;
+                            // evaluating the overflowing division in C++ can trap.
+                            resultArray[i].setIConst(lhs == INT_MIN && divisor == -1
+                                                        ? INT_MAX
+                                                        : lhs / divisor);
                         }
                         else
                         {
                             ASSERT(op == EOpIMod);
-                            resultArray[i].setIConst(leftArray[i].getIConst() % rightArray[i].getIConst());
+                            if (lhs < 0 || divisor < 0)
+                            {
+                                // ESSL 3.00.6 section 5.9 leaves negative modulus
+                                // operands undefined. Avoid the INT_MIN % -1 trap.
+                                diagnostics->warning(getLine(),
+                                                     "Negative modulus operator operand "
+                                                     "encountered during constant folding",
+                                                     "%", "");
+                                resultArray[i].setIConst(0);
+                            }
+                            else
+                            {
+                                resultArray[i].setIConst(lhs % divisor);
+                            }
                         }
                     }
                     break;
