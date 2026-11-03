@@ -440,6 +440,40 @@ class VirtualenvManager(object):
 
             raise Exception('Error installing package: %s' % directory)
 
+    def install_pip_package(self, package):
+        """Install a requirement using this environment's Python, not the host's."""
+        return self._run_pip(['install', package])
+
+    def install_pip_requirements(self, path, require_hashes=True):
+        """Install a requirements file, relative to topsrcdir unless absolute.
+
+        Keep hash checking on by default, as in the original Mozilla API.
+        Callers with legacy unhashed requirements must explicitly opt out.
+        """
+        if not os.path.isabs(path):
+            path = os.path.join(self.topsrcdir, path)
+        args = ['install', '--requirement', path]
+        if require_hashes:
+            args.append('--require-hashes')
+        return self._run_pip(args)
+
+    def _run_pip(self, args):
+        # UXP's venv migration deliberately creates environments without pip.
+        # Bootstrap it only for commands that need additional packages. Running
+        # both modules through python_path keeps installation inside this venv,
+        # even when Mach itself was started by the base interpreter.
+        if not os.path.isfile(self.python_path):
+            raise RuntimeError('Virtualenv is missing; call ensure() before installing packages.')
+        command = [self.python_path, '-m', 'pip']
+        try:
+            subprocess.check_call(command + ['--version'], cwd=self.topsrcdir,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            subprocess.check_call([self.python_path, '-m', 'ensurepip', '--upgrade'],
+                                  cwd=self.topsrcdir, stderr=subprocess.STDOUT)
+        return subprocess.check_call(command + args, cwd=self.topsrcdir,
+                                     stderr=subprocess.STDOUT)
+
     def build(self, python=sys.executable):
         """Build a virtualenv per tree conventions.
 
