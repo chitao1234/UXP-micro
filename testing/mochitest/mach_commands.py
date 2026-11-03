@@ -369,7 +369,8 @@ class MachCommands(MachCommandBase):
 
             suites[key].append(test)
 
-        if ('mochitest', 'media') in suites:
+        from media_bridge import needs_websocket_process_bridge
+        if needs_websocket_process_bridge(suites.get(('mochitest', 'media'), []), 'media'):
             req = os.path.join('testing', 'tools', 'websocketprocessbridge',
                                'websocketprocessbridge_requirements.txt')
             self.virtualenv_manager.activate()

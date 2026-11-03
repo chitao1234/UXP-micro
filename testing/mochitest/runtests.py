@@ -37,6 +37,7 @@ import uuid
 import zipfile
 import bisection
 from manifestprefs import manifest_test_groups
+from media_bridge import needs_websocket_process_bridge
 
 from datetime import datetime
 from manifestparser import TestManifest
@@ -1136,7 +1137,9 @@ class MochitestDesktop(object):
         self.startWebServer(options)
         self.startWebSocketServer(options, debuggerInfo)
 
-        if options.subsuite in ["media"]:
+        # Match dependency installation in Mach. Only WebRTC needs the process
+        # bridge; the ordinary WebSocket server above is used by other tests.
+        if needs_websocket_process_bridge(self.getActiveTests(options), options.subsuite):
             self.startWebsocketProcessBridge(options)
 
         # start SSL pipe
@@ -1392,7 +1395,7 @@ toolbar#nav-bar {
                 continue
 
             testob = {'path': tp, 'manifest': test['manifest'],
-                      'prefs': test.get('prefs', '')}
+                      'prefs': test.get('prefs', ''), 'tags': test.get('tags', '')}
             if 'disabled' in test:
                 testob['disabled'] = test['disabled']
             if 'expected' in test:

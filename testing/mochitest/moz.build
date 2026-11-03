@@ -28,6 +28,7 @@ MOCHITEST_MANIFESTS += [
 MOCHITEST_CHROME_MANIFESTS += ['chrome/chrome.ini']
 
 PYTHON_UNIT_TESTS += [
+    'test_media_bridge.py',
     'test_pywebsocket_transport.py',
 ]
 
@@ -60,6 +61,7 @@ TEST_HARNESS_FILES.testing.mochitest += [
     'manifest.webapp',
     'manifestLibrary.js',
     'manifestprefs.py',
+    'media_bridge.py',
     'mochitest_options.py',
     'nested_setup.js',
     'pywebsocket_wrapper.py',
