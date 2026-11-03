@@ -552,6 +552,12 @@ function BuildConditionSandbox(aURL) {
     var appInfo = CC[NS_XREAPPINFO_CONTRACTID].getService(CI.nsIXULAppInfo);
     sandbox.isDebugBuild = gDebug.isDebugBuild;
 
+    // This port has no Stylo, but reftest.list files imported from newer trees
+    // reference these condition names. Define them as never true here so
+    // fails-if(stylo...) annotations evaluate instead of throwing.
+    sandbox.stylo = false;
+    sandbox.styloVsGecko = false;
+
     // xr.XPCOMABI throws exception for configurations without full ABI
     // support (mobile builds on ARM)
     var XPCOMABI = "";
