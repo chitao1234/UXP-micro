@@ -32,10 +32,8 @@ function error(aMessage) {
 }
 
 function continueTest() {
-  try {
-    generator.next();
-  } catch (e if e instanceof StopIteration) {
-    error("Stop test because of exception!");
+  if (generator.next().done) {
+    error("Stop test because the generator finished unexpectedly!");
   }
 }
 
@@ -74,7 +72,7 @@ function setCommand(aArg) {
   }
 }
 
-function runTests() {
+function* runTests() {
   setCommand('play');
   yield undefined;
 
