@@ -3,6 +3,7 @@ var dbg = new Debugger();
 var gw = dbg.addDebuggee(g);
 
 g.eval('function f(){}');
+g.eval('function unrelated(){}');
 
 var o = gw.makeDebuggeeValue(g.f);
 

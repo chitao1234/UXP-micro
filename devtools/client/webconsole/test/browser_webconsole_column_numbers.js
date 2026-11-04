@@ -31,14 +31,24 @@ function consoleOpened(aHud) {
 }
 
 function testLocationColumn() {
-  let messages = hud.outputNode.children;
-  let expected = ["10:7", "10:39", "11:9", "12:11", "13:9", "14:7"];
+  let expected = [
+    { text: "INLINE SCRIPT:", location: "10:15" },
+    { text: "Further", location: "10:47" },
+    { text: "I'm warning you", location: "11:17" },
+    { text: "Error Message", location: "12:19" },
+    { text: "Rainbooooww", location: "13:17" },
+    { text: "NYAN CATZ", location: "14:15" },
+  ];
 
-  for (let i = 0, len = messages.length; i < len; i++) {
-    let msg = messages[i].textContent;
-
-    is(msg.includes(expected[i]), true, "Found expected line:column of " +
-                    expected[i]);
+  for (let item of expected) {
+    let message = [...hud.outputNode.children].find(node =>
+      node.textContent.includes(item.text));
+    ok(message, "Found console message " + item.text);
+    if (message) {
+      ok(message.textContent.includes(item.location),
+         "Found expected line:column " + item.location + " in: " +
+         message.textContent);
+    }
   }
 
   finishTest();

@@ -5,6 +5,7 @@ var Pattern = Match.Pattern;
 
 var g = newGlobal();
 var dbg = new Debugger(g);
+g.eval('function censusScript(){}; censusScript();');
 
 Pattern({ count: Pattern.NATURAL,
           bytes: Pattern.NATURAL })

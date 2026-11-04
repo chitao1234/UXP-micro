@@ -9,8 +9,7 @@ var gTestfile = "set-object-funky-length-detaches.js";
 var BUGNUMBER = 991981;
 var summary =
   "%TypedArray%.prototype.set(object w/funky length property, offset) " +
-  "shouldn't misbehave if the funky length property detaches this typed " +
-  "array's buffer";
+  "should not throw if the length property detaches this typed array's buffer";
 
 print(BUGNUMBER + ": " + summary);
 
@@ -45,17 +44,8 @@ ctors.forEach(function(TypedArray) {
         }
       };
 
-      var passed = false;
-      try
-      {
-        ta.set(arraylike, 0x1234);
-      }
-      catch (e)
-      {
-        passed = true;
-      }
-
-      assertEq(passed, true);
+      ta.set(arraylike, 0x1234);
+      assertEq(ta.length, 0);
 });
 
 /******************************************************************************/

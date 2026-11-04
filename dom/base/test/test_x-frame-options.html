@@ -121,11 +121,7 @@ function frameInJSURILoaded(win) {
   win.close();
 
   // run last test
-  if (!isUnique) {
-    testFrameInDataURI();
-  } else {
-    testFrameNotLoadedInDataURI();
-  }
+  testFrameInDataURI();
 }
 
 var testFrameInJSURI = function() {

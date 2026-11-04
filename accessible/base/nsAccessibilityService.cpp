@@ -1608,28 +1608,29 @@ nsAccessibilityService::CreateAccessibleByFrameType(nsIFrame* aFrame,
         newAcc = new HyperTextAccessibleWrap(aContent, document);
       break;
 
-    case eHTMLTableRowType: {
-      // Accessible HTML table row may be a child of tbody/tfoot/thead of
-      // accessible HTML table or a direct child of accessible of HTML table.
-      Accessible* table = aContext->IsTable() ? aContext : nullptr;
-      if (!table && aContext->Parent() && aContext->Parent()->IsTable())
-        table = aContext->Parent();
+    case eHTMLTableRowType:
+      // Preserve native row semantics while keeping presentation-only CSS
+      // table rows from becoming accessibles by themselves.
+      if (aContent->IsHTMLElement(nsGkAtoms::tr)) {
+        Accessible* table = aContext->IsTable() ? aContext : nullptr;
+        if (!table && aContext->Parent() && aContext->Parent()->IsTable())
+          table = aContext->Parent();
 
-      if (table) {
-        nsIContent* parentContent = aContent->GetParent();
-        nsIFrame* parentFrame = parentContent->GetPrimaryFrame();
-        if (parentFrame->GetType() != nsGkAtoms::tableWrapperFrame) {
-          parentContent = parentContent->GetParent();
-          parentFrame = parentContent->GetPrimaryFrame();
-        }
+        if (table) {
+          nsIContent* parentContent = aContent->GetParent();
+          nsIFrame* parentFrame = parentContent->GetPrimaryFrame();
+          if (parentFrame->GetType() != nsGkAtoms::tableWrapperFrame) {
+            parentContent = parentContent->GetParent();
+            parentFrame = parentContent->GetPrimaryFrame();
+          }
 
-        if (parentFrame->GetType() == nsGkAtoms::tableWrapperFrame &&
-            table->GetContent() == parentContent) {
-          newAcc = new HTMLTableRowAccessible(aContent, document);
+          if (parentFrame->GetType() == nsGkAtoms::tableWrapperFrame &&
+              table->GetContent() == parentContent) {
+            newAcc = new HTMLTableRowAccessible(aContent, document);
+          }
         }
       }
       break;
-    }
     case eHTMLTextFieldType:
       newAcc = new HTMLTextFieldAccessible(aContent, document);
       break;

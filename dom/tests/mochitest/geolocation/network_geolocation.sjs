@@ -21,10 +21,8 @@ function getPosition(action)
 {
   var response = {
     status: "OK",
-    location: {
-      lat: 37.41857,
-      lng: -122.08769,
-    },
+    lat: 37.41857,
+    lon: -122.08769,
     accuracy: (action == "worse-accuracy") ? 100 : 42,
   };
 
