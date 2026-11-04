@@ -4048,7 +4048,7 @@ HTMLInputElement::GetEventTargetParent(EventChainPreVisitor& aVisitor)
        aVisitor.mEvent->mMessage == eFocusOut ||
        aVisitor.mEvent->mMessage == eBlur)) {
     nsCOMPtr<nsIContent> originalTarget =
-      do_QueryInterface(aVisitor.mEvent->AsFocusEvent()->mRelatedTarget);
+      do_QueryInterface(aVisitor.mEvent->mOriginalTarget);
     nsCOMPtr<nsIContent> relatedTarget =
       do_QueryInterface(aVisitor.mEvent->AsFocusEvent()->mRelatedTarget);
 
