@@ -73,8 +73,7 @@ am.setAuthIdentity("http", "mochi.test", 8888, "basic", "testrealm", "",
     "mochi.test", "user1", "password1");
 SpecialPowers.loadChromeScript(SimpleTest.getTestFileURL("file_authident.js"));
 iframe.onload = iframeLoad;
-iframe.src = "http://mochi.test:8888/tests/toolkit/components/passwordmgr/" +
-    "test/authenticate.sjs?user=user1&pass=password1&realm=testrealm&plugin=1";
+iframe.src = "file_authenticate.sjs?user=user1&pass=password1&realm=testrealm&plugin=1";
 
 </script>
 </body>

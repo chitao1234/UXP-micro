@@ -12,8 +12,8 @@
 
     function runTests() {
       var pluginElement = document.getElementById("plugin1");
-      pluginElement.setCookie("foo");
-      is(pluginElement.getCookie(), "foo", "Cookie was set and retrieved correctly via NPAPI.");
+      pluginElement.setCookie("npapi_cookie=foo");
+      is(pluginElement.getCookie(), "npapi_cookie=foo", "Cookie was set and retrieved correctly via NPAPI.");
       SimpleTest.finish();
     }
   </script>
