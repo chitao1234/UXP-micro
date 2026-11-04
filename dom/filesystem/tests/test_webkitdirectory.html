@@ -13,7 +13,7 @@
 <input id="inputFileDirectory" type="file" allowdirs></input>
 <input id="inputFileDirectoryChange" type="file" webkitdirectory></input>
 
-<script type="application/javascript;version=1.7">
+<script type="application/javascript">
 
 // Populate the given input type=file `aInputFile`'s `files` attribute by:
 // - loading `script_fileList.js` in the parent process
@@ -247,11 +247,11 @@ var tests = [
   function() { test_fileList('inputFileDirectory', null); },
   
   function() {
-#ifdef XP_WIN    // Symlinks are not available on Windows and so will not be created.
-    info("Skipping individual symlink check on Windows and Android.");
-    next();
-    return;
-#endif
+    if (navigator.platform.startsWith("Win") || navigator.userAgent.includes("Android")) {
+      info("Skipping individual symlink check on Windows and Android.");
+      next();
+      return;
+    }
     test_individualSymlink("inputFileWebkitFile").catch(err => ok(false, `Problem in symlink case: ${err}`));
   },
 

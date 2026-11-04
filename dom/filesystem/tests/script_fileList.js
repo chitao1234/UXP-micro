@@ -1,5 +1,6 @@
 var { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 Cu.importGlobalProperties(["File"]);
+var { AppConstants } = Cu.import("resource://gre/modules/AppConstants.jsm", {});
 
 function createProfDFile() {
   return Cc["@mozilla.org/file/directory_service;1"]
@@ -37,14 +38,14 @@ function createTreeFile(depth, parent) {
     nextFile.append('file.txt');
     nextFile.create(Components.interfaces.nsIFile.NORMAL_FILE_TYPE, 0o600);
 
-#ifdef XP_UNIX
     // It's not possible to create symlinks on windows by default or on our
     // Android platforms, so we can't create the symlink file there.  Our
     // callers that care are aware of this.
-    var linkFile = parent.clone();
-    linkFile.append("symlink.txt");
-    createSymLink(nextFile.path, linkFile.path);
-#endif
+    if (AppConstants.platform != "win" && AppConstants.platform != "android") {
+      var linkFile = parent.clone();
+      linkFile.append("symlink.txt");
+      createSymLink(nextFile.path, linkFile.path);
+    }
   } else {
     nextFile.append('subdir' + depth);
     nextFile.createUnique(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0o700);
@@ -73,6 +74,20 @@ function createRootFile() {
   return testFile;
 }
 
+var linkProcess;
+function createSymLink(target, linkName) {
+  if (!linkProcess) {
+    var ln = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+    ln.initWithPath("/bin/ln");
+    linkProcess = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
+    linkProcess.init(ln);
+  }
+  var args = ["-s", target, linkName];
+  linkProcess.run(true, args, args.length);
+  if (linkProcess.exitValue != 0)
+    throw new Error("Failed to create fixture symlink: " + linkName);
+}
+
 function createTestFile() {
   var tmpFile = Cc["@mozilla.org/file/directory_service;1"]
                   .getService(Ci.nsIDirectoryService)
@@ -93,14 +108,14 @@ function createTestFile() {
   file2.append('bar.txt');
   file2.create(Components.interfaces.nsIFile.NORMAL_FILE_TYPE, 0o600);
 
-#ifdef XP_UNIX
   // It's not possible to create symlinks on windows by default or on our
   // Android platforms, so we can't create the symlink file there.  Our
   // callers that care are aware of this.
-  var linkFile = dir.clone();
-  linkFile.append("symlink.txt");
-  createSymLink(file1.path, linkFile.path);
-#endif 
+  if (AppConstants.platform != "win" && AppConstants.platform != "android") {
+    var linkFile = dir.clone();
+    linkFile.append("symlink.txt");
+    createSymLink(file1.path, linkFile.path);
+  }
 
   return tmpFile;
 }
@@ -152,7 +167,6 @@ addMessageListener("symlink.open", function (e) {
   testFile.append("subdir");
   testFile.append("symlink.txt");
 
-  File.createFromNsIFile(testFile).then(function (file) {
-    sendAsyncMessage("symlink.opened", { dir: testDir.path, file });
-  });
+  let file = File.createFromNsIFile(testFile);
+  sendAsyncMessage("symlink.opened", { dir: testDir.path, file });
 });
