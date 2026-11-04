@@ -57,9 +57,9 @@ add_task(function* () {
 
   is(rows.length, 4, "There should be 3 table chart rows and a header created.");
 
-  is(rows[0].querySelectorAll("label")[0].getAttribute("name"), "label1",
+  is(rows[0].querySelectorAll("span")[0].getAttribute("name"), "label1",
     "The first column of the header exists.");
-  is(rows[0].querySelectorAll("label")[1].getAttribute("name"), "label2",
+  is(rows[0].querySelectorAll("span")[1].getAttribute("name"), "label2",
     "The second column of the header exists.");
   is(rows[0].querySelectorAll("span")[0].textContent, "label1header",
     "The first column of the header displays the correct text.");
@@ -68,9 +68,9 @@ add_task(function* () {
 
   ok(rows[1].querySelector(".table-chart-row-box.chart-colored-blob"),
     "A colored blob exists for the firt row.");
-  is(rows[1].querySelectorAll("span")[0].getAttribute("name"), "label1",
+  is(rows[1].querySelectorAll("label")[0].getAttribute("name"), "label1",
     "The first column of the first row exists.");
-  is(rows[1].querySelectorAll("span")[1].getAttribute("name"), "label2",
+  is(rows[1].querySelectorAll("label")[1].getAttribute("name"), "label2",
     "The second column of the first row exists.");
   is(rows[1].querySelectorAll("label")[0].getAttribute("value"), "1",
     "The first column of the first row displays the correct text.");

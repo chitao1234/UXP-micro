@@ -10,7 +10,10 @@
 
 add_task(function* () {
   requestLongerTimeout(2);
-  let { getSummary } = require("devtools/client/netmonitor/selectors/index");
+  let {
+    getDisplayedRequestsSummary,
+    getDisplayedTimingMarker,
+  } = require("devtools/client/netmonitor/selectors/index");
   let { L10N } = require("devtools/client/netmonitor/l10n");
   let { PluralForm } = require("devtools/shared/plural-form");
 
@@ -44,7 +47,8 @@ add_task(function* () {
   yield teardown(monitor);
 
   function testStatus() {
-    const { count, contentSize, transferredSize, millis } = getSummary(gStore.getState());
+    const { count, contentSize, transferredSize, millis } =
+      getDisplayedRequestsSummary(gStore.getState());
     let value = $("#requests-menu-network-summary-button").textContent;
     info("Current summary: " + value);
 
@@ -60,11 +64,23 @@ add_task(function* () {
     info("Computed total bytes: " + contentSize);
     info("Computed total millis: " + millis);
 
-    is(value, PluralForm.get(count, L10N.getStr("networkMenu.summary2"))
+    let expected = PluralForm.get(count, L10N.getStr("networkMenu.summary2"))
       .replace("#1", count)
       .replace("#2", L10N.numberWithDecimals((contentSize || 0) / 1024, 2))
       .replace("#3", L10N.numberWithDecimals((transferredSize || 0) / 1024, 2))
-      .replace("#4", L10N.numberWithDecimals((millis || 0) / 1000, 2))
-    , "The current summary text is incorrect.");
+      .replace("#4", L10N.numberWithDecimals((millis || 0) / 1000, 2));
+
+    for (let [label, marker] of [[
+      "DOMContentLoaded", "firstDocumentDOMContentLoadedTimestamp"
+    ], ["load", "firstDocumentLoadTimestamp"]]) {
+      let elapsed = getDisplayedTimingMarker(gStore.getState(), marker);
+      if (elapsed > -1) {
+        expected += ", " + label + ": " +
+          L10N.getFormatStrWithNumbers("networkMenu.timeS",
+            L10N.numberWithDecimals(elapsed / 1000, 2));
+      }
+    }
+
+    is(value, expected, "The current summary text is incorrect.");
   }
 });
