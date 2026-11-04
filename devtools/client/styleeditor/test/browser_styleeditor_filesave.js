@@ -15,7 +15,7 @@ var NetUtil = tempScope.NetUtil;
 
 add_task(function* () {
   let htmlFile = yield copy(TESTCASE_URI_HTML, "simple.html");
-  const cssFile = await copy(TESTCASE_URI_CSS, "simple.css");
+  const cssFile = yield copy(TESTCASE_URI_CSS, "simple.css");
   let uri = Services.io.newFileURI(htmlFile);
   let filePath = uri.resolve("");
 

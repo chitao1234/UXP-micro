@@ -28,7 +28,7 @@ add_task(function* () {
   let HTMLFile = yield copy(TESTCASE_URI_HTML, ["sourcemaps.html"]);
   let CSSFile = yield copy(TESTCASE_URI_CSS,
     ["sourcemap-css", "sourcemaps.css"]);
-  const SCSSFile = await copy(TESTCASE_URI_SCSS, [
+  const SCSSFile = yield copy(TESTCASE_URI_SCSS, [
     "sourcemap-sass",
     "sourcemaps.scss",
   ]);
