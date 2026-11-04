@@ -18,6 +18,12 @@ add_task(function* () {
             value: type == prefs.PREF_BOOL ? prefs.getBoolPref("plugin.disable") : null};
   }
   const originalBrowserPref = JSON.stringify(browserPluginPref());
+  ok(!prefs.getBoolPref("plugin.disable", false),
+     "Importing HTTP server template helpers must not disable browser plugins");
+  const pluginHost = Components.classes["@mozilla.org/plugin/host;1"]
+                               .getService(ci.nsIPluginHost);
+  ok(pluginHost.getPluginTags().some(tag => tag.name == "Test Plug-in"),
+     "The browser can enumerate the staged test plugin before server requests");
   info("PROFILELESS-MIME-BROWSER " + JSON.stringify({
     processID: browserPID, pluginPref: browserPluginPref()
   }));

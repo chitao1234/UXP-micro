@@ -7,12 +7,6 @@
 // and because they're constants it's not safe to redefine them.  Scope leakage
 // sucks.
 
-// This HTTP infrastructure process has no profile. MIME lookup must not scan
-// installed browser plugins and initialize their profile-dependent blocklist.
-// Browser plugin preferences belong to the separate test-browser process.
-Cc["@mozilla.org/preferences-service;1"].getService(Ci.nsIPrefBranch)
-  .setBoolPref("plugin.disable", true);
-
 // Disable automatic network detection, so tests work correctly when
 // not connected to a network.
 var ios = Cc["@mozilla.org/network/io-service;1"]
@@ -124,6 +118,11 @@ var SERVER_PORT;
 //
 function runServer()
 {
+  // The browser harness also imports this file for its template functions.
+  // Disable profile-dependent plugin scanning only in the HTTP server.
+  Cc["@mozilla.org/preferences-service;1"].getService(Ci.nsIPrefBranch)
+    .setBoolPref("plugin.disable", true);
+
   serverBasePath = __LOCATION__.parent;
   server = createMochitestServer(serverBasePath);
 
