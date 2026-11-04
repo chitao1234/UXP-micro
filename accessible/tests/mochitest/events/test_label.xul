@@ -85,8 +85,18 @@
     function setCrop(aID, aCropValue, aRemovedText, aInsertedText)
     {
       this.labelNode = getNode(aID);
-      this.width = this.labelNode.boxObject.width;
-      this.charWidth = this.width / this.labelNode.value.length;
+
+      // Fit seven characters plus the ellipsis, independent of font fallback
+      // and device-pixel rounding. Leave half a character of rounding slack.
+      var probe = this.labelNode.cloneNode(false);
+      probe.removeAttribute("id");
+      probe.value = "…uetocro";
+      probe.style.visibility = "hidden";
+      this.labelNode.parentNode.appendChild(probe);
+      this.width = probe.getBoundingClientRect().width +
+        this.labelNode.getBoundingClientRect().width /
+        this.labelNode.value.length / 2;
+      probe.remove();
 
       this.eventSeq = [
         new textChangeChecker(this.labelNode, 0, -1, aRemovedText, false),
@@ -96,7 +106,7 @@
       this.invoke = function setCrop_invoke()
       {
         if (!this.labelNode.hasAttribute("crop"))
-          this.labelNode.width = Math.floor(this.width - 2 * this.charWidth);
+          this.labelNode.style.width = this.width + "px";
 
         this.labelNode.setAttribute("crop", aCropValue);
       }
@@ -127,17 +137,9 @@
       gQueue.push(new setValue("descr", "", kTextRemoved, "si_ya"));
       gQueue.push(new setValue("descr", kNoValue, kRecreated));
 
-      if (MAC) {
-        // "valuetocro" -> "…etocro"
-        gQueue.push(new setCrop("croplabel", "left", "valu", "…"));
-        // "…etocro", "val…cro"
-        gQueue.push(new setCrop("croplabel", "center", "…eto", "val…"));
-      } else {
-        // "valuetocro" -> "…uetocro"
-        gQueue.push(new setCrop("croplabel", "left", "val", "…"));
-        // "…uetocro" -> "valu…cro"
-        gQueue.push(new setCrop("croplabel", "center", "…ueto", "valu…"));
-      }
+      // "valuetocro" -> "…uetocro" -> "valu…cro"
+      gQueue.push(new setCrop("croplabel", "left", "val", "…"));
+      gQueue.push(new setCrop("croplabel", "center", "…ueto", "valu…"));
 
       gQueue.invoke(); // Will call SimpleTest.finish();
     }

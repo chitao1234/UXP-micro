@@ -2039,6 +2039,13 @@ function selAddSeq(aSelectedID)
 var gA11yEventListeners = {};
 var gA11yEventApplicantsCount = 0;
 
+SimpleTest.registerCleanupFunction(function() {
+  if (gA11yEventApplicantsCount > 0)
+    Services.obs.removeObserver(gA11yEventObserver, "accessible-event");
+  gA11yEventApplicantsCount = 0;
+  gA11yEventListeners = {};
+});
+
 var gA11yEventObserver =
 {
   observe: function observe(aSubject, aTopic, aData)
@@ -2053,6 +2060,8 @@ var gA11yEventObserver =
       // After a test is aborted (i.e. timed out by the harness), this exception is soon triggered.
       // Remove the leftover observer, otherwise it "leaks" to all the following tests.
       Services.obs.removeObserver(this, "accessible-event");
+      gA11yEventApplicantsCount = 0;
+      gA11yEventListeners = {};
       // Forward the exception, with added explanation.
       throw "[accessible/events.js, gA11yEventObserver.observe] This is expected if a previous test has been aborted... Initial exception was: [ " + ex + " ]";
     }
