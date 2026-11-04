@@ -21,15 +21,29 @@
   <script type="application/javascript">
     function openWnd()
     {
+      var focusReady;
+      this.focusPromise = new Promise(resolve => { focusReady = resolve; });
       this.eventSeq = [ new invokerChecker(EVENT_FOCUS,
                                            getDialogAccessible,
                                            this) ];
 
       this.invoke = function openWnd_invoke()
       {
-        this.dialog = window.openDialog("about:mozilla",
+        // about:mozilla disables script event listeners, including waitForFocus.
+        this.dialog = window.openDialog("chrome://global/content/mozilla.xhtml",
                                         "AboutMozilla",
                                         "chrome,width=600,height=600");
+        var dialog = this.dialog;
+        SimpleTest.registerCleanupFunction(function() { dialog.close(); });
+        dialog.addEventListener("load", function loaded(event) {
+          if (event.target != dialog.document || dialog.location == "about:blank")
+            return;
+          dialog.removeEventListener("load", loaded, true);
+          SimpleTest.waitForFocus(function() {
+            ok(dialog.document.hasFocus(), "Dialog has DOM focus before checking accessibility focus");
+            focusReady();
+          }, dialog);
+        }, true);
       }
 
       this.finalCheck = function openWnd_finalCheck()
@@ -38,7 +52,6 @@
         is(app.focusedChild, getDialogAccessible(this),
            "Wrong focused child");
 
-        this.dialog.close();
       }
 
       this.getID = function openWnd_getID()
@@ -58,11 +71,16 @@
     function doTest()
     {
       enableLogging("focus,doclifecycle");
+      SimpleTest.registerCleanupFunction(disableLogging);
       gQueue = new eventQueue();
 
-      gQueue.push(new openWnd());
+      var invoker = new openWnd();
+      gQueue.push(invoker);
 
-      gQueue.onFinish = function() { disableLogging(); }
+      gQueue.onFinish = function() {
+        invoker.focusPromise.then(SimpleTest.finish);
+        return DO_NOT_FINISH_TEST;
+      }
       gQueue.invoke(); // Will call SimpleTest.finish();
     }
 
