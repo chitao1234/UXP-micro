@@ -24,7 +24,7 @@
 <div class="test" id="onscreen" style="top: 100px; background-color: red;"></div>
 <div class="test" id="offscreen" style="top: 100000px; background-color: green;"></div>
 
-<script type="application/javascript;version=1.8">
+<script type="application/javascript">
 
 SimpleTest.waitForExplicitFinish();
 
@@ -105,7 +105,7 @@ function testHandlingUserInput() {
   is(domWindowUtils.isHandlingUserInput, false,
      "isHandlingUserInput should return false if nothing is happening");
 
-  function testEvents() {
+  function* testEvents() {
     var data = [
       {
         eventName: "click",
@@ -141,7 +141,7 @@ function testHandlingUserInput() {
            "isHandlingUserInput should be " + data[i].result);
 
         SimpleTest.executeSoon(function() {
-          try { testEventsRunner.next(); } catch (e) { }
+          testEventsRunner.next();
         });
       });
 
@@ -168,7 +168,7 @@ function testHandlingUserInput() {
 },
 ];
 
-function runner() {
+function* runner() {
   for (let i=0; i<gTests.length; ++i) {
     gTests[i]();
     yield undefined;
@@ -180,7 +180,7 @@ function runner() {
 var gTestRunner = runner();
 
 function next() {
-  try { gTestRunner.next(); } catch (e) { if (e != StopIteration) { throw e; } }
+  gTestRunner.next();
 }
 
 // Run the test from onload, since the onscreen and offscreen divs should be in

@@ -42,7 +42,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=656379
   
 </div>
 <pre id="test">
-<script type="application/javascript;version=1.8">
+<script type="application/javascript">
 
 
 var normalButtonCanvas, pressedButtonCanvas, normalFocusedButtonCanvas,
@@ -77,19 +77,18 @@ var gNeedsPaint = false;
 function executeTests() {
   var testYielder = tests();
   function execNext() {
-    try {
-      if (!gNeedsPaint) {
-        testYielder.next();
-        button.getBoundingClientRect(); // Flush.
-        gNeedsPaint = true;
-      }
-      SimpleTest.executeSoon(execNext);
-    } catch (e) {}
+    if (!gNeedsPaint) {
+      if (testYielder.next().done)
+        return;
+      button.getBoundingClientRect(); // Flush.
+      gNeedsPaint = true;
+    }
+    SimpleTest.executeSoon(execNext);
   }
   execNext();
 }
 
-function tests() {
+function* tests() {
   window.addEventListener("MozAfterPaint", paintListener, false);
   normalButtonCanvas = takeSnapshot();
   // Press the button.
