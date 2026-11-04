@@ -3221,6 +3221,9 @@ function* testBody()
 function runTests()
 {
   SpecialPowers.pushPrefEnv({"set": [
+    // Pin DPI for the legacy MozMousePixelScroll checks, as upstream does.
+    ["layout.css.devPixelsPerPx", 1.0],
+
     ["mousewheel.transaction.timeout", 100000],
     ["mousewheel.default.delta_multiplier_x", 100],
     ["mousewheel.default.delta_multiplier_y", 100],
