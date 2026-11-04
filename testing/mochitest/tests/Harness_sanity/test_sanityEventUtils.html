@@ -56,10 +56,16 @@ function starttest() {
       is($("testStrEvent").value, "string", "sendString should work");
       $("testStrEvent").value = "";
     
-      check = false;
+      var keydown = false;
+      var keypress = false;
       $("testKeyEvent").focus();
+      $("testKeyEvent").addEventListener("keydown", function() { keydown = true; }, {once: true});
+      $("testKeyEvent").addEventListener("keypress", function() { keypress = true; }, {once: true});
       sendKey("DOWN");
-      is(check, true, "sendKey should dispatch keyPress");
+      ok(keydown, "sendKey should dispatch keyDown");
+      is(keypress,
+         SpecialPowers.getBoolPref("dom.keyboardevent.keypress.dispatch_non_printable_in_content"),
+         "sendKey keyPress follows the non-printable key policy");
     
       /* test synthesizeMouse* */
       //focus trick enables us to run this in iframes
@@ -85,7 +91,8 @@ function starttest() {
         is(check, true, 'synthesizeMouse should dispatch mouse event');
     
         check = false;
-        synthesizeMouseExpectEvent($("textBoxA"), 1, 1, {}, $("textBoxA"), "click", "synthesizeMouseExpectEvent should fire click event");
+        $("scrollB").addEventListener("click", function() { check = true; }, {once: true});
+        synthesizeMouseExpectEvent($("scrollB"), 1, 1, {}, $("scrollB"), "click", "synthesizeMouseExpectEvent should fire click event");
         is(check, true, 'synthesizeMouse should dispatch mouse event');
       });
       $("textBoxA").focus();
@@ -106,6 +113,13 @@ function starttest() {
       synthesizeKey("a", {});
       is($("testKeyEvent").value, "a", "synthesizeKey should work");
       is(check, true, "synthesizeKey should dispatch keyPress");
+      $("testKeyEvent").value = "";
+
+      synthesizeKey("b");
+      is($("testKeyEvent").value, "b", "synthesizeKey accepts omitted event options");
+      $("testKeyEvent").value = "";
+      synthesizeKey("c", null);
+      is($("testKeyEvent").value, "c", "synthesizeKey accepts null event options");
       $("testKeyEvent").value = "";
     
       check = false;

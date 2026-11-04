@@ -758,6 +758,7 @@ function _computeKeyCodeFromChar(aChar)
  */
 function synthesizeKey(aKey, aEvent, aWindow = window)
 {
+  aEvent = aEvent === undefined || aEvent === null ? {} : aEvent;
   var TIP = _getTIP(aWindow);
   if (!TIP) {
     return;
