@@ -12,16 +12,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=591198
 <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=591198">Mozilla Bug 591198</a>
 <iframe id=iframe></iframe>
 <pre id="test">
-<script class="testbody" type="text/javascript;version=1.8">
+<script class="testbody" type="text/javascript">
 
 SimpleTest.waitForExplicitFinish();
 
 gen = runTest();
 
-function runTest() {
+function* runTest() {
   let iframe = $('iframe');
   window.addEventListener("message", function(e) {
-    gen.send(JSON.parse(e.data));
+    gen.next(JSON.parse(e.data));
   }, false);
   
   iframe.src = "file_bug591198_inner.html";

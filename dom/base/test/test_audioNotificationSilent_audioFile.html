@@ -6,7 +6,7 @@
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
-<script type="application/javascript;version=1.7">
+<script type="application/javascript">
 
 SimpleTest.waitForExplicitFinish();
 
@@ -28,11 +28,7 @@ var observer = {
 };
 
 function continueTest() {
-  try {
-    generator.next();
-  } catch (e if e instanceof StopIteration) {
-    error("Stop test because of exception!");
-  }
+  generator.next();
 }
 
 function audioPlayingStart() {
@@ -58,7 +54,7 @@ function finish() {
   SimpleTest.finish();
 }
 
-function runTest() {
+function* runTest() {
   yield audioPlayingStart();
 
   yield audioBecomeSilentDuringPlaying();

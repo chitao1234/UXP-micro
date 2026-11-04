@@ -208,7 +208,7 @@ function checkFinish() {
   }
 }
 
-function runTest() {
+function* runTest() {
   gRemainingTests = Object.keys(gData).length;
 
   for (var test in gData) {
