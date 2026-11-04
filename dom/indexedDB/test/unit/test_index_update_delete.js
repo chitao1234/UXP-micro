@@ -5,7 +5,7 @@
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   let name = this.window ? window.location.pathname : "Splendid Test";
   let request = indexedDB.open(name, 1);

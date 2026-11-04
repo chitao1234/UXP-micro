@@ -7,7 +7,7 @@
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   </head>
   <body onload="setup();">
-    <script type="application/javascript;version=1.7">
+    <script type="application/javascript">
 "use strict";
 
 function childFrameScript() {
@@ -51,7 +51,7 @@ function childFrameScript() {
   }
 
   function grabAndContinue(arg) {
-    testGenerator.send(arg);
+    testGenerator.next(arg);
   }
 
   function errorHandler(event) {
@@ -61,7 +61,7 @@ function childFrameScript() {
     finish();
   }
 
-  function testSteps() {
+  function* testSteps() {
     addMessageListener(mmName, grabAndContinue);
     let message = yield undefined;
 
@@ -211,10 +211,10 @@ function parentFrameScript(mm) {
   const blob = new Blob(blobData, { type: blobType });
 
   function grabAndContinue(arg) {
-    testGenerator.send(arg);
+    testGenerator.next(arg);
   }
 
-  function testSteps() {
+  function* testSteps() {
     let result = yield undefined;
 
     is(Array.isArray(result), true, "Child delivered an array of results");
@@ -284,7 +284,7 @@ function parentFrameScript(mm) {
       }
 
       case "done": {
-        testGenerator.send(data.result);
+        testGenerator.next(data.result);
         break;
       }
 

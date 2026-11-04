@@ -44,9 +44,9 @@ function clearAllDatabases(callback) {
 var testHarnessGenerator = testHarnessSteps();
 testHarnessGenerator.next();
 
-function testHarnessSteps() {
+function* testHarnessSteps() {
   function nextTestHarnessStep(val) {
-    testHarnessGenerator.send(val);
+    testHarnessGenerator.next(val);
   }
 
   let testScriptPath;
@@ -108,7 +108,7 @@ function testHarnessSteps() {
 
     let workerScriptBlob =
       new Blob([ "(" + workerScript.toString() + ")();" ],
-               { type: "text/javascript;version=1.7" });
+               { type: "text/javascript" });
     let workerScriptURL = URL.createObjectURL(workerScriptBlob);
 
     let worker = new Worker(workerScriptURL);
@@ -218,8 +218,8 @@ if (!window.runTest) {
 function finishTest()
 {
   SimpleTest.executeSoon(function() {
-    testGenerator.close();
-    testHarnessGenerator.close();
+    testGenerator.return();
+    testHarnessGenerator.return();
     clearAllDatabases(function() { SimpleTest.finish(); });
   });
 }
@@ -231,12 +231,12 @@ function browserRunTest()
 
 function browserFinishTest()
 {
-  setTimeout(function() { testGenerator.close(); }, 0);
+  setTimeout(function() { testGenerator.return(); }, 0);
 }
 
 function grabEventAndContinueHandler(event)
 {
-  testGenerator.send(event);
+  testGenerator.next(event);
 }
 
 function continueToNextStep()
@@ -445,7 +445,7 @@ function workerScript() {
   };
 
   self.grabEventAndContinueHandler = function(_event_) {
-    testGenerator.send(_event_);
+    testGenerator.next(_event_);
   };
 
   self.continueToNextStep = function() {
@@ -611,7 +611,7 @@ function workerScript() {
 
       case "getWasmBinaryDone":
         info("Worker: get wasm binary done");
-        testGenerator.send(message.wasmBinary);
+        testGenerator.next(message.wasmBinary);
         break;
 
       default:

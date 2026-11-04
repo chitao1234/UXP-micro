@@ -71,14 +71,14 @@ function finishTest()
   SpecialPowers.removeFiles();
 
   do_execute_soon(function(){
-    testGenerator.close();
+    testGenerator.return();
     do_test_finished();
   })
 }
 
 function grabEventAndContinueHandler(event)
 {
-  testGenerator.send(event);
+  testGenerator.next(event);
 }
 
 function continueToNextStep()
@@ -418,7 +418,7 @@ function getWasmBinary(text)
 {
   let binary = getWasmBinarySync(text);
   executeSoon(function() {
-    testGenerator.send(binary);
+    testGenerator.next(binary);
   });
 }
 
@@ -526,12 +526,12 @@ function verifyWasmModule(module1, module2)
 
 function grabResultAndContinueHandler(request)
 {
-  testGenerator.send(request.result);
+  testGenerator.next(request.result);
 }
 
 function grabFileUsageAndContinueHandler(request)
 {
-  testGenerator.send(request.result.fileUsage);
+  testGenerator.next(request.result.fileUsage);
 }
 
 function getUsage(usageHandler, getAll)

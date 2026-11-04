@@ -5,7 +5,7 @@
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const data = { id: new Date().getTime(),
                  num: parseInt(Math.random() * 1000) };

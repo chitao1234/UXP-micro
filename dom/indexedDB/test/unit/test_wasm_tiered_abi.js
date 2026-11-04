@@ -5,7 +5,7 @@
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const { Services } = Components.utils.import("resource://gre/modules/Services.jsm", {});
   const name = "test_wasm_tiered_abi.js";

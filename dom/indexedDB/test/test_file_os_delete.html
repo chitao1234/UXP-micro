@@ -9,10 +9,10 @@
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 
-  <script type="text/javascript;version=1.7">
-  function testSteps()
+  <script type="text/javascript">
+  function* testSteps()
   {
-    const Mode::ReadWrite = "readwrite";
+    const READ_WRITE = "readwrite";
 
     const name = window.location.pathname;
 
@@ -67,7 +67,7 @@
       is(usage, startUsage + fileData1.obj.file.size + fileData2.obj.file.size,
          "Correct file usage");
 
-      let trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      let trans = db.transaction([objectStoreName], READ_WRITE);
       trans.objectStore(objectStoreName).delete(fileData1.key);
       trans.oncomplete = grabEventAndContinueHandler;
       event = yield undefined;
@@ -99,8 +99,8 @@
     yield undefined;
   }
   </script>
-  <script type="text/javascript;version=1.7" src="file.js"></script>
-  <script type="text/javascript;version=1.7" src="helpers.js"></script>
+  <script type="text/javascript" src="file.js"></script>
+  <script type="text/javascript" src="helpers.js"></script>
 
 </head>
 

@@ -17,7 +17,7 @@ const loopCount = 100;
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   let req = indexedDB.open(dbName, dbVersion);
   req.onerror = errorHandler;

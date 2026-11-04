@@ -7,7 +7,7 @@ var disableWorkerTest = "This test uses SpecialPowers";
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const fileData = "abcdefghijklmnopqrstuvwxyz";
   const fileType = "text/plain";

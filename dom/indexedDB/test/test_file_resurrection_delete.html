@@ -9,10 +9,10 @@
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 
-  <script type="text/javascript;version=1.7">
-  function testSteps()
+  <script type="text/javascript">
+  function* testSteps()
   {
-    const Mode::ReadWrite = "readwrite";
+    const READ_WRITE = "readwrite";
 
     const name = window.location.pathname;
 
@@ -40,7 +40,7 @@
 
       is(event.type, "success", "Got correct event type");
 
-      let trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      let trans = db.transaction([objectStoreName], READ_WRITE);
       objectStore = trans.objectStore(objectStoreName);
 
       objectStore.delete(fileData.key);
@@ -50,7 +50,7 @@
 
       is(getFileDBRefCount(name, 1), 0, "Correct db ref count");
 
-      trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      trans = db.transaction([objectStoreName], READ_WRITE);
       objectStore = trans.objectStore(objectStoreName);
 
       request = objectStore.add(fileData.file, fileData.key);
@@ -81,7 +81,7 @@
       let db = event.target.result;
       db.onerror = errorHandler;
 
-      let trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      let trans = db.transaction([objectStoreName], READ_WRITE);
       objectStore = trans.objectStore(objectStoreName);
 
       request = objectStore.get(fileData.key);
@@ -98,7 +98,7 @@
 
       is(getFileDBRefCount(name, 1), 0, "Correct db ref count");
 
-      trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      trans = db.transaction([objectStoreName], READ_WRITE);
       objectStore = trans.objectStore(objectStoreName);
 
       request = objectStore.add(result, fileData.key);
@@ -123,8 +123,8 @@
     yield undefined;
   }
   </script>
-  <script type="text/javascript;version=1.7" src="file.js"></script>
-  <script type="text/javascript;version=1.7" src="helpers.js"></script>
+  <script type="text/javascript" src="file.js"></script>
+  <script type="text/javascript" src="helpers.js"></script>
 
 </head>
 

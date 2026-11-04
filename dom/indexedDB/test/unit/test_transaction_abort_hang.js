@@ -8,7 +8,7 @@ var self = this;
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const dbName = self.window ?
                  window.location.pathname :

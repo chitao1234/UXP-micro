@@ -9,7 +9,7 @@
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 
-  <script type="text/javascript;version=1.7">
+  <script type="text/javascript">
   /**
    * Test that a put of a file-backed Blob/File whose backing file has been
    * deleted results in a failure of that put failure.
@@ -19,9 +19,9 @@
    * use two separate databases.  This test is derived from
    * test_file_cross_database_copying.html.
    */
-  function testSteps()
+  function* testSteps()
   {
-    const Mode::ReadWrite = "readwrite";
+    const READ_WRITE = "readwrite";
 
     const databaseInfo = [
       { name: window.location.pathname + "1", source: true },
@@ -106,7 +106,7 @@
     for (let i = 1; i < databases.length; i++) {
       let db = databases[i];
 
-      let trans = db.transaction([objectStoreName], Mode::ReadWrite);
+      let trans = db.transaction([objectStoreName], READ_WRITE);
       let objectStore = trans.objectStore(objectStoreName);
 
       request = objectStore.add(fileBackedFile, 2);
@@ -146,8 +146,8 @@
     yield undefined;
   }
   </script>
-  <script type="text/javascript;version=1.7" src="file.js"></script>
-  <script type="text/javascript;version=1.7" src="helpers.js"></script>
+  <script type="text/javascript" src="file.js"></script>
+  <script type="text/javascript" src="helpers.js"></script>
 
 </head>
 
