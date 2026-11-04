@@ -159,7 +159,7 @@ RunSet.runall = function(e) {
   // This allows for including or excluding tests from the gTestList
   // TODO Only used by ipc tests, remove once those are implemented sanely
   if (params.testManifest) {
-    getTestManifest("http://mochi.test:8888/" + params.testManifest, params, function(filter) { gTestList = filterTests(filter, gTestList, params.runOnly); RunSet.runtests(); });
+    getTestManifest(getTestManifestURL(params.testManifest), params, function(filter) { gTestList = filterTests(filter, gTestList, params.runOnly); RunSet.runtests(); });
   } else {
     RunSet.runtests();
   }
@@ -234,10 +234,20 @@ function toggleNonTests (e) {
 // hook up our buttons
 function hookup() {
   if (params.manifestFile) {
-    getTestManifest("http://mochi.test:8888/" + params.manifestFile, params, hookupTests);
+    getTestManifest(getTestManifestURL(params.manifestFile), params, hookupTests);
   } else {
     hookupTests(gTestList);
   }
+}
+
+function getTestManifestURL(path) {
+  // Match Firefox's manifest loading: content harnesses use their own origin,
+  // while chrome harnesses fetch the manifest from the HTTP test server.
+  if (window.location.protocol == "http:" ||
+      window.location.protocol == "https:") {
+    return window.location.protocol + "//" + window.location.host + "/" + path;
+  }
+  return "http://mochi.test:8888/" + path;
 }
 
 function hookupTests(testList) {

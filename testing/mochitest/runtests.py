@@ -1019,7 +1019,8 @@ class MochitestDesktop(object):
         self.testRootAbs = os.path.join(SCRIPT_DIR, self.testRoot)
 
     def buildTestURL(self, options):
-        testHost = "http://mochi.test:8888"
+        testHost = ("https://example.com:443" if getattr(self, '_current_scheme', 'http') == 'https'
+                    else "http://mochi.test:8888")
         testURL = "/".join([testHost, self.TEST_PATH])
 
         if len(options.test_paths) == 1:
@@ -1057,6 +1058,8 @@ class MochitestDesktop(object):
                     test['manifest'] != self._current_manifest):
                 continue
             if testsToFilter and (test['path'] not in testsToFilter):
+                continue
+            if (test.get('scheme') or 'http') != getattr(self, '_current_scheme', 'http'):
                 continue
             paths.append(test)
 
@@ -1400,6 +1403,8 @@ toolbar#nav-bar {
                 testob['disabled'] = test['disabled']
             if 'expected' in test:
                 testob['expected'] = test['expected']
+            if 'scheme' in test:
+                testob['scheme'] = test['scheme']
             paths.append(testob)
 
         paths.sort(key=lambda test: test['path'].split('/'))
@@ -2147,6 +2152,42 @@ toolbar#nav-bar {
         return testsToRun
 
     def runMochitests(self, options, testsToRun):
+        # Like newer Firefox, run secure-context tests in a distinct browser
+        # instance whose harness and test documents are both served over HTTPS.
+        selected = set(testsToRun)
+        tests = [test for test in self.getActiveTests(options)
+                 if test['path'] in selected and
+                 (self._current_manifest is None or test['manifest'] == self._current_manifest)]
+        overall = 0
+        launched = False
+        try:
+            for scheme, group in self.groupTestsByScheme(tests).items():
+                if not group:
+                    continue
+                if launched and not (options.runByDir or options.bisectChunk):
+                    self.initializeLooping(options)
+                self._current_scheme = scheme
+                self.log.info("runtests.py | Running with scheme: %s" % scheme)
+                result = self._runMochitests(options, [test['path'] for test in group])
+                launched = True
+                if result:
+                    overall = result
+                if result == -1:
+                    break
+        finally:
+            self._current_scheme = 'http'
+        return overall
+
+    def groupTestsByScheme(self, tests):
+        groups = {'http': [], 'https': []}
+        for test in tests:
+            scheme = test.get('scheme') or 'http'
+            if scheme not in groups:
+                raise ValueError("Unsupported mochitest scheme: " + scheme)
+            groups[scheme].append(test)
+        return groups
+
+    def _runMochitests(self, options, testsToRun):
         "This is a base method for calling other methods in this class for --bisect-chunk."
         # Making an instance of bisect class for --bisect-chunk option.
         bisect = bisection.Bisect(self)
@@ -2415,7 +2456,9 @@ toolbar#nav-bar {
                 detectShutdownLeaks = mozinfo.info[
                     "debug"] and options.flavor == 'browser'
 
-            self.start_script_args.append(self.normflavor(options.flavor))
+            # start_desktop.js consumes exactly [flavor, URL]. Do not retain
+            # arguments from an earlier directory, scheme or bisect launch.
+            self.start_script_args = [self.normflavor(options.flavor)]
             marionette_args = {
                 'symbols_path': options.symbolsPath,
                 'socket_timeout': options.marionette_socket_timeout,
@@ -2429,6 +2472,7 @@ toolbar#nav-bar {
                 marionette_args['port'] = int(port)
 
             self.log.info("runtests.py | Running with e10s: {}".format(options.e10s))
+            self.log.info("runtests.py | Harness URL: %s" % testURL)
             self.log.info("runtests.py | Running tests: start.\n")
             status = self.runApp(testURL,
                                  self.browserEnv,
