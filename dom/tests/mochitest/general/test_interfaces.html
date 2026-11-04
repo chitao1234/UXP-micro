@@ -45,6 +45,16 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=766694
 //            a JavaScript Engine peer!
 var ecmaGlobals =
   [
+    "AggregateError",
+    "BigInt",
+    "BigInt64Array",
+    "BigUint64Array",
+    "ByteLengthQueuingStrategy",
+    "CountQueuingStrategy",
+    "FinalizationRegistry",
+    "ReadableStream",
+    "WeakRef",
+    "WebAssembly",
     "Array",
     "ArrayBuffer",
     "Boolean",
@@ -78,13 +88,13 @@ var ecmaGlobals =
     "Reflect",
     "RegExp",
     "Set",
-    {name: "SharedArrayBuffer", release: false},
-    {name: "Atomics", release: false},
+    "SharedArrayBuffer",
+    "Atomics",
     "StopIteration",
     "String",
     "Symbol",
     "SyntaxError",
-    {name: "TypedObject", nightly: true},
+    "TypedObject",
     "TypeError",
     "Uint16Array",
     "Uint32Array",
@@ -117,20 +127,56 @@ var legacyMozPrefixedInterfaces =
 // IMPORTANT: Do not change the list below without review from a DOM peer!
 var interfaceNamesInGlobalScope =
   [
+    // Basilisk bundles these JavaScript APIs; content Xrays do not expose them.
+    {name: "TextDecoderStream", xbl: false},
+    {name: "TextEncoderStream", xbl: false},
+    {name: "TransformStream", xbl: false},
+    {name: "WritableStream", xbl: false},
+    // UXP removed these bindings; also reject accidental re-exposure.
+    {name: "BatteryManager", disabled: true},
+    {name: "HTMLContentElement", disabled: true},
+    {name: "HTMLShadowElement", disabled: true},
+    {name: "MediaKeyError", disabled: true},
+    {name: "MediaEncryptedEvent", disabled: true},
+    {name: "MediaKeys", disabled: true},
+    {name: "MediaKeySession", disabled: true},
+    {name: "MediaKeySystemAccess", disabled: true},
+    {name: "MediaKeyMessageEvent", disabled: true},
+    {name: "MediaKeyStatusMap", disabled: true},
+    "AbortController",
+    "AbortSignal",
+    "CSSLayerBlockRule",
+    "CSSLayerStatementRule",
+    "FormDataEvent",
+    "HTMLSlotElement",
+    "MathMLElement",
+    "MediaQueryListEvent",
+    "PromiseRejectionEvent",
+    "ResizeObserver",
+    "ResizeObserverEntry",
+    "ResizeObserverSize",
+    "SecurityPolicyViolationEvent",
+    "ServiceWorker",
+    "ServiceWorkerContainer",
+    "ServiceWorkerMessageEvent",
+    "ServiceWorkerRegistration",
+    "SubmitEvent",
+    "ToggleEvent",
+    "VisualViewport",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "AnalyserNode",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     {name: "Animation"},
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "AnimationEffectReadOnly", release: false},
+    "AnimationEffectReadOnly",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "AnimationEffectTiming", release: false},
+    "AnimationEffectTiming",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "AnimationEffectTimingReadOnly", release: false},
+    "AnimationEffectTimingReadOnly",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "AnimationEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "AnimationPlaybackEvent", release: false},
+    "AnimationPlaybackEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     {name: "AnimationTimeline", release: false},
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -157,8 +203,6 @@ var interfaceNamesInGlobalScope =
     "AudioStreamTrack",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "BarProp",
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    "BatteryManager",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "BeforeUnloadEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -222,7 +266,7 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "CSS2Properties",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "CSSAnimation", release: false},
+    "CSSAnimation",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "CSSConditionRule",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -264,7 +308,7 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "CSSSupportsRule",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "CSSTransition", release: false},
+    "CSSTransition",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "CSSValue",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -434,15 +478,13 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLCollection",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    "HTMLContentElement",
-// IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLDataElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLDataListElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLDetailsElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "HTMLDialogElement", disabled: true},
+    "HTMLDialogElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLDirectoryElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -530,8 +572,6 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLSelectElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    "HTMLShadowElement",
-// IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLSourceElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLSpanElement",
@@ -566,7 +606,7 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "HTMLVideoElement",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "IdleDeadline", nightly: true},
+    "IdleDeadline",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "IDBCursor",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -614,17 +654,17 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "InstallTrigger",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "IntersectionObserver", disabled: true},
+    "IntersectionObserver",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "IntersectionObserverEntry", disabled: true},
+    "IntersectionObserverEntry",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "KeyEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "KeyboardEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "KeyframeEffectReadOnly", release: false},
+    "KeyframeEffectReadOnly",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "KeyframeEffect", release: false},
+    "KeyframeEffect",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "LocalMediaStream",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -637,20 +677,6 @@ var interfaceNamesInGlobalScope =
     "MediaElementAudioSourceNode",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "MediaError",
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeyError", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaEncryptedEvent", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeys", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeySession", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeySystemAccess", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeyMessageEvent", android: false},
-// IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "MediaKeyStatusMap", android: false},
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "MediaList",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -750,9 +776,9 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "PerformanceNavigationTiming",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    "PerformanceObserver"
+    "PerformanceObserver",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    "PerformanceObserverEntryList"
+    "PerformanceObserverEntryList",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "PerformanceResourceTiming",
 // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -768,7 +794,7 @@ var interfaceNamesInGlobalScope =
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "PluginArray",
 // IMPORTANT: Do not change this list without review from a DOM peer!
-    {name: "PointerEvent", nightly: true, desktop: true, disabled: true},
+    "PointerEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "PopStateEvent",
 // IMPORTANT: Do not change this list without review from a DOM peer!
