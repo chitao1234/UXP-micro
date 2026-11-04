@@ -52,6 +52,27 @@
     {
       this.type = "TreeInvalidated";
       this.target = gTree;
+      this.match = function match(aEvent)
+      {
+        if (aEvent.originalTarget != this.target)
+          return false;
+
+        var propBag = aEvent.detail.QueryInterface(Components.interfaces.nsIPropertyBag2);
+        var names = ["startrow", "endrow", "startcolumn", "endcolumn"];
+        var expected = [aStartRow, aEndRow, aStartCol, aEndCol];
+        for (var i = 0; i < names.length; i++) {
+          var value = null;
+          try {
+            value = propBag.getPropertyAsInt32(names[i]);
+          } catch (e) {
+            if (e.name != "NS_ERROR_NOT_AVAILABLE")
+              throw e;
+          }
+          if (value !== expected[i])
+            return false;
+        }
+        return true;
+      }
       this.check = function check(aEvent)
       {
         var propBag = aEvent.detail.QueryInterface(Components.interfaces.nsIPropertyBag2);
