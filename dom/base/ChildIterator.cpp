@@ -42,6 +42,9 @@ ExplicitChildIterator::GetNextChild()
 
       mChild = (mIndexInInserted < assignedNodes.Length()) ?
         assignedNodes[mIndexInInserted++]->AsContent() : nullptr;
+      if (!mChild) {
+        mIndexInInserted = 0;
+      }
       return mChild;
     }
 
