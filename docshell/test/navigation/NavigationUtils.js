@@ -150,6 +150,7 @@ function xpcCleanupWindows() {
         (win.location.href.endsWith(target_url) ||
          win.location.href.endsWith(target_popup_url))) {
       win.close();
+    }
   });
 }
 
