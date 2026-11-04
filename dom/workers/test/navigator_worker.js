@@ -14,6 +14,7 @@ var supportedProps = [
   "onLine",
   "language",
   "languages",
+  "globalPrivacyControl",
   "hardwareConcurrency",
   { name: "storage", nightly: true },
 ];
