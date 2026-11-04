@@ -534,6 +534,7 @@ class nsHtml5ElementName
     static nsHtml5ElementName* ELT_SEMANTICS;
     static nsHtml5ElementName* ELT_TIMES;
     static nsHtml5ElementName* ELT_DT;
+    static nsHtml5ElementName* ELT_MARQUEE;
     static nsHtml5ElementName* ELT_APPLET;
     static nsHtml5ElementName* ELT_ARCCOT;
     static nsHtml5ElementName* ELT_BASEFONT;
