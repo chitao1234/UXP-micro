@@ -23,13 +23,21 @@
 //            a JavaScript Engine peer!
 var ecmaGlobals =
   [
+    "AggregateError",
     "Array",
     "ArrayBuffer",
+    "Atomics",
+    "BigInt",
+    "BigInt64Array",
+    "BigUint64Array",
     "Boolean",
+    "ByteLengthQueuingStrategy",
+    "CountQueuingStrategy",
     "DataView",
     "Date",
     "Error",
     "EvalError",
+    "FinalizationRegistry",
     "Float32Array",
     "Float64Array",
     "Function",
@@ -49,17 +57,17 @@ var ecmaGlobals =
     "Promise",
     "Proxy",
     "RangeError",
+    "ReadableStream",
     "ReferenceError",
     "Reflect",
     "RegExp",
     "Set",
-    {name: "SharedArrayBuffer", release: false},
-    {name: "Atomics", release: false},
+    "SharedArrayBuffer",
     "StopIteration",
     "String",
     "Symbol",
     "SyntaxError",
-    {name: "TypedObject", nightly: true},
+    "TypedObject",
     "TypeError",
     "Uint16Array",
     "Uint32Array",
@@ -67,7 +75,9 @@ var ecmaGlobals =
     "Uint8ClampedArray",
     "URIError",
     "WeakMap",
+    "WeakRef",
     "WeakSet",
+    "WebAssembly",
   ];
 // IMPORTANT: Do not change the list above without review from
 //            a JavaScript Engine peer!
@@ -75,6 +85,18 @@ var ecmaGlobals =
 // IMPORTANT: Do not change the list below without review from a DOM peer!
 var interfaceNamesInGlobalScope =
   [
+    "AbortController",
+    "AbortSignal",
+    "DOMMatrix",
+    "DOMMatrixReadOnly",
+    "DOMPoint",
+    "DOMPointReadOnly",
+    "DOMQuad",
+    "DOMRect",
+    "DOMRectReadOnly",
+    "EventSource",
+    "PromiseRejectionEvent",
+    "ServiceWorkerRegistration",
 // IMPORTANT: Do not change this list without review from a DOM peer!
     "Blob",
 // IMPORTANT: Do not change this list without review from a DOM peer!
