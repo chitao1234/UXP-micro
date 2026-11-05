@@ -185,6 +185,9 @@ skip-if(Android&&isDebugBuild) == grid-row-gap-004.html grid-row-gap-004-ref.htm
 == grid-repeat-auto-fill-fit-012.html grid-repeat-auto-fill-fit-012-ref.html
 == grid-repeat-auto-fill-fit-013.html grid-repeat-auto-fill-fit-013-ref.html
 == grid-item-blockifying-001.html grid-item-blockifying-001-ref.html
+# These references subtract fixed CSS-pixel border widths (e.g. 50px - 2px).
+# Fractional device scales round the used borders and invalidate that geometry.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 == grid-fragmentation-001.html grid-fragmentation-001-ref.html
 == grid-fragmentation-002.html grid-fragmentation-002-ref.html
 == grid-fragmentation-003.html grid-fragmentation-003-ref.html
@@ -278,6 +281,7 @@ asserts(0-10) == grid-fragmentation-015.html grid-fragmentation-015-ref.html # b
 == grid-fragmentation-dyn2-029.html grid-fragmentation-029-ref.html
 == grid-fragmentation-dyn2-030.html grid-fragmentation-030-ref.html
 == grid-fragmentation-dyn2-031.html grid-fragmentation-031-ref.html
+default-preferences
 == bug1306106.html bug1306106-ref.html
 == grid-percent-intrinsic-sizing-001.html grid-percent-intrinsic-sizing-001-ref.html
 == grid-item-aspect-ratio-001.html grid-item-aspect-ratio-001-ref.html
