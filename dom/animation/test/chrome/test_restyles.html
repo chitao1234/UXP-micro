@@ -40,9 +40,16 @@ function observeStyling(frameCount, onFrame) {
 
   docShell.recordProfileTimelineMarkers = true;
   docShell.popProfileTimelineMarkers();
+  var timeAtStart = document.timeline.currentTime;
+  var frameTimes = [];
 
   return new Promise(function(resolve) {
-    return waitForAnimationFrames(frameCount, onFrame).then(function() {
+    return waitForAnimationFrames(frameCount, function() {
+      frameTimes.push(document.timeline.currentTime);
+      if (onFrame) {
+        onFrame();
+      }
+    }).then(function() {
       var markers = docShell.popProfileTimelineMarkers();
       docShell.recordProfileTimelineMarkers = false;
       var stylingMarkers = markers.filter(function(marker, index) {
@@ -50,6 +57,12 @@ function observeStyling(frameCount, onFrame) {
                (marker.restyleHint == 'eRestyle_CSSAnimations' ||
                 marker.restyleHint == 'eRestyle_CSSTransitions');
       });
+      info('Animation restyle observation: ' + JSON.stringify({
+        timeAtStart, frameTimes,
+        styles: markers.filter(m => m.name == 'Styles')
+                       .map(m => ({start: m.start, end: m.end,
+                                   hint: m.restyleHint}))
+      }));
       resolve(stylingMarkers);
     });
   });
@@ -60,6 +73,15 @@ function ensureElementRemoval(aElement) {
     aElement.remove();
     waitForAllPaintsFlushed(resolve);
   });
+}
+
+// Animation.ready can resolve before the first style update. Match Firefox's
+// restyle tests by waiting for the next timeline tick only in that case.
+function* waitForAnimationReadyToRestyle(animation) {
+  yield animation.ready;
+  if (animation.startTime === document.timeline.currentTime) {
+    yield waitForAnimationFrames(1);
+  }
 }
 
 SimpleTest.waitForExplicitFinish();
@@ -83,7 +105,7 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: background-color 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(!animation.isRunningOnCompositor);
 
     var markers = yield observeStyling(5);
@@ -97,7 +119,7 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     var markers = yield observeStyling(5);
@@ -114,7 +136,7 @@ waitForAllPaints(function() {
 
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     var markers = yield observeStyling(5);
@@ -128,7 +150,7 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     div.animationDuration = '200s';
@@ -144,7 +166,7 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     animation.finish();
@@ -165,6 +187,11 @@ waitForAllPaints(function() {
     var initialRect = div.getBoundingClientRect();
 
     yield animation.finished;
+
+    var markers = yield observeStyling(1);
+    is(markers.length, 1,
+       'Finished transitions should restyle once after Animation.finished ' +
+       'was fulfilled');
 
     var mouseX = initialRect.left + initialRect.width / 2;
     var mouseY = initialRect.top + initialRect.height / 2;
@@ -188,6 +215,11 @@ waitForAllPaints(function() {
     var initialRect = div.getBoundingClientRect();
 
     yield animation.finished;
+
+    var markers = yield observeStyling(1);
+    is(markers.length, 1,
+       'Finished animations should restyle once after Animation.finished ' +
+       'was fulfilled');
 
     var mouseX = initialRect.left + initialRect.width / 2;
     var mouseY = initialRect.top + initialRect.height / 2;
@@ -213,7 +245,7 @@ waitForAllPaints(function() {
       { style: 'animation: opacity 100s; transform: translateY(-400px);' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(!animation.isRunningOnCompositor);
 
     var markers = yield observeStyling(5);
@@ -233,7 +265,7 @@ waitForAllPaints(function() {
       { style: 'animation: background-color 100s; transform: translateY(-400px);' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     var markers = yield observeStyling(5);
 
     is(markers.length, 0,
@@ -261,7 +293,7 @@ waitForAllPaints(function() {
     parentElement.appendChild(div);
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     var markers = yield observeStyling(5);
 
@@ -292,7 +324,7 @@ waitForAllPaints(function() {
     parentElement.appendChild(div);
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     var markers = yield observeStyling(5);
 
     is(markers.length, 0,
@@ -325,7 +357,7 @@ waitForAllPaints(function() {
     parentElement.appendChild(div);
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     var markers = yield observeStyling(5);
 
     is(markers.length, 0,
@@ -340,7 +372,7 @@ waitForAllPaints(function() {
      { style: 'animation: opacity 100s; visibility: hidden' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(!animation.isRunningOnCompositor);
 
     var markers = yield observeStyling(5);
@@ -367,7 +399,7 @@ waitForAllPaints(function() {
     var parentElement = addDiv(null,
       { style: 'overflow-y: scroll; height: 20px;' });
     var div = addDiv(null,
-      { style: 'animation: background-color 100s; position: relative; top: 100px;' });
+      { style: 'animation: background-color 100s; position: relative; top: 20px;' });
     parentElement.appendChild(div);
     var animation = div.getAnimations()[0];
 
@@ -375,19 +407,28 @@ waitForAllPaints(function() {
     var centerX = parentRect.left + parentRect.width / 2;
     var centerY = parentRect.top + parentRect.height / 2;
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
-    var markers = yield observeStyling(1, function() {
-      // We can't use synthesizeWheel here since synthesizeWheel causes
-      // layout flush.
-      synthesizeWheelAtPoint(centerX, centerY,
-                             { deltaMode: WheelEvent.DOM_DELTA_PIXEL,
-                               deltaY: 100 });
+    // Like Firefox's waitForWheelEvent, wait for the actual scroll rather
+    // than assuming its delivery and the animation style update share a tick.
+    var scrolled = new Promise(function(resolve) {
+      parentElement.addEventListener('scroll', resolve, { once: true });
     });
+    synthesizeWheelAtPoint(centerX, centerY,
+                           { deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+                             deltaY: 20 });
+    yield scrolled;
+    ok(parentElement.scrollTop > 0, 'The wheel moved the scrollable element');
+    var scrolledRect = div.getBoundingClientRect();
+    ok(scrolledRect.top < parentRect.bottom &&
+       scrolledRect.bottom > parentRect.top,
+       'The animated element is visible inside the scroller after the wheel');
+    yield waitForAnimationFrames(1);
 
-    is(markers.length, 1,
+    var markers = yield observeStyling(5);
+    is(markers.length, 5,
        'Animations running on the main-thread which were in scrolled out ' +
-       'elements should update restyling soon after the element moved in ' +
+       'elements should update restyling after the element moved in ' +
        'view by scrolling');
 
     yield ensureElementRemoval(parentElement);
@@ -412,7 +453,7 @@ waitForAllPaints(function() {
     var centerX = parentRect.left + parentRect.width / 2;
     var centerY = parentRect.top + parentRect.height / 2;
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     var markers = yield observeStyling(1, function() {
       // We can't use synthesizeWheel here since synthesizeWheel causes
@@ -458,7 +499,7 @@ waitForAllPaints(function() {
     var centerX = parentRect.left + parentRect.width / 2;
     var centerY = parentRect.top + parentRect.height / 2;
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     // We can't use synthesizeWheel here since synthesizeWheel causes
     // layout flush.
@@ -488,7 +529,7 @@ waitForAllPaints(function() {
     parentElement.appendChild(div);
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     var markers = yield observeStyling(1, function() {
       parentElement.style.height = '100px';
@@ -507,7 +548,7 @@ waitForAllPaints(function() {
      { style: 'animation: background-color 100s; visibility: hidden' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     var markers = yield observeStyling(5);
 
     todo_is(markers.length, 0,
@@ -520,12 +561,17 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     animation.pause();
 
     yield animation.ready;
+
+    var markers = yield observeStyling(1);
+    is(markers.length, 1,
+       'Animations running on the compositor should restyle once after ' +
+       'Animation.pause() was called');
 
     var markers = yield observeStyling(5);
     is(markers.length, 0,
@@ -538,11 +584,16 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: background-color 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     animation.pause();
 
     yield animation.ready;
+
+    var markers = yield observeStyling(1);
+    is(markers.length, 1,
+       'Animations running on the main-thread should restyle once after ' +
+       'Animation.pause() was called');
 
     var markers = yield observeStyling(5);
     is(markers.length, 0,
@@ -555,7 +606,7 @@ waitForAllPaints(function() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     animation.currentTime = 50 * MS_PER_SEC;
 
@@ -570,7 +621,7 @@ waitForAllPaints(function() {
     var div = addDiv(null);
     var animation = div.animate({ opacity: [ 0, 1 ] }, 100 * MS_PER_SEC);
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
 
     // Set currentTime to a time longer than duration.
@@ -594,12 +645,12 @@ waitForAllPaints(function() {
     var animation = div.animate({ backgroundColor: [ 'red', 'blue' ] },
                                 100 * MS_PER_SEC);
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     div.style.display = 'none';
 
     // We need to wait a frame to apply display:none style.
-    yield waitForFrame();
+    yield waitForAnimationFrames(1);
 
     is(animation.playState, 'running',
        'Script animations keep running even when the target element has ' +
@@ -616,7 +667,7 @@ waitForAllPaints(function() {
     div.style.display = '';
 
     // We need to wait a frame to unapply display:none style.
-    yield waitForFrame();
+    yield waitForAnimationFrames(1);
 
     var markers = yield observeStyling(5);
     is(markers.length, 5,
@@ -630,12 +681,12 @@ waitForAllPaints(function() {
     var div = addDiv(null);
     var animation = div.animate({ opacity: [ 0, 1 ] }, 100 * MS_PER_SEC);
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     div.style.display = 'none';
 
     // We need to wait a frame to apply display:none style.
-    yield waitForFrame();
+    yield waitForAnimationFrames(1);
 
     is(animation.playState, 'running',
        'Opacity script animations keep running even when the target element ' +
@@ -653,7 +704,7 @@ waitForAllPaints(function() {
     div.style.display = '';
 
     // We need to wait a frame to unapply display:none style.
-    yield waitForFrame();
+    yield waitForAnimationFrames(1);
 
     ok(animation.isRunningOnCompositor,
        'Opacity script animations restored from "display: none" should be ' +
@@ -666,7 +717,7 @@ waitForAllPaints(function() {
     var div = addDiv(null);
     var animation = div.animate({ }, 100 * MS_PER_SEC);
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     var markers = yield observeStyling(5);
 
     is(markers.length, 0,
@@ -692,7 +743,7 @@ waitForAllPaints(function() {
   add_task_if_omta_enabled(function* no_restyling_when_animation_style_when_re_setting_same_animation_property() {
     var div = addDiv(null, { style: 'animation: opacity 100s' });
     var animation = div.getAnimations()[0];
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     ok(animation.isRunningOnCompositor);
     // Apply the same animation style
     div.style.animation = 'opacity 100s';
@@ -706,11 +757,16 @@ waitForAllPaints(function() {
   add_task(function* necessary_update_should_be_invoked() {
     var div = addDiv(null, { style: 'animation: background-color 100s' });
     var animation = div.getAnimations()[0];
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
     yield waitForAnimationFrames(5);
     // Apply another animation style
     div.style.animation = 'background-color 110s';
-    var animation = div.getAnimations()[0];
+    // Do not synchronously flush the style change with getAnimations().
+    // Firefox measures the before/after animation updates in this first tick.
+    var markers = yield observeStyling(1);
+    is(markers.length, 2,
+       'Applying animation style with different duration should restyle twice');
+
     var markers = yield observeStyling(5);
     is(markers.length, 5,
        'Applying animation style with different duration '  +
@@ -724,7 +780,7 @@ waitForAllPaints(function() {
       var animation = div.animate({ opacity: [0, 1],
                                     backgroundColor: ['green', 'red'] },
                                   100 * MS_PER_SEC);
-      yield animation.ready;
+      yield* waitForAnimationReadyToRestyle(animation);
       ok(animation.isRunningOnCompositor,
          'The opacity animation is running on the compositor');
       // Make the background-color style as !important to cause an update
@@ -746,7 +802,7 @@ waitForAllPaints(function() {
     var animation = div.animate({ marginLeft: [ '0px', '100px' ] },
                                 100 * MS_PER_SEC);
 
-    yield animation.ready;
+    yield* waitForAnimationReadyToRestyle(animation);
 
     div.remove();
 
@@ -779,7 +835,7 @@ waitForAllPaints(function() {
       var div = addDiv(null, { style: 'opacity: 1 ! important' });
       var animation = div.animate({ opacity: [0, 1] }, 100 * MS_PER_SEC);
 
-      yield animation.ready;
+      yield* waitForAnimationReadyToRestyle(animation);
       ok(!animation.isRunningOnCompositor,
          'The opacity animation overridden by an !important rule is NOT ' +
          'running on the compositor');
