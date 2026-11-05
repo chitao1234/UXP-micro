@@ -423,7 +423,7 @@
                     <vbox id="response-content-textarea" flex="1"/>
                   </vbox>
                   <vbox id="response-content-image-box" flex="1" hidden="true">
-                    <image id="response-content-image"/>
+                    <html:img id="response-content-image"/>
                     <hbox>
                       <label class="plain tabpanel-summary-label"
                              data-localization="content=netmonitor.response.name"/>

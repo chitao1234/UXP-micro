@@ -922,11 +922,9 @@ NetworkDetailsView.prototype = {
 
       // Wait for the image to load in order to display the width and height.
       $("#response-content-image").onload = e => {
-        // XUL images are majestic so they don't bother storing their dimensions
-        // in width and height attributes like the rest of the folk. Hack around
-        // this by getting the bounding client rect and subtracting the margins.
-        let { width, height } = e.target.getBoundingClientRect();
-        let dimensions = (width - 2) + " \u00D7 " + (height - 2);
+        // Show source dimensions, independent of display scaling, zoom or the
+        // preview's border. Match the HTML image preview in current Firefox.
+        let dimensions = e.target.naturalWidth + " \u00D7 " + e.target.naturalHeight;
         $("#response-content-image-dimensions-value").setAttribute("value",
           dimensions);
       };
