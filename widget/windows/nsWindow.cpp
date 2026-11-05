@@ -217,6 +217,7 @@ using namespace mozilla::widget;
 // Release-capable, opt-in diagnostics for modal picker/owner lifetime. Do not
 // use MOZ_LOG here: this tree compiles that macro out of optimized builds.
 static LazyLogModule sWindowFilePickerLifecycleLog("FilePickerLifecycle");
+static LazyLogModule sNativeInputLog("NativeInput");
 #define WINDOW_FILE_PICKER_LIFECYCLE_LOG(...)                               \
   do {                                                                    \
     if (mozilla::detail::log_test(sWindowFilePickerLifecycleLog,             \
@@ -6350,14 +6351,32 @@ nsWindow::SynthesizeNativeMouseEvent(LayoutDeviceIntPoint aPoint,
     // event, because the callers of this function expect that.
     sLastMouseMovePoint = {0};
   }
-  ::SetCursorPos(aPoint.x, aPoint.y);
+  BOOL cursorSet = ::SetCursorPos(aPoint.x, aPoint.y);
+  DWORD cursorError = cursorSet ? ERROR_SUCCESS : ::GetLastError();
 
   INPUT input;
   memset(&input, 0, sizeof(input));
 
   input.type = INPUT_MOUSE;
   input.mi.dwFlags = aNativeMessage;
-  ::SendInput(1, &input, sizeof(INPUT));
+  UINT sent = ::SendInput(1, &input, sizeof(INPUT));
+  DWORD lastError = ::GetLastError();
+  if (mozilla::detail::log_test(sNativeInputLog, LogLevel::Debug)) {
+    POINT cursor = {0, 0};
+    BOOL cursorRead = ::GetCursorPos(&cursor);
+    POINT requested = {aPoint.x, aPoint.y};
+    HWND hit = ::WindowFromPoint(requested);
+    DWORD hitPID = 0;
+    ::GetWindowThreadProcessId(hit, &hitPID);
+    mozilla::detail::log_print(sNativeInputLog, LogLevel::Debug,
+      "mouse widget=%p message=%u requested=(%d,%d) cursorSet=%d "
+      "cursorError=%lu sent=%u inputSize=%u inputError=%lu "
+      "cursorRead=%d cursor=(%ld,%ld) hit=%p hitPID=%lu foreground=%p",
+      mWnd, aNativeMessage, aPoint.x, aPoint.y, cursorSet, cursorError,
+      sent, unsigned(sizeof(INPUT)), sent ? ERROR_SUCCESS : lastError,
+      cursorRead, cursor.x, cursor.y, hit, hitPID, ::GetForegroundWindow());
+    ::SetLastError(lastError);
+  }
 
   return NS_OK;
 }
