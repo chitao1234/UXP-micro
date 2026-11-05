@@ -764,9 +764,9 @@ EditorEventListener::HandleMiddleClickPaste(nsIDOMMouseEvent* aMouseEvent)
     editorBase->Paste(clipboard);
   }
 
-  // Prevent the event from propagating up to be possibly handled
-  // again by the containing window:
-  aMouseEvent->AsEvent()->StopPropagation();
+  // The browser click handler ignores editable targets, as in upstream's
+  // ClickHandlerChild. Default prevention suffices; system-group listeners
+  // must still be able to observe the consumed auxclick.
   aMouseEvent->AsEvent()->PreventDefault();
 
   // We processed the event, whether drop/paste succeeded or not
