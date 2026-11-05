@@ -81,7 +81,7 @@ function runTests()
     keyDownEventConsumed = false;
   }
 
-  function check(aExpectingKeydownConsumed, aDescription)
+  function check(aExpectingKeydownConsumed, aDescription, aIsPrintableKey = false)
   {
     if (doPreventDefault) {
       ok(!keyPressEventFired, "keypress event shouldn't be fired for " + aDescription +
@@ -95,7 +95,8 @@ function runTests()
       ok(!keyDownEventConsumedByJS, "keydown event of " + aDescription + " shouldn't be consumed in content level");
       ok(keyDownEventConsumed, "keydown event of " + aDescription + " should be consumed in system level");
     } else {
-      ok(keyPressEventFired, "keypress event should be fired for " + aDescription);
+      is(keyPressEventFired, aIsPrintableKey,
+         "keypress is fired only for printable keys: " + aDescription);
       ok(!keyDownEventConsumedByJS, "keydown event of " + aDescription + " shouldn't be consumed in content level");
       ok(!keyDownEventConsumed, "keydown event of " + aDescription + " should be consumed in system level");
     }
@@ -160,7 +161,7 @@ function runTests()
 
     reset()
     synthesizeKey("VK_RETURN", {});
-    check(false, "Enter key on listbox");
+    check(false, "Enter key on listbox", true);
 
     reset()
     synthesizeKey("VK_ESCAPE", {});
@@ -172,7 +173,7 @@ function runTests()
 
     reset()
     synthesizeKey("a", {});
-    check(false, "'A' key on listbox");
+    check(false, "'A' key on listbox", true);
   });
 
   listbox.removeEventListener("keydown", onKeydown, false);
@@ -252,7 +253,7 @@ function runTests()
 
     reset()
     synthesizeKey("a", {});
-    check(false, "'A' key on multiple listbox");
+    check(false, "'A' key on multiple listbox", true);
   });
 
   multipleListbox.removeEventListener("keydown", onKeydown, false);
@@ -324,11 +325,11 @@ function runTests()
 
     reset()
     synthesizeKey("VK_RETURN", {});
-    check(false, "Enter key on combobox");
+    check(false, "Enter key on combobox", true);
 
     reset()
     synthesizeKey("VK_ESCAPE", {});
-    check(true, "Esc key on combobox");
+    check(false, "Esc key on combobox");
 
     if (!kIsWin) {
       reset()
@@ -338,7 +339,7 @@ function runTests()
 
     reset()
     synthesizeKey("a", {});
-    check(false, "'A' key on combobox");
+    check(false, "'A' key on combobox", true);
   });
 
   function finish()

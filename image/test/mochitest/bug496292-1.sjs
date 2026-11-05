@@ -9,7 +9,9 @@ function handleRequest(request, response)
   file.append("test");
   file.append("mochitest");
 
-  if (request.getHeader("Accept") == "*/*") {
+  // Keep an independent expectation for the platform's default image header.
+  // UXP fb0c204f2b added WebP/JXL and quality-weighted fallback types.
+  if (request.getHeader("Accept") == "image/webp,image/jxl,image/png,image/*;q=0.8,*/*;q=0.5") {
     file.append('blue.png');
   } else {
     file.append('red.png');
