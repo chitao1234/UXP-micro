@@ -1455,8 +1455,15 @@ function UpdateCurrentCanvasForInvalidation(rects)
         bottom = Math.max(0, Math.min(bottom, gCurrentCanvas.height));
 
         ctx.save();
-        ctx.translate(left, top);
-        DoDrawWindow(ctx, left, top, right - left, bottom - top);
+        // Keep the source origin fixed when resampling widget layers to the
+        // canvas. At fractional device scales, a cropped drawWindow can use a
+        // different sampling phase than the initial full-window snapshot.
+        // Only replace the invalidated pixels, so missing invalidations are
+        // still detected by the final comparison.
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, bottom - top);
+        ctx.clip();
+        DoDrawWindow(ctx, 0, 0, gCurrentCanvas.width, gCurrentCanvas.height);
         ctx.restore();
     }
 }
