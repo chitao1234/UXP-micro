@@ -399,6 +399,12 @@
     var gQueue = null;
     function doTest()
     {
+      // scrollbar-width must reach the anonymous editor, not merely compute on
+      // the outer textarea. A hidden scrollbar must not consume text width.
+      var wrapped = getNode("ta_wrapped");
+      is(wrapped.clientWidth,
+         Math.round(parseFloat(getComputedStyle(wrapped).width)),
+         "scrollbar-width:none preserves the textarea's authored text width");
       gQueue = new eventQueue();
 
       // __a__w__o__r__d__\n
@@ -449,7 +455,12 @@
   <textarea id="textarea" cols="5">aword
 two words</textarea>
 
-  <textarea id="ta_wrapped" cols="5">hi hello my longfriend t sq t</textarea>
+  <!-- Keep scrollbar sizing out of the boundary fixture, as in upstream.
+       Use five monospace advances explicitly: cols-based intrinsic sizing can
+       add font-metric padding on this text-control implementation. -->
+  <textarea id="ta_wrapped" cols="5"
+    style="font-family: monospace; width: 5ch; box-sizing: content-box;
+           padding: 0; scrollbar-width: none;">hi hello my longfriend t sq t</textarea>
   </pre>
 </body>
 </html>
