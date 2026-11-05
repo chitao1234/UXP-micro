@@ -42,7 +42,7 @@ add_task(function* runTest() {
   // The expected stack trace object.
   let stacktrace = [
     {
-      columnNumber: 3,
+      columnNumber: 11,
       filename: TEST_URI,
       functionName: "inner",
       language: 2,
@@ -50,11 +50,11 @@ add_task(function* runTest() {
     },
     {
       asyncCause: "promise callback",
-      columnNumber: 3,
+      columnNumber: 6,
       filename: TEST_URI,
       functionName: "time1",
       language: 2,
-      lineNumber: 13,
+      lineNumber: 15,
     },
     {
       asyncCause: "setTimeout handler",

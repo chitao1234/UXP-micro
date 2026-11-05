@@ -33,7 +33,7 @@ add_task(function* () {
   // The expected stack trace object.
   let stacktrace = [
     {
-      columnNumber: 3,
+      columnNumber: 11,
       filename: TEST_URI,
       functionName: "window.foobar585956c",
       language: 2,

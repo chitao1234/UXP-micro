@@ -136,22 +136,24 @@ function testRemoveBinaryDataFromMultipartText(data) {
     "'"
   ].join("");
 
+  // UXP's cmd.exe encoder keeps a single quoted argument and represents
+  // each CRLF as a caret plus two line feeds. Keep the payload oracle literal.
   const EXPECTED_WIN_RESULT = [
-    '"' + boundary + '"^',
-    "\u000d\u000A\u000d\u000A",
-    '"Content-Disposition: form-data; name=""param1"""^',
-    "\u000d\u000A\u000d\u000A",
-    '"value1"^',
-    "\u000d\u000A",
-    '"' + boundary + '"^',
-    "\u000d\u000A\u000d\u000A",
-    '"Content-Disposition: form-data; name=""file""; filename=""filename.png"""^',
-    "\u000d\u000A",
-    '"Content-Type: image/png"^',
-    "\u000d\u000A\u000d\u000A",
-    '"' + boundary + '--"^',
-    "\u000d\u000A",
-    '""'
+    '"' + boundary,
+    "^\n\n^\n\n",
+    'Content-Disposition: form-data; name=""param1""',
+    "^\n\n^\n\n",
+    'value1',
+    "^\n\n",
+    boundary,
+    "^\n\n^\n\n",
+    'Content-Disposition: form-data; name=""file""; filename=""filename.png""',
+    "^\n\n",
+    'Content-Type: image/png',
+    "^\n\n^\n\n",
+    boundary + "--",
+    "^\n\n",
+    '"'
   ].join("");
 
   if (Services.appinfo.OS != "WINNT") {
@@ -206,7 +208,7 @@ function testEscapeStringWin() {
     "Double quotes should be escaped.");
 
   let percentSigns = "%AppData%";
-  is(CurlUtils.escapeStringWin(percentSigns), '""%"AppData"%""',
+  is(CurlUtils.escapeStringWin(percentSigns), '"^%^AppData^%"',
     "Percent signs should be escaped.");
 
   let backslashes = "\\A simple string\\";
@@ -215,7 +217,7 @@ function testEscapeStringWin() {
 
   let newLines = "line1\r\nline2\r\nline3";
   is(CurlUtils.escapeStringWin(newLines),
-    '"line1"^\u000d\u000A"line2"^\u000d\u000A"line3"',
+    '"line1^\n\nline2^\n\nline3"',
     "Newlines should be escaped.");
 }
 
