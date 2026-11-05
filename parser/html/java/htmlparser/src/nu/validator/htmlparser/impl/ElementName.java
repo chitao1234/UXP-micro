@@ -1968,7 +1968,7 @@ public final class ElementName
     // CPPONLY: NS_NewSVGUnknownElement, 
     TreeBuilder.DD_OR_DT | SPECIAL | OPTIONAL_END_TAG);
     public static final ElementName MARQUEE = new ElementName("marquee", "marquee",
-    // CPPONLY: NS_NewHTMLUnknownElement,
+    // CPPONLY: NS_NewHTMLDivElement,
     // CPPONLY: NS_NewSVGUnknownElement,
     TreeBuilder.MARQUEE_OR_APPLET | SPECIAL | SCOPING);
     public static final ElementName APPLET = new ElementName("applet", "applet", 

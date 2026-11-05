@@ -79,6 +79,31 @@ var tests = [
     policy: "script-src 'strict-dynamic' 'nonce-foo'"
   },
   {
+    // Marquee's chrome XBL must honor the content document's script policy.
+    desc: "strict-dynamic with DOM events should be blocked (XBL)",
+    result: "blocked",
+    file: "file_strict_dynamic_script_events_xbl.html",
+    policy: "script-src 'strict-dynamic' 'nonce-foo'"
+  },
+  {
+    desc: "marquee inline handler is allowed by script-src fallback",
+    result: "allowed",
+    file: "file_strict_dynamic_script_events_xbl.html",
+    policy: "script-src 'unsafe-inline' 'unsafe-eval'"
+  },
+  {
+    desc: "script-src-attr blocks marquee despite permissive script-src",
+    result: "blocked",
+    file: "file_strict_dynamic_script_events_xbl.html",
+    policy: "script-src 'unsafe-inline' 'unsafe-eval'; script-src-attr 'none'"
+  },
+  {
+    desc: "script-src-attr allows marquee despite restrictive script-src",
+    result: "allowed",
+    file: "file_strict_dynamic_script_events_xbl.html",
+    policy: "script-src 'unsafe-eval'; script-src-attr 'unsafe-inline'"
+  },
+  {
     desc: "strict-dynamic with JS URLs should be blocked",
     result: "blocked",
     file: "file_strict_dynamic_js_url.html",

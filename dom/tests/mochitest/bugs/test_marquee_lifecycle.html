@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Marquee motion, rebinding, and teardown</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script src="/tests/SimpleTest/SpawnTask.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<div id="content"></div>
+<script>
+"use strict";
+
+function delay(ms) {
+  return new Promise(resolve => {
+    let begin = performance.now();
+    function tick() {
+      if (performance.now() - begin >= ms) {
+        resolve();
+      } else {
+        requestAnimationFrame(tick);
+      }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+function* waitFor(condition, message) {
+  for (let attempt = 0; attempt < 100; ++attempt) {
+    if (condition()) {
+      ok(true, message);
+      return;
+    }
+    yield delay(20);
+  }
+  ok(false, message);
+  throw new Error(message);
+}
+
+function outer(marquee) {
+  let nodes = SpecialPowers.wrap(document).getAnonymousNodes(marquee);
+  return nodes && nodes[0];
+}
+
+SimpleTest.waitForExplicitFinish();
+let finishConsole;
+let consoleDrained = new Promise(resolve => finishConsole = resolve);
+let bindingErrors = [];
+SpecialPowers.registerConsoleListener(message => {
+  if (message.message == "SENTINEL") {
+    is(bindingErrors.length, 0, "no binding errors during motion or teardown: " + bindingErrors.join("; "));
+    finishConsole();
+  } else if (message.isScriptError &&
+             message.sourceName.includes("chrome://xbl-marquee/")) {
+    bindingErrors.push(message.message);
+  }
+});
+spawn_task(function*() {
+  let m = document.createElement("marquee");
+  is(m.constructor, HTMLDivElement, "createElement uses the restored native creator");
+  m.setAttribute("width", "200");
+  m.setAttribute("height", "40");
+  m.setAttribute("bgcolor", "lime");
+  m.setAttribute("hspace", "3");
+  m.setAttribute("vspace", "4");
+  m.setAttribute("scrollamount", "5");
+  m.textContent = "moving marquee text";
+  document.getElementById("content").appendChild(m);
+  m.getBoundingClientRect();
+  info("marquee binding=" + getComputedStyle(m).MozBinding +
+       ", anonymous content=" + !!outer(m) + ", stop=" + typeof m.stop);
+  yield* waitFor(() => typeof m.stop == "function", "binding installed");
+  is(getComputedStyle(m).width, "200px", "width attribute is mapped");
+  is(getComputedStyle(m).height, "40px", "height attribute is mapped");
+  is(getComputedStyle(m).backgroundColor, "rgb(0, 255, 0)", "bgcolor is mapped");
+  is(getComputedStyle(m).marginLeft, "3px", "hspace is mapped");
+  is(getComputedStyle(m).marginTop, "4px", "vspace is mapped");
+
+  let box = outer(m);
+  let initial = box.scrollLeft;
+  yield* waitFor(() => box.scrollLeft > initial, "horizontal marquee advances");
+  m.stop();
+  let stopped = box.scrollLeft;
+  yield delay(180);
+  is(box.scrollLeft, stopped, "stop cancels motion");
+  m.start();
+  yield* waitFor(() => box.scrollLeft > stopped, "start resumes motion");
+
+  // Case-insensitive attribute matching must select the vertical binding.
+  m.setAttribute("direction", "UP");
+  m.getBoundingClientRect();
+  yield* waitFor(() => outer(m) != box, "direction replaces the binding");
+  box = outer(m);
+  yield* waitFor(() => box.scrollTop > 0, "vertical marquee advances");
+
+  // Removing a binding must disconnect its observer and cancel its timer.
+  let starts = 0;
+  m.addEventListener("start", () => ++starts);
+  m.setAttribute("scrollamount", "10000");
+  yield* waitFor(() => starts > 0, "rapid motion dispatches loop events");
+  let stoppedInHandler = false;
+  function stopInHandler() {
+    m.stop();
+    stoppedInHandler = true;
+    m.removeEventListener("start", stopInHandler);
+  }
+  m.addEventListener("start", stopInHandler);
+  yield* waitFor(() => stoppedInHandler, "a start handler can stop the marquee");
+  let stoppedStarts = starts;
+  yield delay(180);
+  is(starts, stoppedStarts, "the current callback does not restart stopped motion");
+  m.start();
+  yield* waitFor(() => starts > stoppedStarts, "motion restarts after handler stop");
+  m.remove();
+  yield new Promise(resolve => SimpleTest.executeSoon(resolve));
+  let detachedStarts = starts;
+  m.setAttribute("loop", "2");
+  m.setAttribute("scrolldelay", "60");
+  yield delay(180);
+  is(starts, detachedStarts, "attribute changes do not restart detached motion");
+
+  // Reattachment gets fresh state and fresh anonymous content.
+  m.setAttribute("scrollamount", "5");
+  document.getElementById("content").appendChild(m);
+  m.getBoundingClientRect();
+  yield* waitFor(() => outer(m) && outer(m) != box,
+                 "reattachment initializes fresh anonymous content");
+  box = outer(m);
+  yield* waitFor(() => box.scrollTop > 0, "reattachment resumes vertical motion");
+  m.stop();
+
+  m.contentEditable = "true";
+  m.getBoundingClientRect();
+  yield* waitFor(() => outer(m) && outer(m) != box,
+                 "editing replaces the scrolling binding");
+  ok(getComputedStyle(m).MozBinding.includes("marquee-vertical-editable"),
+     "read-write UA rule selects the editable binding");
+  box = outer(m);
+  let editablePosition = box.scrollTop;
+  yield delay(180);
+  is(box.scrollTop, editablePosition, "editable text does not animate");
+  m.remove();
+  yield delay(180);
+}).catch(error => {
+  ok(false, error.message + "\n" + error.stack);
+}).then(() => {
+  SpecialPowers.postConsoleSentinel();
+  return consoleDrained;
+}).then(SimpleTest.finish);
+</script>

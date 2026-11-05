@@ -11927,7 +11927,7 @@ nsIDocument::InlineScriptAllowedByCSP()
   NS_ENSURE_SUCCESS(rv, true);
   bool allowsInlineScript = true;
   if (csp) {
-    nsresult rv = csp->GetAllowsInline(nsIContentPolicy::TYPE_SCRIPT,
+    nsresult rv = csp->GetAllowsInline(nsIContentSecurityPolicy::SCRIPT_SRC_ATTR_DIRECTIVE,
                                        EmptyString(), // aNonce
                                        true,          // aParserCreated
                                        EmptyString(), // FIXME get script sample (bug 1314567)

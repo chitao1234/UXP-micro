@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+
+<bindings id="marqueeBindings"
+          xmlns="http://www.mozilla.org/xbl"
+          xmlns:html="http://www.w3.org/1999/xhtml"
+          xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+          xmlns:xbl="http://www.mozilla.org/xbl">
+
+
+  <binding id="marquee-horizontal" bindToUntrustedContent="true"
+           inheritstyle="false">
+
+#include marquee-impl.inc
+
+    <!-- White-space isn't allowed because a marquee could be
+         inside 'white-space: pre' -->
+    <content>
+      <html:div style="display: -moz-box; overflow: hidden; width: -moz-available;"
+        ><html:div style="display: -moz-box;"
+          ><html:div class="innerDiv" style="display: table; border-spacing: 0;"
+            ><html:div
+              ><children
+            /></html:div
+          ></html:div
+        ></html:div
+      ></html:div>
+    </content>
+
+  </binding>
+
+  <binding id="marquee-vertical" bindToUntrustedContent="true"
+           inheritstyle="false">
+
+#include marquee-impl.inc
+
+    <!-- White-space isn't allowed because a marquee could be
+         inside 'white-space: pre' -->
+    <content>
+      <html:div style="overflow: hidden; width: -moz-available;"
+        ><html:div class="innerDiv"
+          ><children
+        /></html:div
+      ></html:div>
+    </content>
+
+  </binding>
+
+  <binding id="marquee-horizontal-editable" bindToUntrustedContent="true"
+           inheritstyle="false">
+
+    <!-- White-space isn't allowed because a marquee could be
+         inside 'white-space: pre' -->
+    <content>
+      <html:div style="display: inline-block; overflow: auto; width: -moz-available;"
+        ><children
+      /></html:div>
+    </content>
+
+  </binding>
+
+  <binding id="marquee-vertical-editable" bindToUntrustedContent="true"
+           inheritstyle="false">
+
+    <!-- White-space isn't allowed because a marquee could be
+         inside 'white-space: pre' -->
+    <content>
+      <html:div style="overflow: auto; height: inherit; width: -moz-available;"
+        ><children/></html:div>
+    </content>
+
+  </binding>
+
+</bindings>

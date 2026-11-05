@@ -18,6 +18,7 @@ with Files('CSSRuleList.*'):
 with Files('nsDOM*'):
     BUG_COMPONENT = ('Core', 'DOM: CSS Object Model')
 
+DIRS += ['xbl-marquee']
 TEST_DIRS += ['test']
 
 if CONFIG['ENABLE_TESTS']:

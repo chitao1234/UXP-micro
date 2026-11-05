@@ -818,7 +818,7 @@ nsHtml5ElementName::initializeStatics()
   ELT_SEMANTICS = new nsHtml5ElementName(nsHtml5Atoms::semantics, nsHtml5Atoms::semantics, NS_NewHTMLUnknownElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::OTHER);
   ELT_TIMES = new nsHtml5ElementName(nsHtml5Atoms::times, nsHtml5Atoms::times, NS_NewHTMLUnknownElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::OTHER);
   ELT_DT = new nsHtml5ElementName(nsHtml5Atoms::dt, nsHtml5Atoms::dt, NS_NewHTMLElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::DD_OR_DT | SPECIAL | OPTIONAL_END_TAG);
-  ELT_MARQUEE = new nsHtml5ElementName(nsHtml5Atoms::marquee, nsHtml5Atoms::marquee, NS_NewHTMLUnknownElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::MARQUEE_OR_APPLET | SPECIAL | SCOPING);
+  ELT_MARQUEE = new nsHtml5ElementName(nsHtml5Atoms::marquee, nsHtml5Atoms::marquee, NS_NewHTMLDivElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::MARQUEE_OR_APPLET | SPECIAL | SCOPING);
   ELT_APPLET = new nsHtml5ElementName(nsHtml5Atoms::applet, nsHtml5Atoms::applet, NS_NewHTMLSharedObjectElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::MARQUEE_OR_APPLET | SPECIAL | SCOPING);
   ELT_ARCCOT = new nsHtml5ElementName(nsHtml5Atoms::arccot, nsHtml5Atoms::arccot, NS_NewHTMLUnknownElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::OTHER);
   ELT_BASEFONT = new nsHtml5ElementName(nsHtml5Atoms::basefont, nsHtml5Atoms::basefont, NS_NewHTMLElement, NS_NewSVGUnknownElement, nsHtml5TreeBuilder::LINK_OR_BASEFONT_OR_BGSOUND | SPECIAL);

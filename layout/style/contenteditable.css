@@ -80,6 +80,15 @@ input[contenteditable="true"][type="file"] {
   -moz-user-focus: none !important;
 }
 
+/* emulation of non-standard HTML <marquee> tag */
+marquee:read-write {
+  -moz-binding: url('chrome://xbl-marquee/content/xbl-marquee.xml#marquee-horizontal-editable');
+}
+
+marquee[direction="up"]:read-write, marquee[direction="down"]:read-write {
+  -moz-binding: url('chrome://xbl-marquee/content/xbl-marquee.xml#marquee-vertical-editable');
+}
+
 *|*:read-write > input[type="hidden"],
 input[contenteditable="true"][type="hidden"] {
   border: 1px solid black !important;
