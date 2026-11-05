@@ -1,4 +1,8 @@
 # PngSuite - Background colors
+
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 #
 # Note 1: The first 4 images have no bKGD chunk, the last 4 do. The background
 # color indicated by bKGD isn't used, so the two sets of images are rendered

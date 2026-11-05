@@ -1,5 +1,9 @@
 # PngSuite - Image filtering
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 # f00n0g08 - grayscale, no interlacing, filter-type 0
 == f00n0g08.png f00n0g08.html
 # f00n2c08 - color, no interlacing, filter-type 0

@@ -1,5 +1,9 @@
 # PngSuite - Ancillary chunks
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 # cHRM chunks
 #
 # ccwn2c08 - gamma 1.0000 chunk, chroma chunk w:0.3127,0.3290 r:0.64,0.33 g:0.30,0.60 b:0.15,0.06

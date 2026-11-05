@@ -1,5 +1,9 @@
 # PngSuite - Gamma values
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 # g03n0g16 - grayscale, file-gamma = 0.35
 == g03n0g16.png g03n0g16.html
 # g03n2c08 - color, file-gamma = 0.35

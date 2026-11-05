@@ -1,5 +1,9 @@
 # PngSuite - Additional palettes
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 # pp0n2c16 - six-cube palette-chunk in true-color image
 == pp0n2c16.png pp0n2c16.html
 # pp0n6a08 - six-cube palette-chunk in true-color+alpha image

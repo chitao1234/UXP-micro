@@ -1,5 +1,9 @@
 # PngSuite - Transparency
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 # tbbn1g04 - transparent, black background chunk
 == wrapper.html?tbbn1g04.png tbbn1g04.html
 # tbbn2c16 - transparent, blue background chunk

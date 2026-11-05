@@ -1,4 +1,8 @@
 # PngSuite - Chunk ordering
+
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 #
 # The resulting images of a type (color or grayscale) should all look the
 # same, so they share common HTML reference files.

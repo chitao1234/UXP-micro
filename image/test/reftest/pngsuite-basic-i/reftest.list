@@ -1,5 +1,9 @@
 # PngSuite - Basic formats (interlaced)
 
+# Compare decoded PNG pixels with one CSS table cell per pixel.
+# Fractional device scaling filters the image but snaps the cell boundaries.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 
 # basi0g01 - black & white
 == basi0g01.png basi0g01.html
