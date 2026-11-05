@@ -17,12 +17,16 @@ SimpleTest.waitForExplicitFinish();
 
 var f = document.getElementById('form');
 var fd = new FormData(f);
-is(fd.get("test"), "", "We want an empty string.");
+var get = fd.get("test");
+ok(get instanceof File, "We want a File object.");
+is(get.name, "", "We want a File with an empty name.");
+is(get.type, "application/octet-stream", "We want an empty File's MIME type.");
+is(get.size, 0, "We want a File with an empty body.");
 
 var getAll = fd.getAll("test");
-ok(Array.isArray(getAll), "We want an array with 1 empty string.");
-is(getAll.length, 1, "We want an array with 1 empty string.");
-is(getAll[0], "", "We want an array with 1 empty string.");
+ok(Array.isArray(getAll), "We want an array with 1 empty File.");
+is(getAll.length, 1, "We want an array with 1 empty File.");
+is(getAll[0], get, "getAll returns the same File as get.");
 
 var xhr = new XMLHttpRequest();
 xhr.open("POST", "file_bug1250148.sjs", true);

@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <meta charset=utf-8>
-<title>Test script elements with type="module" are not run for content HTML</title>
+<title>Test script elements with type="module" run for content HTML</title>
 <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
 <script>
   var inlineModuleRan = false;
@@ -9,8 +9,9 @@
   SimpleTest.waitForExplicitFinish();
 
   function testLoaded() {
-    ok(!moduleRan, "Check module script was not run");
-    ok(!inlineModuleRan, "Check inline module script was not run");
+    // The historical filename predates support for modules in content.
+    ok(moduleRan, "Check external module script was run");
+    ok(inlineModuleRan, "Check inline module script was run");
     SimpleTest.finish();
   }
 </script>

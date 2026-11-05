@@ -33,9 +33,10 @@ var tests = [
   {version: "1.3", enabled: false},
   {version: "1.4", enabled: false},
   {version: "1.5", enabled: false},
-  {version: "1.6", enabled: true},
-  {version: "1.7", enabled: true},
-  {version: "1.8", enabled: true},
+  // Script MIME version parameters no longer select a legacy JS dialect.
+  {version: "1.6", enabled: false},
+  {version: "1.7", enabled: false},
+  {version: "1.8", enabled: false},
 ];
 
 var count = 0;

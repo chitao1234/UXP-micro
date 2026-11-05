@@ -147,6 +147,11 @@ const kEventConstructors = {
                                                          return new FontFaceSetLoadEvent(aName, aProps);
                                                        },
                                              },
+  FormDataEvent:                             { create: function (aName, aProps) {
+                                                         aProps.formData = new FormData();
+                                                         return new FormDataEvent(aName, aProps);
+                                                       },
+                                             },
   GamepadEvent:                              { create: function (aName, aProps) {
                                                          return new GamepadEvent(aName, aProps);
                                                        },
@@ -185,6 +190,10 @@ const kEventConstructors = {
                                              },
   MediaEncryptedEvent:                       { create: function (aName, aProps) {
                                                          return new MediaEncryptedEvent(aName, aProps);
+                                                       },
+                                             },
+  MediaQueryListEvent:                       { create: function (aName, aProps) {
+                                                         return new MediaQueryListEvent(aName, aProps);
                                                        },
                                              },
   MediaKeyMessageEvent:                      { create: function (aName, aProps) {
@@ -319,6 +328,11 @@ const kEventConstructors = {
                                                          return new RecordErrorEvent(aName, aProps);
                                                        },
                                              },
+  PromiseRejectionEvent:                     { create: function (aName, aProps) {
+                                                         aProps.promise = new Promise(function() {});
+                                                         return new PromiseRejectionEvent(aName, aProps);
+                                                       },
+                                             },
   RTCDataChannelEvent:                       { create: function (aName, aProps) {
                                                          return new RTCDataChannelEvent(aName, aProps);
                                                        },
@@ -348,6 +362,10 @@ const kEventConstructors = {
                                                              cancelable: aProps.cancelable, data: aProps.data, origin: aProps.origin,
                                                              lastEventId: aProps.lastEventId, source: aProps.source });
                                                          return e;
+                                                       },
+                                             },
+  SecurityPolicyViolationEvent:              { create: function (aName, aProps) {
+                                                         return new SecurityPolicyViolationEvent(aName, aProps);
                                                        },
                                              },
   SimpleGestureEvent:                        { create: function (aName, aProps) {
@@ -384,6 +402,10 @@ const kEventConstructors = {
                                              },
   StorageEvent:                              { create: function (aName, aProps) {
                                                          return new StorageEvent(aName, aProps);
+                                                       },
+                                             },
+  SubmitEvent:                               { create: function (aName, aProps) {
+                                                         return new SubmitEvent(aName, aProps);
                                                        },
                                              },
   StyleRuleChangeEvent:                      { create: function (aName, aProps) {
@@ -426,6 +448,10 @@ const kEventConstructors = {
                                                                           aProps.ctrlKey, aProps.altKey, aProps.shiftKey, aProps.metaKey,
                                                                           aProps.touches, aProps.targetTouches, aProps.changedTouches);
                                                          return e;
+                                                       },
+                                             },
+  ToggleEvent:                               { create: function (aName, aProps) {
+                                                         return new ToggleEvent(aName, aProps);
                                                        },
                                              },
   TrackEvent:                                { create: function (aName, aProps) {
