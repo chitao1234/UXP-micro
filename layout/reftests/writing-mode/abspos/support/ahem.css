@@ -2,3 +2,7 @@
   font-family: Ahem;
   src: url("Ahem.ttf");
 }
+
+#containing-block {
+  image-rendering: pixelated;
+}
