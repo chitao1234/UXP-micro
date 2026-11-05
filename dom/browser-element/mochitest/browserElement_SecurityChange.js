@@ -9,9 +9,6 @@ SimpleTest.waitForExplicitFinish();
 browserElementTestHelpers.setEnabledPref(true);
 browserElementTestHelpers.addPermission();
 
-const { Services } = SpecialPowers.Cu.import('resource://gre/modules/Services.jsm');
-const { UrlClassifierTestUtils } = SpecialPowers.Cu.import('resource://testing-common/UrlClassifierTestUtils.jsm', {});
-
 function runTest() {
   var iframe = document.createElement('iframe');
   iframe.setAttribute('mozbrowser', 'true');
@@ -46,16 +43,13 @@ function runTest() {
       is(lastSecurityState.extendedValidation, false);
       is(lastSecurityState.trackingContent, false);
       is(lastSecurityState.mixedContent, true);
-      iframe.src = "http://example.com/" + filepath + '?tracking';
+      // Return to HTTP after mixed active content was loaded over HTTPS.
+      iframe.src = "http://example.com/" + filepath + '?insecure';
       break;
     case 4:
       is(lastSecurityState.state, 'insecure');
       is(lastSecurityState.extendedValidation, false);
-      // TODO: I'm having trouble getting the tracking protection
-      // test changes to be enabled in the child process, so this
-      // isn't currently blocked in tests, but it works when
-      // manually testing.
-      // is(lastSecurityState.trackingContent, true);
+      is(lastSecurityState.trackingContent, false);
       is(lastSecurityState.mixedContent, false);
       SimpleTest.finish();
     }
@@ -65,18 +59,7 @@ function runTest() {
   document.body.appendChild(iframe);
 }
 
-addEventListener('testready', function() {
-  SimpleTest.registerCleanupFunction(UrlClassifierTestUtils.cleanupTestTrackers);
-  SpecialPowers.pushPrefEnv({"set" : [
-    ["privacy.trackingprotection.enabled", true],
-    ["privacy.trackingprotection.pbmode.enabled", false],
-    ["browser.safebrowsing.phishing.enabled", false],
-    ["browser.safebrowsing.malware.enabled", false],
-  ]}, () => {
-     SimpleTest.registerCleanupFunction(UrlClassifierTestUtils.cleanupTestTrackers);
-     UrlClassifierTestUtils.addTestTrackers().then(() => {
-       runTest();
-     });
-  });
-});
+// UXP removed the classifier and tracking-protection test helpers. TLS and
+// mixed-content state changes remain supported and need no classifier setup.
+addEventListener('testready', runTest);
 
