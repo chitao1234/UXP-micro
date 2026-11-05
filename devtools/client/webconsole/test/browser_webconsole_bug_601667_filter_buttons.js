@@ -21,7 +21,10 @@ add_task(function* () {
 
   savePrefs();
 
+  let saveBodies = hud.ui.getFilterState("saveBodies");
   testFilterButtons();
+  is(hud.ui.getFilterState("saveBodies"), saveBodies,
+     "Filtering categories does not change the independent body-capture option");
 
   restorePrefs();
 
@@ -71,7 +74,8 @@ function testMenuFilterButton(category) {
   // Turn all the filters off, if they were on.
   let menuItem = firstMenuItem;
   while (menuItem != null) {
-    if (menuItem.hasAttribute("prefKey") && isChecked(menuItem)) {
+    if (menuItem.hasAttribute("prefKey") &&
+        menuItem.getAttribute("prefKey") !== "saveBodies" && isChecked(menuItem)) {
       chooseMenuItem(menuItem);
     }
     menuItem = menuItem.nextSibling;
@@ -81,7 +85,8 @@ function testMenuFilterButton(category) {
   menuItem = firstMenuItem;
   let prefKey;
   while (menuItem) {
-    if (menuItem.hasAttribute("prefKey")) {
+    if (menuItem.hasAttribute("prefKey") &&
+        menuItem.getAttribute("prefKey") !== "saveBodies") {
       prefKey = menuItem.getAttribute("prefKey");
       chooseMenuItem(menuItem);
       ok(isChecked(menuItem), "menu item " + prefKey + " for category " +
@@ -115,7 +120,7 @@ function testMenuFilterButton(category) {
   menuItem = firstMenuItem;
   while (menuItem) {
     prefKey = menuItem.getAttribute("prefKey");
-    if (prefKey) {
+    if (prefKey && prefKey !== "saveBodies") {
       ok(!isChecked(menuItem), "menu item " + prefKey + " for category " +
          category + " is no longer checked after clicking the button");
       ok(!hud.ui.filterPrefs[prefKey], prefKey + " messages are " +
@@ -132,7 +137,8 @@ function testMenuFilterButton(category) {
 
   menuItem = firstMenuItem;
   while (menuItem) {
-    if (menuItem.hasAttribute("prefKey")) {
+    if (menuItem.hasAttribute("prefKey") &&
+        menuItem.getAttribute("prefKey") !== "saveBodies") {
       prefKey = menuItem.getAttribute("prefKey");
       // The CSS/Log menu item should not be checked. See bug 971798.
       if (category == "css" && prefKey == "csslog") {
@@ -156,7 +162,7 @@ function testMenuFilterButton(category) {
     // The csslog menu item is already unchecked at this point.
     // Make sure it is not selected. See bug 971798.
     prefKey = menuItem.getAttribute("prefKey");
-    if (prefKey && prefKey != "csslog") {
+    if (prefKey && prefKey !== "saveBodies" && prefKey != "csslog") {
       chooseMenuItem(menuItem);
     }
     menuItem = menuItem.nextSibling;
@@ -193,7 +199,7 @@ function testIsolateFilterButton(category) {
         category + " should not be checked after isolating for " + category);
       ok(!hud.ui.filterPrefs[prefKey], prefKey + " messages should be " +
         "turned off after isolating for " + category);
-    } else if (prefKey) {
+    } else if (prefKey && prefKey !== "saveBodies") {
       ok(isChecked(item), "menu item " + prefKey + " for category " +
         category + " is checked after isolating for " + category);
       ok(hud.ui.filterPrefs[prefKey], prefKey + " messages are " +
@@ -213,7 +219,7 @@ function testIsolateFilterButton(category) {
       menuItems = filterButton.querySelectorAll("menuitem");
       Array.forEach(menuItems, (item) => {
         let prefKey = item.getAttribute("prefKey");
-        if (prefKey) {
+        if (prefKey && prefKey !== "saveBodies") {
           ok(!isChecked(item), "menu item " + prefKey + " for category " +
             category + " is unchecked after isolating for " + category);
           ok(!hud.ui.filterPrefs[prefKey], prefKey + " messages are " +

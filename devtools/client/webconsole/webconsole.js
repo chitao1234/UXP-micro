@@ -831,7 +831,10 @@ WebConsoleFrame.prototype = {
         let prefKey = menuItem.getAttribute("prefKey");
         let checked = this.filterPrefs[prefKey];
         menuItem.setAttribute("checked", checked);
-        someChecked = someChecked || checked;
+        // Body capture is a separate option, not a visible message category.
+        if (prefKey !== "saveBodies") {
+          someChecked = someChecked || checked;
+        }
       }, this);
 
       button.setAttribute("checked", someChecked);
@@ -983,6 +986,7 @@ WebConsoleFrame.prototype = {
         let menuItem = menuPopup.firstChild;
         while (menuItem) {
           if (menuItem.hasAttribute("prefKey") &&
+              menuItem.getAttribute("prefKey") !== "saveBodies" &&
               menuItem.getAttribute("checked") === "true") {
             someChecked = true;
             break;
