@@ -1,0 +1,11 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<iframe/>
+<frameset onblur="window.frameElement.parentNode.removeChild(window.frameElement)" id="frame"/>
+<script>
+function doe() {
+  document.getElementById('frame').focus();
+  document.getElementsByTagName('*')[1].focus();
+}
+top.opener.SimpleTest.waitForFocus(function() { setTimeout(doe, 100); }, top);
+</script>
+</html>
