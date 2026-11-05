@@ -10,18 +10,20 @@
 
 div {
   font-family: ahem;
-  font-size: 10px;
+  /* Ahem's 80/20 ascent/descent must be integral at 1x, 1.5x and 2x. */
+  font-size: 20px;
+  line-height: 1;
 }
 
 .lr {
   writing-mode: vertical-lr;
   text-orientation: sideways-right;
-  height: 40px;
+  height: 80px;
 }
 .rl {
   writing-mode: vertical-rl;
   text-orientation: sideways-right;
-  height: 40px;
+  height: 80px;
 }
 
 .a { position: relative; top: 10px; left: 10px; }

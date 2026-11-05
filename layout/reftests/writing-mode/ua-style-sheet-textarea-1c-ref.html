@@ -5,11 +5,9 @@
 .v-rl { writing-mode: vertical-rl; }
 .ltr, .rtl, .v-rl { border: 1px solid blue; }
 
-/* Vista or later wants 2px padding on textareas by default,
-   see nsNativeThemeWin::GetWidgetPadding(). */
-textarea {
-  padding: 2px;
-}
+/* Keep the native padding on both sides of this comparison: Windows supplies
+   it in device pixels, scaled for the theme DPI.  This reference checks the
+   logical margins; the unthemed comparison separately checks UA padding. */
 .ltr textarea, .rtl textarea {
   margin: 1px 0;
 }

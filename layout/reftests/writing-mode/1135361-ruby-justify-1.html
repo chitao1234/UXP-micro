@@ -19,7 +19,8 @@
       -ms-writing-mode: tb-rl; /* old syntax. IE */
       text-orientation: upright;
       -webkit-text-orientation: upright;
-      height: 4ch;
+      /* The ideographs advance by 1em; the generic Latin font's ch need not. */
+      height: 4em;
       text-align: justify;
       text-align-last: justify;
     }
