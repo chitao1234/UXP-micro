@@ -475,7 +475,9 @@
       attrs = { };
       testTextAttrs(ID, 13, attrs, defAttrs, 13, 18);
 
-      attrs = { "font-family": kAbsentFontFamily };
+      // Keep fallback distinct from the surrounding sans-serif run even when
+      // the application's default font is also sans-serif.
+      attrs = { "font-family": kSerifFontFamily };
       testTextAttrs(ID, 18, attrs, defAttrs, 18, 22);
 
       // bug 1224498 - this fails with 'cursive' fontconfig lookup
@@ -706,7 +708,7 @@
   <p id="area16" style="font-family: sans-serif;">
     <span style="font-family: monospace;">text</span>text
     <span style="font-family: serif;">text</span>text
-    <span style="font-family: BodoniThatDoesntExist;">text</span>text
+    <span style="font-family: BodoniThatDoesntExist, serif;">text</span>text
     <span style="font-family: Comic Sans MS, cursive;">text</span>text
     <span style="font-family: sans-serif, fantasy;">text</span>text
   </p>
