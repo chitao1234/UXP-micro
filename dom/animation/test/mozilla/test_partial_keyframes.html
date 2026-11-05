@@ -6,8 +6,11 @@
 <script>
 'use strict';
 setup({explicit_done: true});
+// This is the disabled-API rejection contract, as in upstream's
+// test_disable_animations_api_implicit_keyframes.html. The suite enables it.
 SpecialPowers.pushPrefEnv(
-  { "set": [["dom.animations-api.core.enabled", true]]},
+  { "set": [["dom.animations-api.core.enabled", true],
+            ["dom.animations-api.implicit-keyframes.enabled", false]]},
   function() {
     window.open("file_partial_keyframes.html");
   });
