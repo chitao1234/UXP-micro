@@ -1,3 +1,7 @@
+# These references use CSS pixels as device pixels: .4 rounds down, and .5
+# rounds up. At other scales those values cross different device-pixel edges.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
+
 == check-image.html check-image-ref.html
 == check-image-blue.html check-image-blue-ref.html
 
@@ -77,6 +81,7 @@
 == background-image-width-left-4.html background-image-width-4.html
 == background-image-width-left-5.html background-image-width-5.html
 == background-image-width-left-6.html background-image-width-6.html
+default-preferences
 
 
 # These all fail due bug 371180, plus a bunch of other bugs that ought to be filed.
@@ -94,6 +99,7 @@ fails == collapsed-border-top-5.html border-top-10-ref.html
 fails == collapsed-border-top-6.html border-top-10-ref.html
 
 
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 != image-base-ref.html image-height-10-ref.html
 == image-height-4.html image-base-ref.html
 == image-height-5.html image-height-10-ref.html
@@ -122,11 +128,13 @@ fails == collapsed-border-top-6.html border-top-10-ref.html
 == image-width-left-4.html image-width-4.html
 == image-width-left-5.html image-width-5.html
 == image-width-left-6.html image-width-6.html
+default-preferences
 
 
 skip pref(image.downscale-during-decode.enabled,true) == image-high-quality-scaling-1.html image-high-quality-scaling-1-ref.html
 
 
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 != offscreen-0-ref.html offscreen-10-ref.html
 == offscreen-background-color-pos-4.html offscreen-0-ref.html
 == offscreen-background-color-pos-5.html offscreen-10-ref.html
@@ -180,4 +188,5 @@ fuzzy-if(skiaContent,1,145) == rounded-background-color-width-left-6.html rounde
 == iframe-1.html iframe-1-ref.html
 
 == viewport-units-rounding-1.html viewport-units-rounding-1-ref.html
+default-preferences
 == viewport-units-rounding-2.html about:blank
