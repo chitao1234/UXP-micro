@@ -24,6 +24,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=580313
   var ios = SpecialPowers.Cc["@mozilla.org/network/io-service;1"].
             getService(SpecialPowers.Ci.nsIIOService);
 
+  SpecialPowers.pushPrefEnv({set: [["network.prefetch-next", true]]}, function() {
   is(prefetch.hasMoreElements(), false, "No prefetches at the test start.");
 
   var linkElem = document.createElement('link');
@@ -104,6 +105,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=580313
      "There is no prefetch.");
 
   SimpleTest.finish();
+  });
 </script>
 </pre>
 </body>

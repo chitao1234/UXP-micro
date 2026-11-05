@@ -21,15 +21,17 @@
  */
 function AnimationEventHandler(target) {
   this.target = target;
-  this.target.onanimationstart = function(evt) {
+  // Record before EventWatcher resolves its promise. Promise jobs may run
+  // between listener callbacks; modern WPT records events inside the watcher.
+  this.target.addEventListener('animationstart', function(evt) {
    this.animationstart = evt.elapsedTime;
-  }.bind(this);
-  this.target.onanimationiteration = function(evt) {
+  }.bind(this), true);
+  this.target.addEventListener('animationiteration', function(evt) {
     this.animationiteration = evt.elapsedTime;
-  }.bind(this);
-  this.target.onanimationend = function(evt) {
+  }.bind(this), true);
+  this.target.addEventListener('animationend', function(evt) {
     this.animationend = evt.elapsedTime;
-  }.bind(this);
+  }.bind(this), true);
 }
 AnimationEventHandler.prototype.clear = function() {
   this.animationstart = undefined;
@@ -39,10 +41,10 @@ AnimationEventHandler.prototype.clear = function() {
 
 function setupAnimation(t, animationStyle) {
   var div = addDiv(t, { style: "animation: " + animationStyle });
+  var handler = new AnimationEventHandler(div);
   var watcher = new EventWatcher(t, div, [ 'animationstart',
                                            'animationiteration',
                                            'animationend' ]);
-  var handler = new AnimationEventHandler(div);
   var animation = div.getAnimations()[0];
 
   return [animation, watcher, handler, div];
