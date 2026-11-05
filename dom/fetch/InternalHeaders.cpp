@@ -113,7 +113,7 @@ InternalHeaders::Append(const nsACString& aName, const nsACString& aValue,
 
   // Step 7
   SetListDirty();
-  mList.AppendElement(Entry(lowerName, aValue));
+  mList.AppendElement(Entry(lowerName, trimValue));
 
   // Step 8
   if (mGuard == HeadersGuardEnum::Request_no_cors) {
@@ -306,9 +306,9 @@ InternalHeaders::Set(const nsACString& aName, const nsACString& aValue, ErrorRes
   if (firstIndex < INT32_MAX) {
     Entry* entry = mList.InsertElementAt(firstIndex);
     entry->mName = lowerName;
-    entry->mValue = aValue;
+    entry->mValue = trimValue;
   } else {
-    mList.AppendElement(Entry(lowerName, aValue));
+    mList.AppendElement(Entry(lowerName, trimValue));
   }
 
   // Step 8

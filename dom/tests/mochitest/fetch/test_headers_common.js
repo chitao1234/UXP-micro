@@ -96,16 +96,29 @@ function TestCoreBehavior(headers, name) {
   // should be ok to delete non-existent name
   headers.delete(name);
 
+  // Fetch normalizes leading/trailing HTTP whitespace before validation.
+  // Embedded CR/LF remain invalid, as asserted below (matching upstream).
+  for (var whitespace of ["\t", "\n", "\r", " "]) {
+    var normalized = new Headers();
+    normalized.set(name, whitespace + "bam" + whitespace);
+    checkGet(normalized, name, "bam", "Surrounding HTTP whitespace is normalized");
+    normalized.set(name, whitespace + "replaced" + whitespace);
+    checkGet(normalized, name, "replaced", "Replacement stores the normalized value");
+    normalized.delete(name);
+    normalized.append(name, whitespace + "appended" + whitespace);
+    checkGet(normalized, name, "appended", "Append stores the normalized value");
+  }
+
   shouldThrow(function() {
     headers.append("foo,", "bam");
   }, TypeError, "Append invalid header name should throw TypeError.");
 
   shouldThrow(function() {
-    headers.append(name, "bam\n");
+    headers.append(name, "ba\nm");
   }, TypeError, "Append invalid header value should throw TypeError.");
 
   shouldThrow(function() {
-    headers.append(name, "bam\n\r");
+    headers.append(name, "ba\rm");
   }, TypeError, "Append invalid header value should throw TypeError.");
 
   ok(!headers.guard, "guard should be undefined in content");
