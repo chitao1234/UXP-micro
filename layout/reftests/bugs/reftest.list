@@ -1498,7 +1498,10 @@ pref(layout.css.devPixelsPerPx,"1.0") == 550716-1.html 550716-1-ref.html
 # the test is not currently relevant under harfbuzz shaping.
 # Keeping it here for the record, and because we may evolve HB's dotted-circle
 # behavior further in the future, which could make this become relevant again.
-!= 553571-1.html 553571-1-notref.html # expect dotted circle in test, not in ref: "fails" under harfbuzz, which doesn't consider the sequence invalid
+# Historical Uniscribe oracle only: HarfBuzz accepts the sequence without a
+# dotted circle. Retain the fixtures, but do not assert a shaper-specific
+# inequality on this HarfBuzz configuration (Firefox kept this test random).
+# != 553571-1.html 553571-1-notref.html
 pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(!contentSameGfxBackendAsCanvas,128,91) random-if(d2d) skip-if(azureSkiaGL) fuzzy-if(skiaContent,32,150) == 555388-1.html 555388-1-ref.html
 == 556661-1.html 556661-1-ref.html
 fuzzy-if(skiaContent,4,5) == 557087-1.html 557087-ref.html
