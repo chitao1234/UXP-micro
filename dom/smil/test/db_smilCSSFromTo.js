@@ -345,9 +345,9 @@ var gFromToBundles = [
                      [ new AnimTestcaseFromTo("45deg", "60deg") ]),
   new TestcaseBundle(gPropList.image_rendering, [
     new AnimTestcaseFromTo("auto", "optimizeQuality",
-                           { toComp: "optimizequality" }),
+                           { toComp: "high-quality" }),
     new AnimTestcaseFromTo("optimizeQuality", "optimizeSpeed",
-                           { fromComp: "optimizequality",
+                           { fromComp: "high-quality",
                              toComp: "optimizespeed" }),
   ]),
   new TestcaseBundle(gPropList.letter_spacing,

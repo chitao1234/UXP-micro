@@ -278,7 +278,7 @@ const gTests = {
 
     promises[0]
       .then(() => setOverrideDPPX(0))
-      .then(promises[1])
+      .then(() => promises[1])
       .then(() => setFullZoom(originalZoom))
       .then(done, e => {throw e});
 

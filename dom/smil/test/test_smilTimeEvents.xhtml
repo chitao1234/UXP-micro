@@ -237,9 +237,11 @@ function sanityCheckEvent(evt)
   is(evt.bubbles, false, "Event should not bubble");
   is(evt.cancelable, false, "Event should not be cancelable");
   var now = window.performance.now();
-  ok(evt.timeStamp > 0 && evt.timeStamp < now,
+  // Event timestamps and performance.now() can fall in the same timer bucket.
+  // Match the inclusive upper bound in upstream test_eventTimeStamp.html/WPT.
+  ok(evt.timeStamp > 0 && evt.timeStamp <= now,
      "Event timeStamp (" + evt.timeStamp + ") should be > 0 but " +
-     "before the current time (" + now + ")");
+     "not after the current time (" + now + ")");
   ok(evt.view !== null, "Event view not set");
 }
 
@@ -312,20 +314,8 @@ for (var i = 0; i < timeEvents.length; ++i) {
 }
 is(expectedEvents.length, 0, "Got all the expected events.");
 
-expectedEvents = ["zoom", "SVGZoom"];
-d.addEventListener("zoom", function(e) {
-  is(e.type, expectedEvents[0]);
-  expectedEvents.shift();
-});
-
-var zoomEvent = document.createEvent("svgzoomevent");
-zoomEvent.initEvent("zoom", true, true);
-d.dispatchEvent(zoomEvent);
-zoomEvent = document.createEvent("svgzoomevent");
-zoomEvent.initEvent("SVGZoom", true, true);
-d.dispatchEvent(zoomEvent);
-is(expectedEvents.length, 0, "Got all the expected events.");
-
+// UXP 4558785beb removed SVGZoomEvent; current Firefox's time-event
+// coverage likewise ends with the supported SMIL begin/end/repeat events.
 ]]>
 </script>
 </pre>
