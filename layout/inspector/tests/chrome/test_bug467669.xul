@@ -6,6 +6,7 @@
 https://bugzilla.mozilla.org/show_bug.cgi?id=467669
 -->
 <window title="Mozilla Bug 467669"
+        xml:lang="en"
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
         onload="RunTest();">
   <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
@@ -165,7 +166,7 @@ function report(e, f) {
      target="_blank">Mozilla Bug 467669</a>
   <div id="test1">Hello world</div>
   <div id="test2" style="font-family:sans-serif"><span style="font-family:serif">Hello</span> <tt>cruel</tt> world</div>
-  <div id="test3">Hello, &#x4F60;&#x597D;</div>
+  <div id="test3" style="font-family:serif">Hello, &#x4F60;&#x597D;</div>
   <div id="test4" class="gentium">Hello Gentium Plus!</div>
   <div id="test5" class="gentium">supercalifragilistic&#x4F60;ex&#xAD;pi&#xAD;a&#xAD;li&#xAD;do&#xAD;cious&#x597D;!</div>
   <div id="test6" style="font-family:serif">regular and <em>italic</em> text</div>
