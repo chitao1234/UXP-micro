@@ -10,12 +10,13 @@
   <link rel="help" href="https://drafts.csswg.org/css-align-3/#valdef-justify-self-normal">
   <link rel="match" href="grid-item-input-stretch-001-ref.html">
   <style type="text/css">
-* { color:black; background-color:white; font:10px/1 monospace; padding:0; margin:0; }
+* { color:black; background-color:white; font:10px/1.5 monospace; padding:0; margin:0; }
 * { vertical-align: top; }
 .grid {
   display: inline-grid;
   border: 1px solid;
   grid: 2px 30px 3px / 6px 200px 4px;
+  place-items: stretch;
 }
 
 input {
@@ -40,6 +41,7 @@ input {
 </head>
 <body>
 
+<div class="grid" style="place-items:start"><input></div>
 <div class="grid"><input class="m"></div>
 <div class="grid"><input class="hma10"></div>
 <div class="grid"><input class="hmaa"></div>

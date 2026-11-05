@@ -10,7 +10,7 @@
   <style type="text/css">
 body,html { color:black; background:white; font-size:12px; padding:0; margin:0; }
 br { clear:both; }
-	
+
 .grid {
   display: grid;
   border: 1px dashed silver;
@@ -21,11 +21,11 @@ br { clear:both; }
   align-items: start;
   justify-items: start;
 }
-.v { 
+.v {
   writing-mode: vertical-lr;
   -webkit-writing-mode: vertical-lr;
 }
-.h { 
+.h {
   writing-mode: horizontal-tb;
   -webkit-writing-mode: horizontal-tb;
 }
@@ -33,7 +33,7 @@ br { clear:both; }
   box-sizing: border-box;
 }
 
-span { 
+span {
   display: block;
   background: lime;
   margin: 7px 13px 50% 20%;
@@ -72,6 +72,7 @@ b40 {
 .v.r {
   height: 42px;
   width: 42px;
+  /* This margin-left is 20% of 54px-wide grid area */
   /* 27px is the percentage basis, i.e. the column size */
   margin-left: calc(0.2 * 27px);
   padding: 1px 3px calc(0.1 * 27px) calc(0.3 * 27px);
@@ -87,7 +88,6 @@ b40 {
                    calc(0.5 * 49px) /* item margin-bottom */ +
                    calc(0.1 * 49px) /* item padding-bottom */);
     }
-
 .t6 { width:46px; }
 .t8 { width: 27px;
       height: calc(30px /* item min-height */ +
@@ -97,6 +97,7 @@ b40 {
                    calc(0.5 * 27px) /* item margin-bottom */ +
                    calc(0.1 * 27px) /* item padding-bottom */);
     }
+
 
 xx {
   display: block;
