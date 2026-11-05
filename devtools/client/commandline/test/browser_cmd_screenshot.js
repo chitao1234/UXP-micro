@@ -128,6 +128,8 @@ function* addTabWithToolbarRunTests(win) {
     },
   ]);
 
+  // The default capture uses devicePixelRatio. Canvas bitmap dimensions
+  // truncate fractional pixels; compare in bitmap pixels at the native scale.
   // Test capture to clipboard
   yield helpers.audit(options, [
     {
@@ -143,9 +145,9 @@ function* addTabWithToolbarRunTests(win) {
       post: Task.async(function* () {
         let imgSize1 = yield getImageSizeFromClipboard();
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
-          Assert.equal(imgSize.width, content.innerWidth,
+          Assert.equal(imgSize.width, Math.floor(content.innerWidth * content.devicePixelRatio),
                        "Image width matches window size");
-          Assert.equal(imgSize.height, content.innerHeight,
+          Assert.equal(imgSize.height, Math.floor(content.innerHeight * content.devicePixelRatio),
                        "Image height matches window size");
         });
       })
@@ -165,10 +167,10 @@ function* addTabWithToolbarRunTests(win) {
         let imgSize1 = yield getImageSizeFromClipboard();
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
           Assert.equal(imgSize.width,
-            content.innerWidth + content.scrollMaxX - content.scrollMinX,
+            Math.floor((content.innerWidth + content.scrollMaxX - content.scrollMinX) * content.devicePixelRatio),
             "Image width matches page size");
           Assert.equal(imgSize.height,
-            content.innerHeight + content.scrollMaxY - content.scrollMinY,
+            Math.floor((content.innerHeight + content.scrollMaxY - content.scrollMinY) * content.devicePixelRatio),
             "Image height matches page size");
         });
       })
@@ -187,9 +189,9 @@ function* addTabWithToolbarRunTests(win) {
         let imgSize1 = yield getImageSizeFromClipboard();
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
           let img = content.document.querySelector("img#testImage");
-          Assert.equal(imgSize.width, img.clientWidth,
+          Assert.equal(imgSize.width, Math.floor(img.clientWidth * content.devicePixelRatio),
              "Image width matches element size");
-          Assert.equal(imgSize.height, img.clientHeight,
+          Assert.equal(imgSize.height, Math.floor(img.clientHeight * content.devicePixelRatio),
              "Image height matches element size");
         });
       })
@@ -236,9 +238,9 @@ function* addTabWithToolbarRunTests(win) {
         imgSize1.scrollbarWidth = scrollbarSize.width;
         imgSize1.scrollbarHeight = scrollbarSize.height;
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
-          Assert.equal(imgSize.width, content.innerWidth - imgSize.scrollbarWidth,
+          Assert.equal(imgSize.width, Math.floor((content.innerWidth - imgSize.scrollbarWidth) * content.devicePixelRatio),
              "Image width matches window size minus scrollbar size");
-          Assert.equal(imgSize.height, content.innerHeight - imgSize.scrollbarHeight,
+          Assert.equal(imgSize.height, Math.floor((content.innerHeight - imgSize.scrollbarHeight) * content.devicePixelRatio),
              "Image height matches window size minus scrollbar size");
         });
       })
@@ -260,12 +262,12 @@ function* addTabWithToolbarRunTests(win) {
         imgSize1.scrollbarHeight = scrollbarSize.height;
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
           Assert.equal(imgSize.width,
-            (content.innerWidth + content.scrollMaxX -
-             content.scrollMinX) - imgSize.scrollbarWidth,
+            Math.floor((content.innerWidth + content.scrollMaxX -
+             content.scrollMinX - imgSize.scrollbarWidth) * content.devicePixelRatio),
             "Image width matches page size minus scrollbar size");
           Assert.equal(imgSize.height,
-            (content.innerHeight + content.scrollMaxY -
-             content.scrollMinY) - imgSize.scrollbarHeight,
+            Math.floor((content.innerHeight + content.scrollMaxY -
+             content.scrollMinY - imgSize.scrollbarHeight) * content.devicePixelRatio),
             "Image height matches page size minus scrollbar size");
         });
       })
@@ -284,9 +286,9 @@ function* addTabWithToolbarRunTests(win) {
         let imgSize1 = yield getImageSizeFromClipboard();
         yield ContentTask.spawn(browser, imgSize1, function* (imgSize) {
           let img = content.document.querySelector("img#testImage");
-          Assert.equal(imgSize.width, img.clientWidth,
+          Assert.equal(imgSize.width, Math.floor(img.clientWidth * content.devicePixelRatio),
              "Image width matches element size");
-          Assert.equal(imgSize.height, img.clientHeight,
+          Assert.equal(imgSize.height, Math.floor(img.clientHeight * content.devicePixelRatio),
              "Image height matches element size");
         });
       })
