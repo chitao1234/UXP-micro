@@ -25,7 +25,7 @@ default-preferences test-pref(layout.css.object-fit-and-position.enabled,true)
 == object-fit-cover-png-001i.html object-fit-cover-png-001-ref.html
 == object-fit-cover-png-001o.html object-fit-cover-png-001-ref.html
 == object-fit-cover-png-001p.html object-fit-cover-png-001-ref.html
-== object-fit-cover-png-002c.html object-fit-cover-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-png-002c.html object-fit-cover-png-002-ref.html
 == object-fit-cover-png-002e.html object-fit-cover-png-002-ref.html
 == object-fit-cover-png-002i.html object-fit-cover-png-002-ref.html
 == object-fit-cover-png-002o.html object-fit-cover-png-002-ref.html

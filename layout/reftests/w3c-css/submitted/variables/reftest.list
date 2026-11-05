@@ -40,7 +40,7 @@ default-preferences pref(layout.css.variables.enabled,true)
 == variable-declaration-39.html support/color-green-ref.html
 == variable-declaration-40.html support/color-green-ref.html
 == variable-declaration-41.html support/color-green-ref.html
-== variable-declaration-42.html support/color-green-ref.html
+== variable-declaration-42.html support/color-green-utf8-ref.html
 == variable-declaration-43.html support/color-green-ref.html
 == variable-declaration-44.html support/color-green-ref.html
 == variable-declaration-45.html support/color-green-ref.html
@@ -58,7 +58,7 @@ default-preferences pref(layout.css.variables.enabled,true)
 == variable-declaration-57.html support/color-green-ref.html
 == variable-declaration-58.html support/color-green-ref.html
 == variable-declaration-59.html support/color-green-ref.html
-== variable-declaration-60.html support/color-green-ref.html
+== variable-declaration-60.html support/color-green-utf8-ref.html
 == variable-external-declaration-01.html support/color-green-ref.html
 == variable-external-font-face-01.html variable-external-font-face-01-ref.html
 == variable-external-reference-01.html support/color-green-ref.html
