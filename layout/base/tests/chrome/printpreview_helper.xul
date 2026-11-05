@@ -6,6 +6,7 @@
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
 <iframe height="200" width="600" type="content"></iframe>
 <iframe height="200" width="600" type="content"></iframe>
+<script src="printpreview_test_utils.js"/>
 <script type="application/javascript">
 <![CDATA[
 var is = window.opener.wrappedJSObject.is;
@@ -45,14 +46,14 @@ function printpreview() {
                             .getService(Components.interfaces.nsIPrefBranch);
   prefs.setBoolPref('print.show_print_progress', false);
   //XXX I would have thought this would work, instead I'm forced to use prefs service
-  gWbp.globalPrintSettings.showPrintProgress = false;
+  var settings = createTestPrintPreviewSettings();
   var before = 0;
   var after = 0;
   function beforeprint() { ++before; }
   function afterprint() { ++after; }
   window.frames[0].addEventListener("beforeprint", beforeprint, true);
   window.frames[0].addEventListener("afterprint", afterprint, true);
-  gWbp.printPreview(gWbp.globalPrintSettings, window.frames[0], listener);
+  gWbp.printPreview(settings, window.frames[0], listener);
   is(before, 1, "Should have called beforeprint listener!");
   is(after, 1, "Should have called afterprint listener!");
   window.frames[0].removeEventListener("beforeprint", beforeprint, true);
@@ -72,24 +73,7 @@ function finish() {
 
 function runTests()
 {
-  var printService = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
-                               .getService(Components.interfaces.nsIPrintSettingsService);
-
-  try {
-    Components.classes["@mozilla.org/gfx/printerenumerator;1"]
-              .getService(Components.interfaces.nsIPrinterEnumerator);
-  } catch(e) {
-    todo(false, "Test skipped on MacOSX, as the print preview code doesn't work there");
-    finish();
-    return;
-  }
-
-  if (printService.defaultPrinterName != '') {
-    startTest1();
-  } else {
-    todo(false, "No printer seems installed on this machine, that is necessary for this test");
-    finish();
-  }
+  startTest1();
 }
 
 function compareCanvases() {
@@ -120,9 +104,9 @@ function startTest1() {
   // Note this timeout is needed so that we can check that timers run
   // after print preview, but not during it.
   window.frames[0].wrappedJSObject.counter = counter;
-  window.frames[0].counterTimeout = "document.body.firstChild.nextSibling.innerHTML = ++counter + ' timers';" +
+  window.frames[0].wrappedJSObject.counterTimeout = "document.body.firstChild.nextSibling.innerHTML = ++counter + ' timers';" +
                                     "window.setTimeout(counterTimeout, 0);";
-  window.frames[0].setTimeout(window.frames[0].counterTimeout, 0);
+  window.frames[0].setTimeout(window.frames[0].wrappedJSObject.counterTimeout, 0);
   window.frames[0].document.body.firstChild.innerHTML = "Print preview";
 
   printpreview();
@@ -143,7 +127,7 @@ function finalizeTest1() {
   ctx2.drawWindow(window.frames[1], 0, 0, 400, 400, "rgb(256,256,256)");
   exitprintpreview();
   ok(compareCanvases(), "Canvas should be the same!");
-  counter = window.frames[0].counter;
+  counter = window.frames[0].wrappedJSObject.counter;
   // This timeout is needed so that we can check that timers do run after
   // print preview.
   setTimeout(runTest2, 1000);
@@ -151,9 +135,9 @@ function finalizeTest1() {
 
 function runTest2() {
   isnot(window.frames[0].document.body.firstChild.nextSibling.textContent, "0 timers", "Timers should have run!");
-  isnot(window.frames[0].counter, 0, "Timers should have run!");
-  counter = window.frames[0].counter;
-  window.frames[0].counterTimeout = "";
+  isnot(window.frames[0].wrappedJSObject.counter, 0, "Timers should have run!");
+  counter = window.frames[0].wrappedJSObject.counter;
+  window.frames[0].wrappedJSObject.counterTimeout = "";
   setTimeout(runTest3, 0);
 }
 
