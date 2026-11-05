@@ -509,8 +509,11 @@ nsMathMLmfencedFrame::ReflowChar(nsPresContext*       aPresContext,
     if (NS_STRETCH_DIRECTION_UNSUPPORTED != aMathMLChar->GetStretchDirection()) {
       // has changed... so center the char around the axis
       nscoord height = charSize.ascent + charSize.descent;
-      charSize.ascent = height/2 + axisHeight;
-      charSize.descent = height - charSize.ascent;
+      // Match nsMathMLmoFrame::Stretch: put the extra app unit above the
+      // axis when the height is odd. Rounding the ascent down instead shifts
+      // the children's baseline relative to equivalent explicit mo fences.
+      charSize.descent = height/2 - axisHeight;
+      charSize.ascent = height - charSize.descent;
     }
     else {
       // either it hasn't changed or stretching the char failed (i.e.,
