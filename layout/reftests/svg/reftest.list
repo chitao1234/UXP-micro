@@ -1,3 +1,4 @@
+# These pixel oracles assume integral CSS/device edges and fixed border arithmetic.
 # svg-as-an-image tests
 include as-image/reftest.list
 
@@ -81,7 +82,7 @@ fuzzy-if(skiaContent,1,320) == conditions-08.svg conditions-08-ref.svg
 == dynamic-conditions-13.svg about:blank
 == dynamic-feFlood-01.svg pass.svg
 asserts(0-1) == dynamic-feImage-01.svg pass.svg # intermittent assertions (bug 886080)
-== dynamic-fill-01.svg dynamic-fill-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == dynamic-fill-01.svg dynamic-fill-01-ref.svg
 == dynamic-fill-rule-01.svg dynamic-fill-rule-01-ref.svg
 fuzzy-if(d2d||skiaContent,1,10000) == dynamic-filter-contents-01a.svg dynamic-filter-contents-01-ref.svg
 fuzzy-if(d2d||skiaContent,1,10000) == dynamic-filter-contents-01b.svg dynamic-filter-contents-01-ref.svg
@@ -115,15 +116,15 @@ fuzzy-if(d2d&&layersGPUAccelerated,3,1200) == dynamic-rect-02.svg dynamic-rect-0
 == dynamic-text-01.svg dynamic-text-01-ref.svg
 fuzzy-if(d2d&&layersGPUAccelerated,3,12739) == dynamic-text-02.svg dynamic-text-02-ref.svg # bug 776038 for Win7, Win8
 fuzzy-if(d2d&&layersGPUAccelerated,2,10539) == dynamic-text-03.svg dynamic-text-03-ref.svg # bug 776038 for Win7
-random-if(/^Windows\x20NT\x205\.1/.test(http.oscpu)) fuzzy-if(/^Windows\x20NT\x206\.1/.test(http.oscpu),47,89) == dynamic-text-04.svg dynamic-text-04-ref.svg # bug 421587 for WinXP, bug 776038 for Win7
+pref(layout.css.devPixelsPerPx,"1.0") random-if(/^Windows\x20NT\x205\.1/.test(http.oscpu)) fuzzy-if(/^Windows\x20NT\x206\.1/.test(http.oscpu),47,89) == dynamic-text-04.svg dynamic-text-04-ref.svg # bug 421587 for WinXP, bug 776038 for Win7
 == dynamic-text-05.svg pass.svg
 == dynamic-text-06.svg pass.svg
 == dynamic-text-07.svg dynamic-text-07-ref.svg
 == dynamic-text-08.svg dynamic-text-08-ref.svg
-== dynamic-text-attr-01.svg dynamic-text-attr-01-ref.svg
-== dynamic-textPath-01.svg dynamic-textPath-01-ref.svg
-== dynamic-textPath-02.svg dynamic-textPath-02-ref.svg
-== dynamic-textPath-03.svg dynamic-textPath-03-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == dynamic-text-attr-01.svg dynamic-text-attr-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == dynamic-textPath-01.svg dynamic-textPath-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == dynamic-textPath-02.svg dynamic-textPath-02-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == dynamic-textPath-03.svg dynamic-textPath-03-ref.svg
 == dynamic-use-01.svg pass.svg
 == dynamic-use-02.svg pass.svg
 == dynamic-use-03.svg pass.svg
@@ -218,7 +219,7 @@ fuzzy-if(skiaContent,1,10000) == mask-basic-02.svg mask-basic-02-ref.svg
 == mask-containing-masked-content-01.svg pass.svg
 == mask-transformed-01.svg mask-transformed-01-ref.svg
 == mask-transformed-02.svg pass.svg
-== mask-transformed-child-01.svg mask-transformed-child-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == mask-transformed-child-01.svg mask-transformed-child-01-ref.svg
 # fuzzy because of the differences between clipPath and mask clipping
 fuzzy(27,28) == mask-and-clipPath.html mask-and-clipPath-ref.html
 == mask-and-clipPath-2.svg pass.svg
@@ -228,9 +229,9 @@ fuzzy-if(d2d||skiaContent,1,6400) == mask-type-03.svg mask-type-01-ref.svg
 fuzzy-if(d2d||skiaContent,1,6400) == mask-type-04.svg mask-type-01-ref.svg
 == nested-viewBox-01.svg pass.svg
 fuzzy-if(skiaContent,3,448000) == nesting-invalid-01.svg nesting-invalid-01-ref.svg
-fuzzy-if(d2d&&/^Windows\x20NT\x20(6\.1|10\.0)/.test(http.oscpu),63,168) fuzzy-if(cocoaWidget,1,122) fuzzy-if(skiaContent,2,1000) == non-scaling-stroke-01.svg non-scaling-stroke-01-ref.svg # bug 1074161 for Win7 and OSX 10.8
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(d2d&&/^Windows\x20NT\x20(6\.1|10\.0)/.test(http.oscpu),63,168) fuzzy-if(cocoaWidget,1,122) fuzzy-if(skiaContent,2,1000) == non-scaling-stroke-01.svg non-scaling-stroke-01-ref.svg # bug 1074161 for Win7 and OSX 10.8
 fuzzy-if(gtkWidget,1,99) fuzzy-if(!contentSameGfxBackendAsCanvas,9,99) == non-scaling-stroke-02.svg non-scaling-stroke-02-ref.svg
-== non-scaling-stroke-03.svg non-scaling-stroke-03-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == non-scaling-stroke-03.svg non-scaling-stroke-03-ref.svg
 == objectBoundingBox-and-clipPath.svg pass.svg
 # Bug 588684
 random-if(gtkWidget) == objectBoundingBox-and-fePointLight-01.svg objectBoundingBox-and-fePointLight-01-ref.svg
@@ -247,7 +248,7 @@ skip-if(d2d) fuzzy-if(cocoaWidget,1,99974) fuzzy-if(skiaContent,1,200000) == opa
 == opacity-and-pattern-01.svg pass.svg
 fuzzy-if(skiaContent,1,10000) == opacity-and-transform-01.svg opacity-and-transform-01-ref.svg
 == outer-svg-border-and-padding-01.svg outer-svg-border-and-padding-01-ref.svg
-== outline.html outline-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == outline.html outline-ref.html
 == overflow-on-outer-svg-01.svg overflow-on-outer-svg-01-ref.svg
 == overflow-on-outer-svg-02a.xhtml overflow-on-outer-svg-02-ref.xhtml
 == overflow-on-outer-svg-02b.xhtml overflow-on-outer-svg-02-ref.xhtml
@@ -270,9 +271,9 @@ fuzzy-if(skiaContent,1,400) == path-06.svg path-06-ref.svg
 == pathLength-02.svg pass.svg
 == pattern-basic-01.svg pass.svg
 == pattern-invalid-01.svg pattern-invalid-01-ref.svg
-fuzzy-if(skiaContent,1,5) == pattern-live-01a.svg pattern-live-01-ref.svg
-fuzzy-if(skiaContent,1,5) == pattern-live-01b.svg pattern-live-01-ref.svg
-fuzzy-if(skiaContent,1,5) == pattern-live-01c.svg pattern-live-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,5) == pattern-live-01a.svg pattern-live-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,5) == pattern-live-01b.svg pattern-live-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,5) == pattern-live-01c.svg pattern-live-01-ref.svg
 fuzzy-if(skiaContent,1,5) == pattern-scale-01a.svg pattern-scale-01-ref.svg
 == pattern-scale-01b.svg pattern-scale-01-ref.svg
 fuzzy-if(skiaContent,3,5) == pattern-scale-01c.svg pattern-scale-01-ref.svg
@@ -350,8 +351,8 @@ HTTP(..) == text-scale-03.svg text-scale-03-ref.svg
 == text-stroke-scaling-01.svg text-stroke-scaling-01-ref.svg
 == stroke-dasharray-01.svg stroke-dasharray-01-ref.svg
 fuzzy-if(skiaContent,1,340) == stroke-dasharray-02.svg pass.svg
-fuzzy-if(skiaContent,1,340) == stroke-dasharray-03.svg pass.svg
-== stroke-dasharray-and-pathLength-01.svg pass.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,340) == stroke-dasharray-03.svg pass.svg
+pref(layout.css.devPixelsPerPx,"1.0") == stroke-dasharray-and-pathLength-01.svg pass.svg
 == stroke-dasharray-and-text-01.svg stroke-dasharray-and-text-01-ref.svg
 == stroke-dashoffset-01.svg pass.svg
 == stroke-dashoffset-and-pathLength-01.svg pass.svg
@@ -403,7 +404,7 @@ fuzzy-if(skiaContent,1,100) == tspan-xy-anchor-end-01.svg tspan-xy-anchor-end-re
 == userSpaceOnUse-and-pattern-01.svg userSpaceOnUse-and-pattern-01-ref.svg
 == viewBox-and-pattern-01.svg pass.svg
 == viewBox-and-pattern-02.svg pass.svg
-== viewBox-and-pattern-03.svg pass.svg
+pref(layout.css.devPixelsPerPx,"1.0") == viewBox-and-pattern-03.svg pass.svg
 == viewBox-and-pattern-04.svg pass.svg
 == viewBox-invalid-01.svg pass.svg
 == viewBox-invalid-02.svg pass.svg
@@ -461,7 +462,7 @@ fuzzy(1,32400) == clipPath-on-outflowElement-02b.html clipPath-on-outflowElement
 default-preferences
 
 == mask-on-outflowElement-01a.html clipPath-on-outflowElement-01-ref.html
-fails == mask-on-outflowElement-01b.html clipPath-on-outflowElement-01-ref.html
+== mask-on-outflowElement-01b.html clipPath-on-outflowElement-01-ref.html
 
 == clipPath-and-mask-on-outflowElement-01a.html clipPath-on-outflowElement-01-ref.html
 == clipPath-and-mask-on-outflowElement-01b.html clipPath-on-outflowElement-01-ref.html

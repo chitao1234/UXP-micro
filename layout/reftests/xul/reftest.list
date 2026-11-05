@@ -1,3 +1,4 @@
+# These pixel oracles assume integral CSS/device edges and fixed border arithmetic.
 == css-flex-1.xul css-flex-1-ref.html
 
 == menuitem-key.xul menuitem-key-ref.xul
@@ -10,54 +11,54 @@ fails-if(cocoaWidget) fails-if(browserIsRemote&&dwrite) fuzzy-if(xulRuntime.widg
 != tree-row-outline-1.xul tree-row-outline-1-notref.xul
 == text-crop.xul text-crop-ref.xul
 == text-small-caps-1.xul text-small-caps-1-ref.xul
-fuzzy-if(skiaContent,1,60) fuzzy-if(cocoaWidget&&browserIsRemote&&!skiaContent,1,31) fuzzy-if(winWidget&&browserIsRemote&&layersGPUAccelerated,1,50) == inactive-fixed-bg-bug1205630.xul inactive-fixed-bg-bug1205630-ref.html
-fuzzy-if(skiaContent,1,60) fuzzy-if(cocoaWidget&&browserIsRemote&&!skiaContent,1,31) fuzzy-if(winWidget&&browserIsRemote&&layersGPUAccelerated,1,50) == inactive-fixed-bg-bug1272525.xul inactive-fixed-bg-bug1272525-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,60) fuzzy-if(cocoaWidget&&browserIsRemote&&!skiaContent,1,31) fuzzy-if(winWidget&&browserIsRemote&&layersGPUAccelerated,1,50) == inactive-fixed-bg-bug1205630.xul inactive-fixed-bg-bug1205630-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,60) fuzzy-if(cocoaWidget&&browserIsRemote&&!skiaContent,1,31) fuzzy-if(winWidget&&browserIsRemote&&layersGPUAccelerated,1,50) == inactive-fixed-bg-bug1272525.xul inactive-fixed-bg-bug1272525-ref.html
 
 # Tests for XUL <image> with 'object-fit' & 'object-position':
 # These tests should be very similar to tests in our w3c-css/submitted/images3
 # reftest directory. They live here because they use XUL, and it
 # wouldn't be fair of us to make a W3C testsuite implicitly depend on XUL.
 default-preferences test-pref(layout.css.object-fit-and-position.enabled,true)
-== object-fit-contain-png-001.xul object-fit-contain-png-001-ref.html
-== object-fit-contain-png-002.xul object-fit-contain-png-002-ref.html
-== object-fit-contain-svg-001.xul object-fit-contain-svg-001-ref.html
-== object-fit-contain-svg-002.xul object-fit-contain-svg-002-ref.html
-== object-fit-contain-svg-003.xul object-fit-contain-svg-003-ref.html
-== object-fit-contain-svg-004.xul object-fit-contain-svg-004-ref.html
-== object-fit-contain-svg-005.xul object-fit-contain-svg-005-ref.html
-== object-fit-contain-svg-006.xul object-fit-contain-svg-006-ref.html
-== object-fit-cover-png-001.xul object-fit-cover-png-001-ref.html
-== object-fit-cover-png-002.xul object-fit-cover-png-002-ref.html
-== object-fit-cover-svg-001.xul object-fit-cover-svg-001-ref.html
-== object-fit-cover-svg-002.xul object-fit-cover-svg-002-ref.html
-== object-fit-cover-svg-003.xul object-fit-cover-svg-003-ref.html
-== object-fit-cover-svg-004.xul object-fit-cover-svg-004-ref.html
-== object-fit-cover-svg-005.xul object-fit-cover-svg-005-ref.html
-== object-fit-cover-svg-006.xul object-fit-cover-svg-006-ref.html
-== object-fit-fill-png-001.xul object-fit-fill-png-001-ref.html
-== object-fit-fill-png-002.xul object-fit-fill-png-002-ref.html
-== object-fit-fill-svg-001.xul object-fit-fill-svg-001-ref.html
-== object-fit-fill-svg-002.xul object-fit-fill-svg-002-ref.html
-== object-fit-fill-svg-003.xul object-fit-fill-svg-003-ref.html
-== object-fit-fill-svg-004.xul object-fit-fill-svg-004-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-png-001.xul object-fit-contain-png-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-png-002.xul object-fit-contain-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-001.xul object-fit-contain-svg-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-002.xul object-fit-contain-svg-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-003.xul object-fit-contain-svg-003-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-004.xul object-fit-contain-svg-004-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-005.xul object-fit-contain-svg-005-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-contain-svg-006.xul object-fit-contain-svg-006-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-png-001.xul object-fit-cover-png-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-png-002.xul object-fit-cover-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-001.xul object-fit-cover-svg-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-002.xul object-fit-cover-svg-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-003.xul object-fit-cover-svg-003-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-004.xul object-fit-cover-svg-004-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-005.xul object-fit-cover-svg-005-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-cover-svg-006.xul object-fit-cover-svg-006-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-png-001.xul object-fit-fill-png-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-png-002.xul object-fit-fill-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-svg-001.xul object-fit-fill-svg-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-svg-002.xul object-fit-fill-svg-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-svg-003.xul object-fit-fill-svg-003-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-fill-svg-004.xul object-fit-fill-svg-004-ref.html
 fails == object-fit-fill-svg-005.xul object-fit-fill-svg-005-ref.html # bug 1092436
 fails == object-fit-fill-svg-006.xul object-fit-fill-svg-006-ref.html # bug 1092436
-== object-fit-none-png-001.xul object-fit-none-png-001-ref.html
-== object-fit-none-png-002.xul object-fit-none-png-002-ref.html
-== object-fit-none-svg-001.xul object-fit-none-svg-001-ref.html
-== object-fit-none-svg-002.xul object-fit-none-svg-002-ref.html
-== object-fit-none-svg-003.xul object-fit-none-svg-003-ref.html
-== object-fit-none-svg-004.xul object-fit-none-svg-004-ref.html
-== object-fit-none-svg-005.xul object-fit-none-svg-005-ref.html
-== object-fit-none-svg-006.xul object-fit-none-svg-006-ref.html
-== object-fit-scale-down-png-001.xul object-fit-scale-down-png-001-ref.html
-== object-fit-scale-down-png-002.xul object-fit-scale-down-png-002-ref.html
-== object-fit-scale-down-svg-001.xul object-fit-scale-down-svg-001-ref.html
-== object-fit-scale-down-svg-002.xul object-fit-scale-down-svg-002-ref.html
-== object-fit-scale-down-svg-003.xul object-fit-scale-down-svg-003-ref.html
-== object-fit-scale-down-svg-004.xul object-fit-scale-down-svg-004-ref.html
-== object-fit-scale-down-svg-005.xul object-fit-scale-down-svg-005-ref.html
-== object-fit-scale-down-svg-006.xul object-fit-scale-down-svg-006-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-png-001.xul object-fit-none-png-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-png-002.xul object-fit-none-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-001.xul object-fit-none-svg-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-002.xul object-fit-none-svg-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-003.xul object-fit-none-svg-003-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-004.xul object-fit-none-svg-004-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-005.xul object-fit-none-svg-005-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-none-svg-006.xul object-fit-none-svg-006-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-png-001.xul object-fit-scale-down-png-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-png-002.xul object-fit-scale-down-png-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-001.xul object-fit-scale-down-svg-001-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-002.xul object-fit-scale-down-svg-002-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-003.xul object-fit-scale-down-svg-003-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-004.xul object-fit-scale-down-svg-004-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-005.xul object-fit-scale-down-svg-005-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == object-fit-scale-down-svg-006.xul object-fit-scale-down-svg-006-ref.html
 == object-position-png-001.xul object-position-png-001-ref.html
 == object-position-png-002.xul object-position-png-002-ref.html
 

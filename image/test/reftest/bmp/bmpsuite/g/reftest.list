@@ -1,3 +1,4 @@
+# These pixel oracles assume integral CSS/device edges and fixed border arithmetic.
 # bmpsuite "good" tests
 
 # See ../README.mozilla for details.
@@ -18,11 +19,11 @@
 
 # BMP: bihsize=40, 127 x 64, bpp=4, compression=0, colors=12
 # "Paletted image with 12 palette colors, and 4 bits/pixel."
-== pal4.bmp pal4.png
+pref(layout.css.devPixelsPerPx,"1.0") == pal4.bmp pal4.png
 
 # BMP: bihsize=40, 127 x 64, bpp=4, compression=2, colors=12
 # "4-bit image that uses RLE compression."
-== pal4rle.bmp pal4.png
+pref(layout.css.devPixelsPerPx,"1.0") == pal4rle.bmp pal4.png
 
 # BMP: bihsize=40, 127 x 64, bpp=8, compression=0, colors=252
 # "Our standard paletted image, with 252 palette colors, and 8 bits/pixel."
@@ -43,8 +44,8 @@ fuzzy(1,899) == pal8rle.bmp pal8.png
 # "Images with different widths and heights. In BMP format, rows are padded to
 # a multiple of four bytes, so we test all four possibilities."
 fuzzy(1,889) == pal8w126.bmp pal8w126.png
-fuzzy(1,879) == pal8w125.bmp pal8w125.png
-fuzzy(1,869) == pal8w124.bmp pal8w124.png
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(1,879) == pal8w125.bmp pal8w125.png
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(1,869) == pal8w124.bmp pal8w124.png
 
 # BMP: bihsize=40, 127 x -64, bpp=8, compression=0, colors=252
 # "BMP images are normally stored from the bottom up, but there is a way to

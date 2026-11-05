@@ -1,3 +1,4 @@
+# These pixel oracles assume integral CSS/device edges and fixed border arithmetic.
 
 # This directory contains tests that test the sizing of the SVG viewport into
 # which SVG is rendered. It includes tests for standalone SVG, SVG embedded by
@@ -262,9 +263,9 @@ fuzzy-if(d2d,1,400) == standalone--pct-pct--px-px.svg       pass-pct-pct.xhtml
 HTTP(../..) == inline--display-block--01.xhtml inline--display-block--01-ref.xhtml
 fuzzy-if(OSX,1,10) HTTP(../..) == inline--display-inline--01.xhtml inline--display-inline--01-ref.xhtml
 HTTP(../..) == inline--display-inline-block--01.xhtml inline--display-inline-block--01-ref.xhtml
-== inline--float-left--01.xhtml            inline--float-left--01-ref.xhtml
-== inline--float-right--01.xhtml           inline--float-right--01-ref.xhtml
-== inline--position-absolute--01.xhtml     inline--position-absolute--01-ref.xhtml
+pref(layout.css.devPixelsPerPx,"1.0") == inline--float-left--01.xhtml            inline--float-left--01-ref.xhtml
+pref(layout.css.devPixelsPerPx,"1.0") == inline--float-right--01.xhtml           inline--float-right--01-ref.xhtml
+pref(layout.css.devPixelsPerPx,"1.0") == inline--position-absolute--01.xhtml     inline--position-absolute--01-ref.xhtml
 == inline--position-absolute--02.xhtml     pass.svg
 HTTP(../..) == inline--position-relative--01.xhtml    inline--position-relative--01-ref.xhtml
 

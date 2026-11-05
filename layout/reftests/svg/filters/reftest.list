@@ -1,3 +1,4 @@
+# These pixel oracles assume integral CSS/device edges and fixed border arithmetic.
 # In general, the fe*-1 tests test basic functionality clipped to a filter primitive
 # subregion. The fe*-2 tests test with no clipping (which stresses
 # the automatic optimal surface-size computation a bit more).
@@ -30,8 +31,8 @@ fuzzy-if(d2d,1,10000) == feColorMatrix-2.svg feColorMatrix-2-ref.svg
 fuzzy-if(d2d||skiaContent,1,9600) == feComposite-1.svg feComposite-1-ref.svg
 fuzzy-if(d2d||skiaContent,1,10000) == feComposite-2.svg feComposite-2-ref.svg
 
-== feConvolveMatrix-1.svg feConvolveMatrix-1-ref.svg
-== feConvolveMatrix-2.svg feConvolveMatrix-2-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == feConvolveMatrix-1.svg feConvolveMatrix-1-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == feConvolveMatrix-2.svg feConvolveMatrix-2-ref.svg
 
 == feDisplacementMap-1.svg feDisplacementMap-1-ref.svg
 == feDisplacementMap-2.svg feDisplacementMap-2-ref.svg
@@ -48,7 +49,7 @@ fuzzy(1,6400) fuzzy-if(skiaContent,1,6404) == feGaussianBlur-1.svg feGaussianBlu
 skip-if(d2d) == feGaussianBlur-cap-large-directional-radius-on-software.html feGaussianBlur-cap-large-directional-radius-on-software-ref.html
 
 != feImage-1.svg about:blank # (Make sure our image renders at all)
-== feImage-1.svg feImage-1-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == feImage-1.svg feImage-1-ref.svg
 == feImage-scale-to-primitive-subregion.html feImage-scale-to-primitive-subregion-ref.html
 
 == feMerge-1.svg feMerge-1-ref.svg
@@ -57,8 +58,8 @@ skip-if(d2d) == feGaussianBlur-cap-large-directional-radius-on-software.html feG
 == feMorphology-1.svg feMorphology-1-ref.svg
 == feMorphology-2.svg feMorphology-2-ref.svg
 
-== feOffset-1.svg feOffset-1-ref.svg
-== feOffset-2.svg feOffset-2-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == feOffset-1.svg feOffset-1-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == feOffset-2.svg feOffset-2-ref.svg
 
 == feTile-1.svg feTile-1-ref.svg
 == feTile-2.svg feTile-2-ref.svg
@@ -70,7 +71,7 @@ skip-if(d2d) == feGaussianBlur-cap-large-directional-radius-on-software.html feG
 == filter-inner-svg-02.svg pass.svg
 == filter-inner-svg-03.svg pass.svg
 fails == filter-marked-line-01.svg pass.svg # bug 477704
-== filter-kernelUnitLength-01.svg filter-kernelUnitLength-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") == filter-kernelUnitLength-01.svg filter-kernelUnitLength-01-ref.svg
 == filter-marked-line-02.svg pass.svg
 == filter-marked-line-03.svg pass.svg
 == filter-marked-line-04.svg pass.svg
@@ -89,7 +90,7 @@ fails == filter-marked-line-01.svg pass.svg # bug 477704
 == feComponentTransfer-03.svg pass.svg
 == feComponentTransfer-04.svg pass.svg
 == feComposite-arguments-01.svg pass.svg
-fuzzy(1,26732) == feComposite-paint-01.svg feComposite-paint-01-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(1,26732) == feComposite-paint-01.svg feComposite-paint-01-ref.svg
 fuzzy(1,10000) == feConvolveMatrix-bias-01.svg feConvolveMatrix-bias-01-ref.svg
 == feConvolveMatrix-order-01.svg feConvolveMatrix-order-01-ref.svg
 
@@ -110,9 +111,9 @@ fuzzy(2,500) == feDisplacementMap-colour-01.svg feDisplacementMap-colour-01-ref.
 == feTile-large-02.svg feTile-large-02-ref.svg
 == feTile-outside-01.svg feTile-outside-01-ref.svg
 
-fuzzy(1,217) == feDiffuseLighting-1.svg feDiffuseLighting-1-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(1,217) == feDiffuseLighting-1.svg feDiffuseLighting-1-ref.svg
 
-fuzzy(2,2659) skip-if(d2d) == feSpecularLighting-1.svg feSpecularLighting-1-ref.svg
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(2,2659) skip-if(d2d) == feSpecularLighting-1.svg feSpecularLighting-1-ref.svg
 
 == filter-lighting-region.svg filter-lighting-region-ref.svg
 
