@@ -41,7 +41,9 @@ var actuallyTest = Task.async(function*() {
   let locationNode = msg.querySelector(".message-location .frame-link-filename");
   ok(locationNode, "location node");
 
-  let onTabOpen = waitForTab();
+  // View source may open in a background tab. Wait for that tab's navigation,
+  // not a load event on whichever tab happened to remain selected.
+  let onTabOpen = BrowserTestUtils.waitForNewTab(gBrowser, "view-source:" + TEST_URI);
 
   EventUtils.sendMouseEvent({ type: "click" }, locationNode);
 

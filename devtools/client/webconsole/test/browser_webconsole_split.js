@@ -54,7 +54,12 @@ function runTest() {
       yield openAndCheckPanel("jsdebugger");
       yield openAndCheckPanel("inspector");
       yield openAndCheckPanel("styleeditor");
-      yield openAndCheckPanel("performance");
+      // The server registers this actor only when nsIProfiler is built.
+      if (toolbox.target.hasActor("profiler")) {
+        yield openAndCheckPanel("performance");
+      } else {
+        info("Performance panel is unavailable without the native profiler actor");
+      }
       yield openAndCheckPanel("netmonitor");
 
       yield checkWebconsolePanelOpened();
@@ -68,12 +73,9 @@ function runTest() {
     let webconsolePanel = toolbox.webconsolePanel;
     let splitter = toolbox.doc.querySelector("#toolbox-console-splitter");
 
-    let containerHeight = parseFloat(win.getComputedStyle(deck.parentNode)
-      .getPropertyValue("height"));
-    let deckHeight = parseFloat(win.getComputedStyle(deck)
-      .getPropertyValue("height"));
-    let webconsoleHeight = parseFloat(win.getComputedStyle(webconsolePanel)
-      .getPropertyValue("height"));
+    let containerHeight = deck.parentNode.getBoundingClientRect().height;
+    let deckHeight = deck.getBoundingClientRect().height;
+    let webconsoleHeight = webconsolePanel.getBoundingClientRect().height;
     let splitterVisibility = !splitter.getAttribute("hidden");
     let openedConsolePanel = toolbox.currentToolId === "webconsole";
     let cmdButton = toolbox.doc.querySelector("#command-button-splitconsole");
@@ -201,8 +203,11 @@ function runTest() {
        "Deck has a height > 0 when console is split");
     ok(currentUIState.webconsoleHeight > 0,
        "Web console has a height > 0 when console is split");
-    is(Math.round(currentUIState.deckHeight + currentUIState.webconsoleHeight),
-       currentUIState.containerHeight,
+    // XUL flex allocation can leave an app-unit remainder. Compare both
+    // operands in rendered device pixels at the actual toolbox scale.
+    let dpr = toolbox.win.devicePixelRatio;
+    is(Math.round((currentUIState.deckHeight + currentUIState.webconsoleHeight) * dpr),
+       Math.round(currentUIState.containerHeight * dpr),
        "Everything adds up to container height");
     ok(!currentUIState.openedConsolePanel,
        "The console panel is not the current tool");

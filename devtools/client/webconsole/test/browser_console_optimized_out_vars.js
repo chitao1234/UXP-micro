@@ -22,7 +22,10 @@ function test() {
     let { toolbox, panel, panelWin } = yield openDebugger();
 
     let sources = panelWin.DebuggerView.Sources;
-    yield panel.addBreakpoint({ actor: sources.values[0], line: 18 });
+    // Bundled polyfills are also sources; their enumeration order is irrelevant.
+    let source = sources.getItemForAttachment(item => item.source.url === TEST_URI);
+    ok(source, "Found the closure fixture source");
+    yield panel.addBreakpoint({ actor: source.value, line: 18 });
     yield ensureThreadClientState(panel, "resumed");
 
     let fetchedScopes = panelWin.once(panelWin.EVENTS.FETCHED_SCOPES);

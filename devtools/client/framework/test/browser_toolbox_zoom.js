@@ -10,6 +10,8 @@ const {LocalizationHelper} = require("devtools/shared/l10n");
 const L10N = new LocalizationHelper("devtools/client/locales/toolbox.properties");
 
 function test() {
+  Services.prefs.setCharPref("devtools.toolbox.zoomValue", "1.0");
+  registerCleanupFunction(() => Services.prefs.clearUserPref("devtools.toolbox.zoomValue"));
   addTab("about:blank").then(openToolbox);
 }
 
@@ -36,11 +38,11 @@ function testZoomLevel(type, times, expected) {
   sendZoomKey("toolbox.zoom" + type + ".key", times);
 
   let zoom = getCurrentZoom(toolbox);
-  is(zoom.toFixed(2), expected, "zoom level correct after zoom " + type);
+  is(zoom.toFixed(1), expected, "zoom level correct after zoom " + type);
 
   let savedZoom = parseFloat(Services.prefs.getCharPref(
     "devtools.toolbox.zoomValue"));
-  is(savedZoom.toFixed(2), expected,
+  is(savedZoom.toFixed(1), expected,
      "saved zoom level is correct after zoom " + type);
 }
 

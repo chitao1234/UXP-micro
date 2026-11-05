@@ -61,13 +61,16 @@ add_task(function* () {
     synthesizeKeyShortcut(clearShortcut);
   });
   yield hud.jsterm.once("messages-cleared");
+  // The clear notification fires inside Ctrl+L key dispatch. Start the next
+  // synthesized input transaction only after that native dispatch unwinds.
+  yield new Promise(executeSoon);
 
   is(hud.outputNode.textContent.indexOf("foobarz1"), -1, "output cleared");
   is(hud.jsterm.inputNode.getAttribute("focused"), "true",
      "jsterm input is focused");
 
   info("try ctrl-f to focus filter");
-  synthesizeKeyShortcut(WCUL10n.getStr("webconsole.find.key"));
+  synthesizeKeyShortcut(WCUL10n.getStr("webconsole.find.key"), hud.iframeWindow);
   ok(!hud.jsterm.inputNode.getAttribute("focused"),
      "jsterm input is not focused");
   is(hud.ui.filterBox.getAttribute("focused"), "true",
@@ -80,7 +83,7 @@ add_task(function* () {
     EventUtils.synthesizeKey("t", { ctrlKey: true });
     ok(hud.ui.getFilterState("network"), "accesskey for Network works (again)");
   } else {
-    EventUtils.synthesizeKey("N", { altKey: true });
+    EventUtils.synthesizeKey("N", { altKey: true }, hud.iframeWindow);
     let net = hud.ui.document.querySelector("toolbarbutton[category=net]");
     is(hud.ui.document.activeElement, net,
        "accesskey for Network category focuses the Net button");
