@@ -17,7 +17,7 @@ function run(test_window)
 
   function query_applies(q) {
     style.setAttribute("media", q);
-    return body_cs.getPropertyValue("text-decoration") == "underline";
+    return body_cs.getPropertyValue("text-decoration-line") == "underline";
   }
 
   function should_apply(q) {
@@ -29,8 +29,12 @@ function run(test_window)
   }
 
   // in this test, assume the common underlying implementation is correct
-  let width_val = 157; // pick two not-too-round numbers
-  let height_val = 182;
+  // A subdocument viewport is sized in whole device pixels. Pick dimensions
+  // that survive that conversion, so exact media queries do not compare an
+  // unsnapped CSS length against a rounded viewport at fractional display scale.
+  let scale = subwin.devicePixelRatio;
+  let width_val = Math.round(157 * scale) / scale;
+  let height_val = Math.round(182 * scale) / scale;
   iframe_style.width = width_val + "px";
   iframe_style.height = height_val + "px";
   for (let [feature, value] of
