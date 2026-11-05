@@ -173,7 +173,9 @@ function testAuthJarNoInterfere(e) {
   authMgr.setAuthIdentity('http', 'test', -1, 'basic', 'http_realm',
                           'tests/dom/browser-element/mochitest/file_http_401_response.sjs',
                           '', 'httpuser', 'wrongpass', false, principal);
-  principal = secMan.createCodebasePrincipal(uri, {});
+  // UXP 01a1a8557b removed isolated mozbrowser docshells. The live frame now
+  // uses the default jar, so this deliberately different jar must be isolated.
+  principal = secMan.createCodebasePrincipal(uri, {inIsolatedMozBrowser: true});
   authMgr.setAuthIdentity('http', 'test', -1, 'basic', 'http_realm',
                           'tests/dom/browser-element/mochitest/file_http_401_response.sjs',
                           '', 'httpuser', 'wrongpass', false, principal);
@@ -203,7 +205,7 @@ function testAuthJarInterfere(e) {
   var uri = ioService.newURI("http://test/tests/dom/browser-element/mochitest/file_http_401_response.sjs", null, null);
 
   // Set some auth data that should overwrite the successful stored details.
-  var principal = secMan.createCodebasePrincipal(uri, {inIsolatedMozBrowser: true});
+  var principal = secMan.createCodebasePrincipal(uri, {});
   authMgr.setAuthIdentity('http', 'test', -1, 'basic', 'http_realm',
                           'tests/dom/browser-element/mochitest/file_http_401_response.sjs',
                           '', 'httpuser', 'wrongpass', false, principal);
