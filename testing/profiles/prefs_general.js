@@ -1,5 +1,10 @@
 // Base preferences file used by most test harnesses
 
+// Keep test CSS pixels independent of the host's display scale, as in the
+// Firefox WPT profile. Native-scale coverage can override this with
+// --setpref=layout.css.devPixelsPerPx=-1.0 (or an explicit positive scale).
+user_pref("layout.css.devPixelsPerPx", "1.0");
+
 user_pref("browser.console.showInPanel", true);
 user_pref("browser.dom.window.dump.enabled", true);
 user_pref("browser.firstrun.show.localepicker", false);

@@ -6,6 +6,9 @@ user_pref("dom.use_xbl_scopes_for_remote_xul", false);
 user_pref("gfx.color_management.mode", 2);
 user_pref("gfx.color_management.force_srgb", true);
 user_pref("gfx.logging.level", 1);
+// Reftest has its own profile. Match the deterministic 1x scale used by the
+// general test profile; --setpref or manifest prefs can override it for HiDPI.
+user_pref("layout.css.devPixelsPerPx", "1.0");
 user_pref("browser.dom.window.dump.enabled", true);
 // A modal default-browser check steals focus from needs-focus tests. Reftest
 // creates a generic mozprofile.Profile, which lacks FirefoxProfile's defaults.
