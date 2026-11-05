@@ -36,6 +36,8 @@ fuzzy-if(asyncPan&&!layersGPUAccelerated,140,6818) == iframe-scrolling-attr-2.ht
 == frame-scrolling-attr-1.html frame-scrolling-attr-ref.html
 fuzzy-if(asyncPan&&!layersGPUAccelerated,102,2420) == frame-scrolling-attr-2.html frame-scrolling-attr-ref.html
 == move-item.html move-item-ref.html # bug 1125750
+# The +/-0.4px references assume one CSS pixel per device pixel.
+default-preferences pref(layout.css.devPixelsPerPx,"1.0")
 == fractional-scroll-area.html?top=-0.4&outerBottom=100&innerBottom=200 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200
 == fractional-scroll-area.html?top=0.4&outerBottom=100&innerBottom=200 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200
 == fractional-scroll-area.html?top=0&outerBottom=99.6&innerBottom=200 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200
@@ -84,6 +86,7 @@ fuzzy-if(asyncPan&&!layersGPUAccelerated,102,2420) == frame-scrolling-attr-2.htm
 == fractional-scroll-area.html?top=-0.4&outerBottom=100.4&innerBottom=200.4&scrollBefore=999 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200&scrollBefore=999
 == fractional-scroll-area.html?top=0.4&outerBottom=99.6&innerBottom=200.4&scrollBefore=999 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200&scrollBefore=999
 == fractional-scroll-area.html?top=0.4&outerBottom=100.4&innerBottom=200.4&scrollBefore=999 fractional-scroll-area.html?top=0&outerBottom=100&innerBottom=200&scrollBefore=999
+default-preferences
 != fractional-scroll-area-invalidation.html about:blank
 
 # Tests for "overflow" styles that may be propagated to the viewport:
