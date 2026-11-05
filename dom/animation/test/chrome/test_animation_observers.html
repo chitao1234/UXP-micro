@@ -39,7 +39,7 @@ function addAsyncAnimTest(aName, aOptions, aTestGenerator) {
 }
 
 function runAsyncTest(aTestGenerator) {
-  return waitForFrame().then(function() {
+  return waitForPaints().then(function() {
     var generator;
 
     function step(arg) {
@@ -132,6 +132,51 @@ function assert_records(expected, desc) {
   }
 }
 
+// Match current Firefox: startup style traversal has no record-order contract.
+function assert_records_any_order(expected, desc) {
+  // Generate a unique label for each Animation object.
+  let animation_labels = new Map();
+  let animation_counter = 0;
+  for (let record of gRecords) {
+    for (let a of [...record.addedAnimations, ...record.changedAnimations, ...record.removedAnimations]) {
+      if (!animation_labels.has(a)) {
+        animation_labels.set(a, ++animation_counter);
+      }
+    }
+  }
+  for (let record of expected) {
+    for (let a of [...record.added, ...record.changed, ...record.removed]) {
+      if (!animation_labels.has(a)) {
+        animation_labels.set(a, ++animation_counter);
+      }
+    }
+  }
+
+  function record_label(record) {
+    // Generate a label of the form:
+    //
+    //   <added-animations>:<changed-animations>:<removed-animations>
+    let added   = record.addedAnimations   || record.added;
+    let changed = record.changedAnimations || record.changed;
+    let removed = record.removedAnimations || record.removed;
+    return [added  .map(a => animation_labels.get(a)).sort().join(),
+            changed.map(a => animation_labels.get(a)).sort().join(),
+            removed.map(a => animation_labels.get(a)).sort().join()]
+           .join(":");
+  }
+
+  // Sort records by their label.
+  function compare(a, b) {
+    let x = record_label(a), y = record_label(b);
+    return x < y ? -1 : x > y ? 1 : 0;
+  }
+  gRecords.sort(compare);
+  expected.sort(compare);
+
+  // Assert the sorted record lists are equal.
+  assert_records(expected, desc);
+}
+
 // -- Tests ------------------------------------------------------------------
 
 // We run all tests first targeting the div and observing the div, then again
@@ -160,7 +205,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after transition start");
 
@@ -174,7 +219,7 @@ function assert_records(expected, desc) {
 
     // Wait for the change MutationRecord for seeking the Animation to be
     // delivered, followed by the the removal MutationRecord.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] },
                     { added: [], changed: [], removed: animations }],
                    "records after transition end");
@@ -195,7 +240,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after transition start");
 
@@ -204,7 +249,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after transition end");
 
@@ -224,7 +269,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after transition start");
 
@@ -235,7 +280,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after transition end");
 
@@ -255,7 +300,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after transition start");
 
@@ -264,7 +309,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after transition end");
 
@@ -286,7 +331,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [firstAnimation], changed: [], removed: [] }],
                    "records after transition start");
 
@@ -311,7 +356,7 @@ function assert_records(expected, desc) {
     // Wait for the change Mutation record from seeking the first animation
     // to be delivered, followed by a subsequent MutationRecord for the removal
     // of the original Animation and the addition of the new Animation.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [firstAnimation], removed: [] },
                     { added: [secondAnimation], changed: [],
                       removed: [firstAnimation] }],
@@ -322,7 +367,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: [secondAnimation] }],
                    "records after transition end");
 
@@ -343,7 +388,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation additions to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after transition starts");
 
@@ -374,7 +419,7 @@ function assert_records(expected, desc) {
 
     // Wait for the MutationRecords to be delivered: one for each animation
     // that was seeked, followed by one for the removal of the color animation.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records(seekRecords.concat(
                     { added: [], changed: [], removed: colorAnimation }),
                    "records after color transition end");
@@ -384,7 +429,7 @@ function assert_records(expected, desc) {
 
     // Wait for the MutationRecord for the other two Animation
     // removals to be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: otherAnimations }],
                    "records after other transition ends");
 
@@ -406,7 +451,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -421,7 +466,7 @@ function assert_records(expected, desc) {
     // Wait for the change MutationRecord from seeking the Animation to
     // be delivered, followed by a further MutationRecord for the Animation
     // removal.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] },
                     { added: [], changed: [], removed: animations }],
                    "records after animation end");
@@ -442,7 +487,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -451,7 +496,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after animation end");
 
@@ -471,7 +516,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -485,7 +530,7 @@ function assert_records(expected, desc) {
     // Wait for the change MutationRecord from seeking the Animation to
     // be delivered, followed by a further MutationRecord for the Animation
     // removal.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] },
                     { added: [], changed: [], removed: animations }],
                    "records after animation end");
@@ -506,7 +551,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -515,7 +560,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after animation end");
 
@@ -538,7 +583,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -556,7 +601,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after animation end");
 
@@ -577,7 +622,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -586,7 +631,7 @@ function assert_records(expected, desc) {
 
     // The only MutationRecord at this point should be the change from
     // seeking the Animation.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] }],
                    "records after seeking animations");
 
@@ -595,7 +640,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after animation end");
 
@@ -622,7 +667,7 @@ function assert_records(expected, desc) {
 
       // Wait for the single MutationRecord for the Animation addition to
       // be delivered.
-      yield waitForFrame();
+      yield waitForPaints();
       assert_records([{ added: animations, changed: [], removed: [] }],
                      "records after animation start");
 
@@ -631,7 +676,7 @@ function assert_records(expected, desc) {
 
       // Wait for the single MutationRecord for the Animation change to
       // be delivered.
-      yield waitForFrame();
+      yield waitForPaints();
       assert_records([{ added: [], changed: animations, removed: [] }],
                      "records after animation change");
 
@@ -639,7 +684,7 @@ function assert_records(expected, desc) {
       e.style.animationName = "none";
 
       // Wait for the addition, change and removal MutationRecords to be delivered.
-      yield waitForFrame();
+      yield waitForPaints();
       assert_records([{ added: [], changed: [], removed: animations }],
                       "records after animation end");
 
@@ -659,7 +704,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -689,7 +734,7 @@ function assert_records(expected, desc) {
     // Wait for the single MutationRecord for the Animation change to
     // be delivered. Even though the currentTime does not change, the
     // playState will change.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] }],
                     "records after finish() and pause()");
 
@@ -697,7 +742,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -714,7 +759,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -734,7 +779,7 @@ function assert_records(expected, desc) {
 
     // Wait for three MutationRecords for the Animation changes to
     // be delivered: one for each finish(), pause(), finish() operation.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] },
                     { added: [], changed: animations, removed: [] },
                     { added: [], changed: animations, removed: [] }],
@@ -744,7 +789,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -761,7 +806,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -781,14 +826,14 @@ function assert_records(expected, desc) {
     animations[0].play();
 
     // Wait to ensure no change is dispatched
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([], "records after redundant play()");
 
     // Cancel the animation.
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -805,7 +850,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -817,7 +862,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation change to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] }],
                     "records after finish()");
 
@@ -827,7 +872,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation change to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: animations, removed: [] }],
                     "records after play()");
 
@@ -835,7 +880,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -852,7 +897,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -864,7 +909,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation removal to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after finish()");
 
@@ -874,7 +919,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after play()");
 
@@ -882,7 +927,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -899,7 +944,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -926,7 +971,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -943,7 +988,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -965,7 +1010,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -982,7 +1027,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                     "records after animation start");
 
@@ -1005,7 +1050,7 @@ function assert_records(expected, desc) {
     e.style = "";
 
     // Wait for the single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                     "records after animation end");
   });
@@ -1022,7 +1067,7 @@ function assert_records(expected, desc) {
 
     // Wait for the single MutationRecord for the Animation addition to
     // be delivered.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: animations, changed: [], removed: [] }],
                    "records after animation start");
 
@@ -1033,7 +1078,7 @@ function assert_records(expected, desc) {
     e.style.animationDuration = "0.5s";
 
     // We should get a single removal notification.
-    yield waitForFrame();
+    yield waitForPaints();
     assert_records([{ added: [], changed: [], removed: animations }],
                    "records after animation end");
 
@@ -1096,18 +1141,11 @@ addAsyncAnimTest("tree_ordering", { observe: div, subtree: true }, function*() {
   var childBPseudoAnimations =
     [ for (x of docAnims) if (x.effect.target.parentElement == childB) x ];
 
-  // The order in which we get the corresponding records is currently
-  // based on the order we visit these nodes when updating styles.
-  //
-  // That is because we don't do any document-level batching of animation
-  // mutation records when we flush styles. We may introduce that in the
-  // future but for now all we are interested in testing here is that the order
-  // these records are dispatched is consistent between runs.
-  //
-  // We currently expect to get records in order div::after, childA, childB,
-  // childB::before, div, div::before
-  yield waitForFrame();
-  assert_records([{ added: divAfterAnimations, changed: [], removed: [] },
+  // Style traversal can produce these startup records in any order, as in
+  // current Firefox. Keep exact animation identities and record multiplicity;
+  // the refresh-driver removal ordering below remains strictly checked.
+  yield waitForPaints();
+  assert_records_any_order([{ added: divAfterAnimations, changed: [], removed: [] },
                   { added: childAAnimations, changed: [], removed: [] },
                   { added: childBAnimations, changed: [], removed: [] },
                   { added: childBPseudoAnimations, changed: [], removed: [] },

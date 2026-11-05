@@ -131,7 +131,7 @@ promise_test(function(t) {
        'Animation reports that it is NOT running on the compositor'
        + ' immediately after animation.finish() is called');
     // Check that we don't set the flag back again on the next tick.
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
        'Animation reports that it is NOT running on the compositor'
@@ -149,7 +149,7 @@ promise_test(function(t) {
        'Animation reports that it is NOT running on the compositor'
        + ' immediately after manually seeking the animation to the end');
     // Check that we don't set the flag back again on the next tick.
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
        'Animation reports that it is NOT running on the compositor'
@@ -168,7 +168,7 @@ promise_test(function(t) {
        'Animation reports that it is NOT running on the compositor'
        + ' immediately after animation.cancel() is called');
     // Check that we don't set the flag back again on the next tick.
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
        'Animation reports that it is NOT running on the compositor'
@@ -336,7 +336,7 @@ promise_test(function(t) {
       + ' when finished');
 
     animation.effect.timing.duration = 1000 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Animation reports that it is running on the compositor'
@@ -361,7 +361,7 @@ promise_test(function(t) {
       + ' when endDelay is changed');
 
     animation.currentTime = 110 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
       'Animation reports that it is NOT running on the compositor'
@@ -380,7 +380,7 @@ promise_test(function(t) {
       'Animation reports that it is running on the compositor');
 
     animation.effect.timing.endDelay = -200 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
       'Animation reports that it is NOT running on the compositor'
@@ -399,13 +399,13 @@ promise_test(function(t) {
       'Animation reports that it is running on the compositor');
 
     animation.effect.timing.endDelay = -100 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Animation reports that it is running on the compositor'
       + ' when endTime is positive and endDelay is negative');
     animation.currentTime = 110 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
       'Animation reports that it is NOT running on the compositor'
@@ -429,7 +429,7 @@ promise_test(function(t) {
                   'on the compositor');
 
     animation.effect.target = div;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
                   'Animation reports that it is running on the compositor ' +
@@ -465,7 +465,7 @@ promise_test(function(t) {
                   'that it is running on the compositor');
 
     animation.currentTime = 100 * MS_PER_SEC;
-    return waitForFrame();
+    return waitForPaints();
  }).then(function() {
     assert_animation_is_running_on_compositor(animation,
                   'Animation with fill:backwards in delay phase reports ' +
@@ -488,7 +488,7 @@ promise_test(function(t) {
                   'that it is running on the compositor from the begining');
 
     animation.effect.target = another;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
                   'Opacity animation on a 100% opacity keyframe keeps ' +
@@ -510,7 +510,7 @@ promise_test(function(t) {
     animation.effect.setKeyframes([{ opacity: 1, offset: 0 },
                                    { opacity: 1, offset: 0.99 },
                                    { opacity: 0, offset: 1 }]);
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
                   '100% opacity animation set by using setKeyframes reports ' +
@@ -534,7 +534,7 @@ promise_test(function(t) {
                   'compositor');
 
     animation.effect = effect;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
                   '100% opacity animation set up by changing effects reports ' +
@@ -555,7 +555,7 @@ promise_test(function(t) {
       '!important flag reports that it is not running on the compositor');
     // Clear important flag from the opacity style on the target element.
     div.style.setProperty("opacity", "1", "");
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Opacity animation reports that it is running on the compositor after '
@@ -613,13 +613,13 @@ promise_test(function(t) {
                   'that it is running on the compositor');
 
     animation.effect.target = null;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
                   'Animation is no longer running on the compositor after ' +
                   'removing from the element');
     animation.effect.target = importantOpacityElement;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(animation,
                   'Animation is NOT running on the compositor even after ' +
@@ -646,13 +646,13 @@ promise_test(function(t) {
                   'that it is running on the compositor');
 
     lowerAnimation.effect.target = null;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(lowerAnimation,
                   'Animation is no longer running on the compositor after ' +
                   'being removed from the element');
     lowerAnimation.effect.target = another;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(lowerAnimation,
                   'A lower-priority animation begins running ' +
@@ -683,13 +683,13 @@ promise_test(function(t) {
                   'that it is running on the compositor');
 
     higherAnimation.effect.target = null;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_not_running_on_compositor(higherAnimation,
                   'Animation is no longer running on the compositor after ' +
                   'being removed from the element');
     higherAnimation.effect.target = div;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(lowerAnimation,
                   'Animation continues running on the compositor after ' +
@@ -867,7 +867,7 @@ promise_test(function(t) {
       + 'reports that it is not running on the compositor');
     // Clear the opacity style on the target element.
     div.style.setProperty("opacity", "1", "");
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Opacity animations reports that it is running on the compositor after '
@@ -890,7 +890,7 @@ promise_test(function(t) {
       + 'reports that it is not running on the compositor');
     // Changing target element to another element which has no opacity style.
     animation.effect.target = anotherDiv;
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Opacity animations reports that it is running on the compositor after '
@@ -913,7 +913,7 @@ promise_test(function(t) {
       + 'in the delay phase');
     // Changing to property runnable on the compositor.
     animation.effect.setKeyframes({ opacity: [0, 1] });
-    return waitForFrame();
+    return waitForPaints();
   }).then(function() {
     assert_animation_is_running_on_compositor(animation,
       'Opacity animation reports that it is running on the compositor '
