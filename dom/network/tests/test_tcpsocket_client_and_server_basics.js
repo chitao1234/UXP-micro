@@ -40,7 +40,9 @@ function listenForEventsOnSocket(socket, socketType) {
   let receivedEvents = [];
   let receivedData = null;
   let handleGenericEvent = function(event) {
-    dump('(' + socketType + ' event: ' + event.type + ')\n');
+    let error = event.type === 'error' ?
+      ': ' + event.name + ' ' + event.message : '';
+    dump('(' + socketType + ' event: ' + event.type + error + ')\n');
     if (pendingResolve && wantDataLength === null) {
       pendingResolve(event);
       pendingResolve = null;

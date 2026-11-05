@@ -1011,10 +1011,11 @@ TCPSocket::OnTransportStatus(nsITransport* aTransport, nsresult aStatus,
   }
 
   mReadyState = TCPReadyState::Open;
-  FireEvent(NS_LITERAL_STRING("open"));
-
+  // Match current Firefox: open handlers can synchronously close the socket.
+  // Finish setting up the stream pump before allowing script to reenter.
   nsresult rv = CreateInputStreamPump();
   NS_ENSURE_SUCCESS(rv, rv);
+  FireEvent(NS_LITERAL_STRING("open"));
   return NS_OK;
 }
 
