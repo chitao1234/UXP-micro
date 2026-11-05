@@ -8,6 +8,12 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=421436
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <script type="application/javascript" src="/tests/SimpleTest/EventUtils.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
+  <style>
+    @font-face {
+      font-family: Ahem;
+      src: url(../../../../tests/fonts/Ahem.ttf);
+    }
+  </style>
 </head>
 <body>
 <a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=421436">Mozilla Bug 421436</a>
@@ -23,7 +29,85 @@ var inner = document.getElementById("inner");
 var outer = document.getElementById("outer");
 
 is(inner.getBoundingClientRect().left, outer.getBoundingClientRect().left, "left edges equal");
-todo_is(inner.getBoundingClientRect().right, outer.getBoundingClientRect().right, "right edges equal");
+is(inner.getBoundingClientRect().right, outer.getBoundingClientRect().right, "right edges equal");
+
+// Removing the BR appunit must preserve trailing empty lines in text controls.
+// Historical regressions: bugs 439462 and 1014807. The overflow correction is
+// from bug 1696885, with the block-end padding prerequisite from bug 1527949.
+async function testTrailingNewlines() {
+  const textarea = document.createElement("textarea");
+  textarea.style.cssText = "position:fixed;top:0;left:0;width:240px;height:60px;" +
+    "padding:0;border:0;overflow:auto;font:16px/20px monospace";
+  document.body.appendChild(textarea);
+  try {
+    textarea.focus();
+    is(document.activeElement, textarea, "textarea receives keyboard input");
+    let trustedInputs = 0;
+    textarea.addEventListener("input", event => {
+      if (event.isTrusted) trustedInputs++;
+    });
+    for (let i = 0; i < 20; i++) {
+      synthesizeKey("KEY_Enter", {code: "Enter"});
+      void textarea.scrollHeight;
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const initialHeight = textarea.scrollHeight;
+    ok(initialHeight >= 400, "initial empty lines contribute scrollable height");
+    synthesizeKey("x", {code: "KeyX"});
+    for (let i = 0; i < 20; i++) {
+      synthesizeKey("KEY_Enter", {code: "Enter"});
+      void textarea.scrollHeight;
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const expected = "\n".repeat(20) + "x" + "\n".repeat(20);
+    is(textarea.value, expected, "Enter inserts every trailing newline");
+    is(textarea.selectionStart, expected.length, "caret remains at the end");
+    is(trustedInputs, 41, "all keys exercise trusted editing input");
+    ok(textarea.scrollHeight >= initialHeight + 380,
+       "empty lines after text extend the scrollable overflow");
+    ok(textarea.scrollTop >= textarea.scrollHeight - textarea.clientHeight - 2,
+       "typing scrolls to the final empty line");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function testTextareaPadding() {
+  await document.fonts.load("20px Ahem");
+  // Adapted from upstream css/css-overflow/scrollable-overflow-textarea.html:
+  // five 100px-wide Ahem words form five 20px lines, with asymmetric padding.
+  for (const writingMode of ["horizontal-tb", "vertical-lr", "vertical-rl"]) {
+    const vertical = writingMode !== "horizontal-tb";
+    const directions = vertical ? ["ltr"] : ["ltr", "rtl"];
+    for (const direction of directions) {
+      const textarea = document.createElement("textarea");
+      const padding = writingMode === "vertical-lr" ? "19px 17px 13px 11px" :
+        writingMode === "vertical-rl" ? "19px 11px 13px 17px" : "11px 13px 17px 19px";
+      textarea.style.cssText = "box-sizing:content-box;position:fixed;top:0;left:0;" +
+        "border:0;overflow:hidden;font:20px/1 Ahem;width:" + (vertical ? 50 : 100) +
+        "px;height:" + (vertical ? 100 : 50) + "px;padding:" + padding +
+        ";writing-mode:" + writingMode + ";direction:" + direction;
+      textarea.value = "XXXXX XXXXX XXXXX XXXXX XXXXX";
+      document.body.appendChild(textarea);
+      const label = writingMode + " " + direction;
+      is(vertical ? textarea.scrollWidth : textarea.scrollHeight, 128,
+         label + ": block-end padding contributes to scrollable overflow");
+      is(vertical ? textarea.scrollHeight : textarea.scrollWidth, 132,
+         label + ": inline padding is counted once");
+      textarea.remove();
+    }
+  }
+}
+
+SimpleTest.waitForExplicitFinish();
+(async function runRegressionTests() {
+  await new Promise(resolve => SimpleTest.waitForFocus(resolve));
+  await testTrailingNewlines();
+  await testTextareaPadding();
+})().then(() => SimpleTest.finish(), error => {
+  ok(false, "BR scrolling regression test threw: " + error);
+  SimpleTest.finish();
+});
 
 </script>
 </pre>

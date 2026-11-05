@@ -1205,7 +1205,7 @@ fuzzy-if(skiaContent,1,45) == 456219-2.html 456219-2-ref.html
 == 456484-1.html 456484-1-ref.html
 == 457398-1.html 457398-1-ref.html
 == 457398-2.html 457398-2-ref.html
-== 458296-1a.html 458296-1a-ref.html
+== 458296-1a.html 458296-1-ref.html
 == 458296-1b.html 458296-1-ref.html
 == 458296-1c.html 458296-1-ref.html
 == 458296-1d.html 458296-1-ref.html
@@ -1237,7 +1237,7 @@ fuzzy-if(skiaContent,1,12000) == 461512-1.html 461512-1-ref.html
 == 463217-1.xul 463217-1-ref.xul
 == 463952-1.html 463952-1-ref.html
 == 464811-1.html 464811-1-ref.html
-== 465574-1.html 465574-1-ref.html # bug 421436
+== 465574-1.html 465574-1-ref.html
 == 466258-1.html 466258-1-ref.html
 == 466395-1.html 466395-1-ref.html
 == 466395-2.html 466395-2-ref.html
@@ -1684,7 +1684,7 @@ fuzzy-if(skiaContent,1,4500) == 654950-1.html 654950-1-ref.html # Quartz alpha b
 fuzzy-if(skiaContent,1,3500) == 660682-1.html 660682-1-ref.html
 fuzzy-if(d2d,1,256) fuzzy-if(skiaContent,1,68000) == 664127-1.xul 664127-1-ref.xul
 == 665597-1.html 665597-1-ref.html
-== 665597-2.html 665597-2-ref.html
+!= 665597-2.html 665597-2-ref.html
 == 668319-1.xul about:blank
 != 669015-1.xul 669015-1-notref.xul
 skip-if(azureSkiaGL) == 670442-1.html 670442-1-ref.html

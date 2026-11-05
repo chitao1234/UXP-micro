@@ -463,6 +463,9 @@ protected:
                             nscoord aBottomEdgeOfChildren,
                             nsOverflowAreas& aOverflowAreas);
 
+  void ConsiderBlockEndEdgeOfChildren(nsOverflowAreas& aOverflowAreas,
+                                      nscoord aBEndEdgeOfChildren) const;
+
   /**
    * Add the frames in aFrameList to this block after aPrevSibling.
    * This block thinks in terms of lines, but the frame construction code

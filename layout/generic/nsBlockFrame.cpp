@@ -1710,22 +1710,30 @@ nsBlockFrame::ComputeFinalSize(const ReflowInput& aReflowInput,
 #endif
 }
 
-static void
-ConsiderBlockEndEdgeOfChildren(const WritingMode aWritingMode,
-                               nscoord aBEndEdgeOfChildren,
-                               nsOverflowAreas& aOverflowAreas)
+void
+nsBlockFrame::ConsiderBlockEndEdgeOfChildren(nsOverflowAreas& aOverflowAreas,
+                                             nscoord aBEndEdgeOfChildren) const
 {
+  const WritingMode wm = GetWritingMode();
   // Factor in the block-end edge of the children.  Child frames will be added
   // to the overflow area as we iterate through the lines, but their margins
   // won't, so we need to account for block-end margins here.
   // REVIEW: For now, we do this for both visual and scrollable area,
   // although when we make scrollable overflow area not be a subset of
   // visual, we can change this.
+  if (StyleContext()->GetPseudo() == nsCSSAnonBoxes::scrolledContent) {
+    // The children's block-end edge already includes our block-start padding.
+    // Include the block-end padding of the scrolled inner frame as well.
+    MOZ_ASSERT(GetLogicalUsedBorderAndPadding(wm) == GetLogicalUsedPadding(wm),
+               "A scrolled inner frame shouldn't have any border!");
+    aBEndEdgeOfChildren += GetLogicalUsedPadding(wm).BEnd(wm);
+  }
+
   // XXX Currently, overflow areas are stored as physical rects, so we have
   // to handle writing modes explicitly here. If we change overflow rects
   // to be stored logically, this can be simplified again.
-  if (aWritingMode.IsVertical()) {
-    if (aWritingMode.IsVerticalLR()) {
+  if (wm.IsVertical()) {
+    if (wm.IsVerticalLR()) {
       NS_FOR_FRAME_OVERFLOW_TYPES(otype) {
         nsRect& o = aOverflowAreas.Overflow(otype);
         o.width = std::max(o.XMost(), aBEndEdgeOfChildren) - o.x;
@@ -1773,8 +1781,7 @@ nsBlockFrame::ComputeOverflowAreas(const nsRect&         aBounds,
       areas.UnionAllWith(outsideBullet->GetRect());
     }
 
-    ConsiderBlockEndEdgeOfChildren(GetWritingMode(),
-                                   aBEndEdgeOfChildren, areas);
+    ConsiderBlockEndEdgeOfChildren(areas, aBEndEdgeOfChildren);
   }
 
 #ifdef NOISY_COMBINED_AREA
@@ -1831,8 +1838,7 @@ nsBlockFrame::ComputeCustomOverflow(nsOverflowAreas& aOverflowAreas)
   nscoord blockEndEdgeOfChildren =
     GetProperty(BlockEndEdgeOfChildrenProperty(), &found);
   if (found) {
-    ConsiderBlockEndEdgeOfChildren(GetWritingMode(),
-                                   blockEndEdgeOfChildren, aOverflowAreas);
+    ConsiderBlockEndEdgeOfChildren(aOverflowAreas, blockEndEdgeOfChildren);
   }
 
   // Line cursor invariants depend on the overflow areas of the lines, so

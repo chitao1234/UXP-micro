@@ -603,15 +603,17 @@ nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowInput* aState,
 
   if (MOZ_UNLIKELY(StyleDisplay()->mOverflowClipBox ==
                      NS_STYLE_OVERFLOW_CLIP_BOX_CONTENT_BOX)) {
-    nsOverflowAreas childOverflow;
-    nsLayoutUtils::UnionChildOverflow(mHelper.mScrolledFrame, childOverflow);
-    nsRect childScrollableOverflow = childOverflow.ScrollableOverflow();
-    childScrollableOverflow.Inflate(padding.GetPhysicalMargin(wm));
-    nsRect contentArea =
-      wm.IsVertical() ? nsRect(0, 0, computedBSize, availISize)
-                      : nsRect(0, 0, availISize, computedBSize);
-    if (!contentArea.Contains(childScrollableOverflow)) {
-      aMetrics->mOverflowAreas.ScrollableOverflow() = childScrollableOverflow;
+    // Use the reflowed overflow, which includes line bounds and block-end
+    // padding. Rebuilding it from child frames loses zero-width trailing lines.
+    // Inflate only at inline-end when the content overflows in that axis.
+    // In production this content-box behavior is used by text controls, whose
+    // text children do not themselves have scrollable overflow.
+    nsRect& so = aMetrics->mOverflowAreas.ScrollableOverflow();
+    const nscoord soInlineSize = wm.IsVertical() ? so.height : so.width;
+    if (soInlineSize > availISize) {
+      LogicalMargin inlinePaddingEnd(wm);
+      inlinePaddingEnd.IEnd(wm) = padding.IEnd(wm);
+      so.Inflate(inlinePaddingEnd.GetPhysicalMargin(wm));
     }
   }
 
