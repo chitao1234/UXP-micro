@@ -29,7 +29,7 @@
     // should be fired when a page is restored from the bfcache as though it had
     // reloaded.
     //
-    function testIterator() {
+    function* testIterator() {
       // Make sure bfcache is on.
       enableBFCache(true);
 

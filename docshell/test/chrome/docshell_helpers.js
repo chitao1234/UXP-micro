@@ -9,7 +9,8 @@ for (var name of imports) {
 
 Components.classes["@mozilla.org/moz/jssubscript-loader;1"]
   .getService(Components.interfaces.mozIJSSubScriptLoader)
-  .loadSubScript(new URL("docshell_bfcache_helpers.js", location.href).href, window);
+  .loadSubScript(new URL("docshell_bfcache_helpers.js", Components.stack.filename).href,
+                 window);
 
 /**
  * Define global constants and variables.
