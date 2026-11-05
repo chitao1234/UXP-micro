@@ -390,11 +390,7 @@ public:
     return mInAnimationOnlyStyleUpdate;
   }
 
-  void QueueEvent(mozilla::TransitionEventInfo&& aEventInfo)
-  {
-    mEventDispatcher.QueueEvent(
-      mozilla::Forward<mozilla::TransitionEventInfo>(aEventInfo));
-  }
+  void QueueEvent(mozilla::TransitionEventInfo&& aEventInfo);
 
   void DispatchEvents()
   {

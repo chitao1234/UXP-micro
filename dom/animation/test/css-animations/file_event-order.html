@@ -38,10 +38,6 @@ events (${expectedEvents.map(event => event.type).join(', ')})`);
 
 function setupAnimation(t, animationStyle, receiveEvents) {
   const div = addDiv(t, { style: "animation: " + animationStyle });
-  const watcher = new EventWatcher(t, div, [ 'animationstart',
-                                             'animationiteration',
-                                             'animationend' ]);
-
   ['start', 'iteration', 'end'].forEach(name => {
     div['onanimation' + name] = function(evt) {
     receiveEvents.push({ type:        evt.type,
@@ -50,6 +46,10 @@ function setupAnimation(t, animationStyle, receiveEvents) {
     }.bind(this);
   });
 
+  // Record every event before a watcher continuation can inspect the array.
+  const watcher = new EventWatcher(t, div, [ 'animationstart',
+                                             'animationiteration',
+                                             'animationend' ]);
   const animation = div.getAnimations()[0];
 
   return [animation, watcher, div];

@@ -38,6 +38,8 @@ TransitionEventHandler.prototype.clear = function() {
 
 function setupTransition(t, transitionStyle) {
   var div = addDiv(t, { style: 'transition: ' + transitionStyle });
+  // Record before the watcher can resolve a Promise continuation.
+  var handler = new TransitionEventHandler(div);
   var watcher = new EventWatcher(t, div, [ 'transitionrun',
                                            'transitionstart',
                                            'transitionend',
@@ -47,7 +49,7 @@ function setupTransition(t, transitionStyle) {
   div.style.marginLeft = '100px';
   var transition = div.getAnimations()[0];
 
-  return [transition, watcher, div];
+  return [transition, watcher, div, handler];
 }
 
 // On the next frame (i.e. when events are queued), whether or not the
@@ -71,9 +73,8 @@ promise_test(function(t) {
 }, 'Idle -> Before');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s 100s');
-  var handler = new TransitionEventHandler(div);
 
   // Seek to Active phase.
   transition.currentTime = 100 * MS_PER_SEC;
@@ -86,9 +87,8 @@ promise_test(function(t) {
 }, 'Idle or Pending -> Active');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s 100s');
-  var handler = new TransitionEventHandler(div);
 
   // Seek to After phase.
   transition.finish();
@@ -144,9 +144,8 @@ promise_test(function(t) {
 }, 'Before -> Active');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s 100s');
-  var handler = new TransitionEventHandler(div);
 
   return Promise.all([ watcher.wait_for('transitionrun'),
                        transition.ready ]).then(function() {
@@ -293,9 +292,8 @@ promise_test(function(t) {
 }, 'Active -> After');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s 100s');
-  var handler = new TransitionEventHandler(div);
 
   // Seek to After phase.
   transition.finish();
@@ -328,9 +326,8 @@ promise_test(function(t) {
 }, 'After -> Active');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s -50s');
-  var handler = new TransitionEventHandler(div);
 
   return watcher.wait_for([ 'transitionrun',
                             'transitionstart' ]).then(function() {
@@ -344,15 +341,14 @@ promise_test(function(t) {
 }, 'Calculating the interval start and end time with negative start delay.');
 
 promise_test(function(t) {
-  var [transition, watcher, div] =
+  var [transition, watcher, div, handler] =
     setupTransition(t, 'margin-left 100s 100s');
-  var handler = new TransitionEventHandler(div);
 
   return watcher.wait_for('transitionrun').then(function(evt) {
     // We can't set the end delay via generated effect timing.
     // Because CSS-Transition use the AnimationEffectTimingReadOnly.
     transition.effect = new KeyframeEffect(div,
-                                           { marginleft: [ '0px', '100px' ]},
+                                           { marginLeft: [ '0px', '100px' ]},
                                            { duration: 100 * MS_PER_SEC,
                                              endDelay: -50 * MS_PER_SEC });
     // Seek to Before and play.
@@ -394,12 +390,11 @@ promise_test(function(t) {
 
   return watcher.wait_for('transitionrun').then(function(evt) {
     // Make idle
-    div.style.display = 'none';
-    flushComputedStyle(div);
+    // Keep the transition tied to its element when restarting it. Its positive
+    // delay means only transitionrun, not transitionstart, is due this frame.
+    transition.cancel();
     transition.play();
-    watcher.wait_for([ 'transitioncancel',
-                       'transitionrun',
-                       'transitionstart' ]);
+    return watcher.wait_for([ 'transitioncancel', 'transitionrun' ]);
   });
 }, 'Restart transition after cancelling transition immediately');
 

@@ -202,6 +202,12 @@ public:
   }
 
   /**
+   * Keep a refresh scheduled for queued CSS animation/transition events even
+   * when detaching or canceling the last animation removes its timeline.
+   */
+  void ScheduleAnimationEventDispatch();
+
+  /**
    * Remember whether our presshell's view manager needs a flush
    */
   void ScheduleViewManagerFlush();
@@ -449,6 +455,7 @@ private:
   bool mNeedToRecomputeVisibility;
   bool mTestControllingRefreshes;
   bool mViewManagerFlushIsPending;
+  bool mAnimationEventsPending;
   bool mInRefresh;
 
   // True if the refresh driver is suspended waiting for transaction

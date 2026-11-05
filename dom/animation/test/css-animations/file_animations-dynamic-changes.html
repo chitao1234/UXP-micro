@@ -11,6 +11,21 @@
 <script>
 'use strict';
 
+// Upstream's CSS animation tests allow ready to resolve during this frame's
+// update, before its requestAnimationFrame callbacks have run.
+function waitForNextFrame() {
+  const timeAtStart = document.timeline.currentTime;
+  return new Promise(resolve => {
+    requestAnimationFrame(() => {
+      if (timeAtStart === document.timeline.currentTime) {
+        requestAnimationFrame(resolve);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 promise_test(function(t) {
   var div = addDiv(t);
   div.style.animation = 'anim1 100s';
@@ -26,7 +41,7 @@ promise_test(function(t) {
 
     // Wait a moment so we can confirm the startTime doesn't change (and
     // doesn't simply reflect the current time).
-    return waitForFrame();
+    return waitForNextFrame();
   }).then(function() {
     div.style.animationDuration = '200s';
     var animation = div.getAnimations()[0];

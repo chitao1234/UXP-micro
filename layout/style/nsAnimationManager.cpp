@@ -14,6 +14,7 @@
 #include "mozilla/dom/KeyframeEffectReadOnly.h"
 
 #include "nsPresContext.h"
+#include "nsRefreshDriver.h"
 #include "nsStyleSet.h"
 #include "nsStyleChangeList.h"
 #include "nsCSSRules.h"
@@ -33,6 +34,14 @@ using mozilla::dom::KeyframeEffectReadOnly;
 using mozilla::dom::CSSAnimation;
 
 typedef mozilla::ComputedTiming::AnimationPhase AnimationPhase;
+
+void
+nsAnimationManager::QueueEvent(mozilla::AnimationEventInfo&& aEventInfo)
+{
+  mEventDispatcher.QueueEvent(
+    mozilla::Forward<mozilla::AnimationEventInfo>(aEventInfo));
+  mPresContext->RefreshDriver()->ScheduleAnimationEventDispatch();
+}
 
 namespace {
 

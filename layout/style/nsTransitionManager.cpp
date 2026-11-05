@@ -412,6 +412,14 @@ NS_IMPL_CYCLE_COLLECTION(nsTransitionManager, mEventDispatcher)
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(nsTransitionManager, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(nsTransitionManager, Release)
 
+void
+nsTransitionManager::QueueEvent(mozilla::TransitionEventInfo&& aEventInfo)
+{
+  mEventDispatcher.QueueEvent(
+    mozilla::Forward<mozilla::TransitionEventInfo>(aEventInfo));
+  mPresContext->RefreshDriver()->ScheduleAnimationEventDispatch();
+}
+
 static inline bool
 ExtractNonDiscreteComputedValue(nsCSSPropertyID aProperty,
                                 nsStyleContext* aStyleContext,

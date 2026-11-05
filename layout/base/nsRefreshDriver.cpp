@@ -1045,6 +1045,7 @@ nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
     mNeedToRecomputeVisibility(false),
     mTestControllingRefreshes(false),
     mViewManagerFlushIsPending(false),
+    mAnimationEventsPending(false),
     mInRefresh(false),
     mWaitingForTransaction(false),
     mSkippedPaints(false),
@@ -1302,6 +1303,7 @@ nsRefreshDriver::ObserverCount() const
   sum += mFrameRequestCallbackDocs.Length();
   sum += mThrottledFrameRequestCallbackDocs.Length();
   sum += mViewManagerFlushIsPending;
+  sum += mAnimationEventsPending;
   return sum;
 }
 
@@ -1452,8 +1454,17 @@ CollectDocuments(nsIDocument* aDocument, void* aDocArray)
 }
 
 void
+nsRefreshDriver::ScheduleAnimationEventDispatch()
+{
+  mAnimationEventsPending = true;
+  EnsureTimerStarted();
+}
+
+void
 nsRefreshDriver::DispatchAnimationEvents()
 {
+  // Clear before dispatch: an event handler can queue events for the next tick.
+  mAnimationEventsPending = false;
   if (!mPresContext) {
     return;
   }
@@ -2216,6 +2227,7 @@ nsRefreshDriver::Disconnect()
 {
   MOZ_ASSERT(NS_IsMainThread());
 
+  mAnimationEventsPending = false;
   StopTimer();
 
   if (mPresContext) {

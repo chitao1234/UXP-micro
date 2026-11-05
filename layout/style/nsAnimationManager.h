@@ -322,11 +322,7 @@ public:
   /**
    * Add a pending event.
    */
-  void QueueEvent(mozilla::AnimationEventInfo&& aEventInfo)
-  {
-    mEventDispatcher.QueueEvent(
-      mozilla::Forward<mozilla::AnimationEventInfo>(aEventInfo));
-  }
+  void QueueEvent(mozilla::AnimationEventInfo&& aEventInfo);
 
   /**
    * Dispatch any pending events.  We accumulate animationend and
