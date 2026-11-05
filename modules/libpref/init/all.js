@@ -767,6 +767,9 @@ pref("gfx.font_rendering.directwrite.use_gdi_table_loading", true);
 
 pref("gfx.font_rendering.opentype_svg.enabled", true);
 
+// Disable antialiasing only for the Ahem test font when explicitly requested.
+pref("gfx.font_rendering.ahem_antialias_none", false);
+
 #ifdef XP_WIN
 // comma separated list of backends to use in order of preference
 // e.g., pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");

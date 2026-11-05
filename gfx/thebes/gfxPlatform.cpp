@@ -1893,6 +1893,13 @@ gfxPlatform::FontsPrefsChanged(const char *aPref)
     } else if (!strcmp(GFX_PREF_GRAPHITE_SHAPING, aPref)) {
         mGraphiteShapingEnabled = UNINITIALIZED_VALUE;
         FlushFontAndWordCaches();
+    } else if (!strcmp("gfx.font_rendering.ahem_antialias_none", aPref)) {
+        // The AA option lives on gfxFont. Aging and clearing shaped words
+        // alone can return the same still-cached font on a later lookup.
+        if (gfxFontCache* fontCache = gfxFontCache::GetCache()) {
+            fontCache->Flush();
+        }
+        gfxPlatform::PurgeSkiaFontCache();
     } else if (!strcmp(BIDI_NUMERAL_PREF, aPref)) {
         mBidiNumeralOption = UNINITIALIZED_VALUE;
     } else if (!strcmp(GFX_PREF_OPENTYPE_SVG, aPref)) {

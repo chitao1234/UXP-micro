@@ -18,6 +18,7 @@
 
 #include "gfxGlyphExtents.h"
 #include "gfxPlatform.h"
+#include "gfxPrefs.h"
 #include "gfxTextRun.h"
 #include "nsGkAtoms.h"
 
@@ -864,6 +865,11 @@ gfxFont::gfxFont(gfxFontEntry *aFontEntry, const gfxFontStyle *aFontStyle,
 #ifdef DEBUG_TEXT_RUN_STORAGE_METRICS
     ++gFontCount;
 #endif
+    // Match upstream's opt-in test policy for the Ahem pixel-test font.
+    if (MOZ_UNLIKELY(gfxPrefs::AhemAntialiasNone() &&
+                     mFontEntry->FamilyName().EqualsLiteral("Ahem"))) {
+        mAntialiasOption = kAntialiasNone;
+    }
     mKerningSet = HasFeatureSet(HB_TAG('k','e','r','n'), mKerningEnabled);
 
     // Ensure the gfxFontEntry's unitsPerEm and extents fields are initialized,
