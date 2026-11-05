@@ -3,6 +3,8 @@
 tree {
   height: 100px; -moz-appearance: none; border: none; background-color: transparent;
 }
+treecols { border: none; }
+
 treecol, treecolpicker {
   visibility: hidden;
 }

@@ -1,3 +1,4 @@
+# Selected pixel comparisons below require integral CSS/device edges and border arithmetic.
 # Please keep this list sorted by bug number (but feel free to use a
 # logical order for the tests for each bug).
 == 105-1.html 105-1-ref.html
@@ -193,7 +194,7 @@ random == 99850-1b.html 99850-1-ref.html # bug 471629
 == 201293-1d.html 201293-1-ref.html
 == 203727.html 203727-ref.html
 == 206516-1.html 206516-1-ref.html
-== 206631-1.html 206631-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 206631-1.html 206631-1-ref.html
 == 206802.html 206802-ref.html
 == 210094-1a.html 210094-1-ref.html
 == 210094-1b.html 210094-1-ref.html
@@ -305,7 +306,7 @@ fuzzy-if(skiaContent,1,133) == 273681-1.html 273681-1-ref.html
 == 283686-2.html 283686-2-ref.html
 == 283686-3.html about:blank
 == 289384-1.xhtml 289384-ref.xhtml
-random-if(d2d) HTTP == 289480.html#top 289480-ref.html # basically-verbatim acid2 test, HTTP for a 404 page -- bug 578114 for the d2d failures
+pref(layout.css.devPixelsPerPx,"1.0") random-if(d2d) HTTP == 289480.html#top 289480-ref.html # basically-verbatim acid2 test, HTTP for a 404 page -- bug 578114 for the d2d failures
 == 290129-1.html 290129-1-ref.html
 == 291078-1.html 291078-1-ref.html
 == 291078-2.html 291078-2-ref.html
@@ -524,7 +525,7 @@ random-if(cocoaWidget) == 350506-1.html 350506-1-ref.html
 == 355548-3.xml 355548-3-ref.xml
 == 355548-4.xml 355548-4-ref.xml
 == 355548-5.xml 355548-5-ref.xml
-== 356774-1.html 356774-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 356774-1.html 356774-1-ref.html
 == 356775-1.html 356775-1-ref.html
 == 359869-1.html 359869-1-ref.html
 != 359903-1.html 359903-1-ref.html # erosion of padding removed in bug 1010675
@@ -599,10 +600,10 @@ fuzzy-if(OSX>=1008,45,2) fuzzy-if(winWidget,114,1) == 363858-6a.html 363858-6-re
 == 367612-1e.html 367612-1-ref.html
 == 367612-1f.html 367612-1-ref.html
 != 367612-1g.html 367612-1-ref.html
-fuzzy-if(winWidget||gtkWidget,32,34) fuzzy-if(skiaContent,1,28) == 368020-1.html 368020-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(winWidget||gtkWidget,32,34) fuzzy-if(skiaContent,1,28) == 368020-1.html 368020-1-ref.html
 == 368020-2.html 368020-2-ref.html
-== 368020-3.html 368020-3-ref.html
-pref(layout.css.box-decoration-break.enabled,true) == 368020-5.html 368020-5-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 368020-3.html 368020-3-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") pref(layout.css.box-decoration-break.enabled,true) == 368020-5.html 368020-5-ref.html
 == 368155-1.xhtml 368155-1-ref.xhtml
 asserts(4) == 368155-negative-margins-1.html 368155-negative-margins-1-ref.html # bug 387205 / bug 457397
 # we can't test this because there's antialiasing involved, and our comparison
@@ -620,7 +621,7 @@ asserts(4) == 368155-negative-margins-1.html 368155-negative-margins-1-ref.html 
 == 368651-1.html 368651-1-ref.html
 == 369361-1.html 369361-1-ref.html
 == 369361-2.html 369361-2-ref.html
-== 369882.xul 369882-ref.xul
+pref(layout.css.devPixelsPerPx,"1.0") == 369882.xul 369882-ref.xul
 == 369975-1.html 369975-1.html
 == 370353-1.html 370353-1-ref.html
 == 370422-1.html 370422-1-ref.html
@@ -692,8 +693,8 @@ random-if(cocoaWidget) random-if(/^Windows\x20NT\x206\.1/.test(http.oscpu)) fuzz
 == 379328-1.html 379328-1-ref.html
 == 379349-1a.xhtml 379349-1-ref.xhtml
 # fuzzy because of different border rendering approach in bug 1185636
-fuzzy(37,20) == 379349-1b.xhtml 379349-1-ref.xhtml
-fuzzy(37,20) == 379349-1c.xhtml 379349-1-ref.xhtml
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(37,20) == 379349-1b.xhtml 379349-1-ref.xhtml
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(37,20) == 379349-1c.xhtml 379349-1-ref.xhtml
 == 379349-2a.xhtml 379349-2-ref.xhtml
 == 379349-2b.xhtml 379349-2-ref.xhtml
 == 379349-3a.xhtml 379349-3-ref.xhtml
@@ -908,8 +909,8 @@ random-if(cocoaWidget) HTTP(..) == 404149-1.xul 404149-1-ref.xul # HTTP for font
 == 405305-1.html 405305-1-ref.html
 == 405380-1.html 405380-1-ref.html
 == 405517-1.xhtml 405517-1-ref.xhtml
-== 405577-1.html 405577-1-ref.html
-== 405584-1.html 405584-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 405577-1.html 405577-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 405584-1.html 405584-1-ref.html
 # == 405952-1.html 405952-1-ref.html
 == 406484-1.html 406484-1-ref.html
 == 406568-1.html 406568-1-ref.html
@@ -940,7 +941,7 @@ fuzzy-if(winWidget,123,1600) == 409659-1a.html 409659-1-ref.html  # Bug 1128229
 != 409659-1b.html 409659-1-ref.html
 != 409659-1c.html 409659-1-ref.html
 fuzzy-if(winWidget,123,1900) == 409659-1d.html 409659-1-ref.html  # Bug 1128229
-== 410621-1.html 410621-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 410621-1.html 410621-1-ref.html
 == 411059-1.html 411059-1-ref.html
 == 411334-1.xml 411334-1-ref.xml
 == 411367-1.html 411367-1-ref.html
@@ -984,7 +985,7 @@ skip-if(cocoaWidget) == 413292-1.html 413292-1-ref.html # disabling due to failu
 == 414851-1.html 414851-1-ref.html
 == 416106-1.xhtml 416106-1-ref.xhtml
 == 416752-1.html 416752-1-ref.html
-== 417178-1.html 417178-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 417178-1.html 417178-1-ref.html
 == 417246-1.html 417246-1-ref.html
 == 417676.html 417676-ref.html
 asserts(1) == 418574-1.html 418574-1-ref.html # bug 478135
@@ -998,9 +999,9 @@ asserts(1) == 418574-2.html 418574-2-ref.html # bug 478135
 == 420069-2.html 420069-2-ref.html
 == 420351-1.html 420351-1-ref.html
 == 420790-1.xhtml 420790-1-ref.xhtml
-== 421069.html 421069-ref.html
-== 421069.html 421069-ref2.html
-== 421069-ref.html 421069-ref2.html
+pref(layout.css.devPixelsPerPx,"1.0") == 421069.html 421069-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 421069.html 421069-ref2.html
+pref(layout.css.devPixelsPerPx,"1.0") == 421069-ref.html 421069-ref2.html
 == 421203-1.xul 421203-1-ref.html
 == 421203-2.xul 421203-1-ref.html
 == 421203-3.xul 321402-3-ref.xul
@@ -1049,9 +1050,9 @@ fuzzy-if(skiaContent,1,160000) == 424766-1.html 424766-1-ref.html
 != 425972-1.html 425972-2.html
 == 426629-1.html 426629-1-ref.html
 asserts(3) != 427017-1.xhtml about:blank # crash test (needs reftest-print). existing assertions are bug 457400.
-== 427129-scrollframe.html 427129-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 427129-scrollframe.html 427129-ref.html
 == 427129-table.html 427129-ref.html
-== 427129-image.html 427129-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 427129-image.html 427129-ref.html
 == 427129-table-caption.html 427129-table-caption-ref.html
 fuzzy-if(skiaContent,1,60) == 427370-1.html 427370-1-ref.html
 == 427730-1.html 427730-1-ref.html
@@ -1135,7 +1136,7 @@ fails == 428810-3e-rtl-insets.html 428810-empty-rtl-insets-ref.html # bug 179596
 == 431341-2.html 431341-2-ref.html
 == 431520-1.html 431520-1-ref.html
 == 431948-1.html 431948-1-ref.html
-== 433640-1.html 433640-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 433640-1.html 433640-1-ref.html
 == 433700.html 433700-ref.html
 == 436356-1.html 436356-1-ref.html
 == 436356-2.html 436356-2-ref.html
@@ -1174,7 +1175,7 @@ fails-if(usesRepeatResampling) == 446100-1e.html about:blank
 fails-if(usesRepeatResampling) == 446100-1g.html about:blank
 == 446100-1h.html about:blank
 == 447749-1.html 447749-1-ref.html
-fuzzy(127,2) == 448193.html 448193-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(127,2) == 448193.html 448193-ref.html
 != 449149-1a.html about:blank
 != 449149-1b.html about:blank
 # Retry the above with XBL scopes
@@ -1196,10 +1197,10 @@ test-pref(dom.use_xbl_scopes_for_remote_xul,true) != 449149-1b.html about:blank
 == 455171-5.html 455171-5-ref.html
 == 455280-1.xhtml 455280-1-ref.xhtml
 == 455826-1.html 455826-1-ref.html
-fails-if(cocoaWidget) == 456147.xul 456147-ref.html # bug 458047
-fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1a.html 456219-1-ref.html # bug 1128229
-fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1b.html 456219-1-ref.html # bug 1128229
-fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1c.html 456219-1-ref.html # bug 1128229
+pref(layout.css.devPixelsPerPx,"1.0") fails-if(cocoaWidget) == 456147.xul 456147-ref.html # bug 458047
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1a.html 456219-1-ref.html # bug 1128229
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1b.html 456219-1-ref.html # bug 1128229
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(winWidget||gtkWidget,4,6) fuzzy-if(d2d,4,69) == 456219-1c.html 456219-1-ref.html # bug 1128229
 fuzzy-if(skiaContent,1,45) == 456219-2.html 456219-2-ref.html
 == 456330-1.gif 456330-1-ref.png
 == 456484-1.html 456484-1-ref.html
@@ -1228,15 +1229,15 @@ fuzzy-if(skiaContent,1,5) == 459443-1.html 459443-1-ref.html
 == 459613-1.html 459613-1-ref.html
 == 460012-1.html 460012-1-ref.html
 == 461266-1.html 461266-1-ref.html
-fuzzy-if(skiaContent,1,12000) == 461512-1.html 461512-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,12000) == 461512-1.html 461512-1-ref.html
 == 462844-1.html 462844-ref.html
 == 462844-2.html 462844-ref.html
 == 462844-3.html 462844-ref.html
 == 462844-4.html 462844-ref.html
-== 463204-1.html 463204-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 463204-1.html 463204-1-ref.html
 == 463217-1.xul 463217-1-ref.xul
-== 463952-1.html 463952-1-ref.html
-== 464811-1.html 464811-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 463952-1.html 463952-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 464811-1.html 464811-1-ref.html
 == 465574-1.html 465574-1-ref.html
 == 466258-1.html 466258-1-ref.html
 == 466395-1.html 466395-1-ref.html
@@ -1253,8 +1254,8 @@ fuzzy(255,15) == 472020-1a.xul 472020-1-ref.xul
 fails == 472020-1b.xul 472020-1-ref.xul
 fails == 472020-2.xul 472020-2-ref.xul
 == 472500-1.xul 472500-1-ref.xul
-== 472769-1a.html 472769-1-ref.html
-== 472769-1b.html 472769-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 472769-1a.html 472769-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 472769-1b.html 472769-1-ref.html
 == 472769-2.html 472769-2-ref.html
 == 472769-3.html 472769-3-ref.html
 == 473847-1.xul 473847-1-ref.xul
@@ -1329,8 +1330,8 @@ fuzzy-if(skiaContent,1,5) == 482659-1b.html 482659-1-ref.html
 fuzzy-if(skiaContent,1,5) == 482659-1c.html 482659-1-ref.html
 fuzzy-if(skiaContent,1,5) == 482659-1d.html 482659-1-ref.html
 == 483565.xul 483565-ref.xul
-== 484256-1.html 484256-1-ref.html
-== 484256-2.html 484256-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 484256-1.html 484256-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 484256-2.html 484256-1-ref.html
 == 485012-1.html 485012-1-ref.html
 == 485275-1.html 485275-1-ref.html
 == 485275-1.svg 485275-1-ref.html
@@ -1347,7 +1348,7 @@ fuzzy-if(skiaContent,1,5) == 482659-1d.html 482659-1-ref.html
 == 487539-1.html about:blank
 == 488390-1.html 488390-1-ref.html
 == 488649-1.html 488649-1-ref.html
-== 488685-1.html 488685-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 488685-1.html 488685-1-ref.html
 == 488692-1.html 488692-1-ref.html
 == 489868-1.svg 489868-1-ref.svg
 == 490173-1.html 490173-1-ref.html
@@ -1467,7 +1468,7 @@ random == 536061.html 536061-ref.html # fixedpoint division in blur code makes t
 == 537507-1.xul 537507-1-ref.xul
 == 537507-2.html 537507-2-ref.html
 == 538909-1.html 538909-1-ref.html
-== 538935-1.html 538935-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 538935-1.html 538935-1-ref.html
 == 539226-1.html about:blank
 == 539323-1.html 539323-1-ref.html
 == 539323-2.html 539323-2-ref.html
@@ -1484,12 +1485,12 @@ needs-focus != 542116-3.html 542116-3-ref.html
 == 542620-1.html 542620-1-ref.html
 == 545049-1.html 545049-1-ref.html
 == 546033-1.html 546033-1-ref.html
-random-if(!haveTestPlugin) == 546071-1.html 546071-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") random-if(!haveTestPlugin) == 546071-1.html 546071-1-ref.html
 == 549184-1.html 549184-1-ref.html
 == 550325-1.html 550325-1-ref.html
 == 550325-2.html 550325-1-ref.html
 == 550325-3.html 550325-1-ref.html
-== 550716-1.html 550716-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 550716-1.html 550716-1-ref.html
 == 551463-1.html 551463-1-ref.html
 == 551699-1.html 551699-1-ref.html
 == 552334-1.html 552334-1-ref.html
@@ -1498,7 +1499,7 @@ random-if(!haveTestPlugin) == 546071-1.html 546071-1-ref.html
 # Keeping it here for the record, and because we may evolve HB's dotted-circle
 # behavior further in the future, which could make this become relevant again.
 != 553571-1.html 553571-1-notref.html # expect dotted circle in test, not in ref: "fails" under harfbuzz, which doesn't consider the sequence invalid
-fuzzy-if(!contentSameGfxBackendAsCanvas,128,91) random-if(d2d) skip-if(azureSkiaGL) fuzzy-if(skiaContent,32,150) == 555388-1.html 555388-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(!contentSameGfxBackendAsCanvas,128,91) random-if(d2d) skip-if(azureSkiaGL) fuzzy-if(skiaContent,32,150) == 555388-1.html 555388-1-ref.html
 == 556661-1.html 556661-1-ref.html
 fuzzy-if(skiaContent,4,5) == 557087-1.html 557087-ref.html
 fuzzy-if(skiaContent,2,5) == 557087-2.html 557087-ref.html
@@ -1517,9 +1518,9 @@ fuzzy-if(skiaContent,1,5) == 561981-7.html 561981-7-ref.html
 == 562835-1.html 562835-ref.html
 == 562835-2.html 562835-ref.html
 == 563584-1.html 563584-1-ref.html
-== 563584-2.html 563584-2-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 563584-2.html 563584-2-ref.html
 == 563584-3.html 563584-3-ref.html
-== 563584-4.html 563584-4-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 563584-4.html 563584-4-ref.html
 == 563584-5.html 563584-5-ref.html
 test-pref(layout.float-fragments-inside-column.enabled,false) == 563584-6-columns.html 563584-6-columns-ref.html
 test-pref(layout.float-fragments-inside-column.enabled,true) == 563584-6-columns.html 563584-6-columns-ref-enabled.html
@@ -1563,10 +1564,10 @@ needs-focus == 568441.html 568441-ref.html
 random-if(!winWidget) fails-if(/^Windows\x20NT\x2010\.0/.test(http.oscpu)) == 574907-1.html 574907-1-ref.html # Bug 1258240
 random-if(!winWidget) fails-if(/^Windows\x20NT\x2010\.0/.test(http.oscpu)) == 574907-2.html 574907-2-ref.html # Bug 1258240
 # 574907-3 only worked under directwrite, and even there it now depends on the rendering mode; marking as random for now
-random-if(!winWidget) fails-if(winWidget&&!dwrite) random-if(winWidget&&dwrite) != 574907-3.html 574907-3-notref.html
+random-if(!winWidget) random-if(winWidget&&dwrite) != 574907-3.html 574907-3-notref.html
 == 577838-1.html 577838-1-ref.html
 == 577838-2.html 577838-2-ref.html
-== 579323-1.html 579323-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 579323-1.html 579323-1-ref.html
 == 579349-1.html 579349-1-ref.html
 == 579655-1.html 579655-1-ref.html
 skip-if(!haveTestPlugin) == 579808-1.html 579808-1-ref.html
@@ -1608,10 +1609,10 @@ fails-if(!haveTestPlugin) == 599476.html 599476-ref.html
 == 600974-1.html 600974-1-ref.html
 == 600974-2.html 600974-1-ref.html
 == 600974-3.html 600974-1-ref.html
-== 602200-1.html 602200-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 602200-1.html 602200-1-ref.html
 == 602200-2.html 602200-2-ref.html
-== 602200-3.html 602200-3-ref.html
-== 602200-4.html 602200-4-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 602200-3.html 602200-3-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 602200-4.html 602200-4-ref.html
 == 603423-1.html 603423-1-ref.html
 == 604737.html 604737-ref.html
 == 605138-1.html 605138-1-ref.html
@@ -1634,14 +1635,14 @@ needs-focus skip-if(/^Linux\x20i686/.test(http.oscpu)) == 613433-3.html 613433-3
 == 614272-1.svg  614272-1-ref.svg
 HTTP(..) == 615121-1.html 615121-1-ref.html
 HTTP(..) != 615121-2.html 615121-2-notref.html
-== 617242-1.html 617242-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 617242-1.html 617242-1-ref.html
 != 618071.html 618071-notref.html
 == 619117-1.html 619117-1-ref.html
 HTTP(..) == 619511-1.html 619511-1-ref.html
 HTTP(..) == 621253-1-externalFilter.html 621253-1-ref.html
 == 621253-1-internalFilter.html 621253-1-ref.html
-HTTP(..) == 621253-2-externalFilter.html 621253-2-ref.html
-== 621253-2-internalFilter.html 621253-2-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") HTTP(..) == 621253-2-externalFilter.html 621253-2-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 621253-2-internalFilter.html 621253-2-ref.html
 random-if(winWidget) fuzzy-if(OSX==1008,19,17) == 621918-1.svg 621918-1-ref.svg # 1-pixel diacritic positioning discrepancy in rotated text (may depend on platform fonts)
 random-if(winWidget) HTTP(..) == 621918-2.svg 621918-2-ref.svg # same 1px issue as above, and HTTP(..) for filters.svg, used to mask antialiasing issues where glyphs touch
 fuzzy-if(d2d,5,1) == 622585-1.html 622585-1-ref.html # bug 789402
@@ -1651,17 +1652,17 @@ fuzzy-if(skiaContent,1,500) == 630835-1.html about:blank
 == 631352-1.html 631352-1-ref.html
 skip-if(!haveTestPlugin) fuzzy-if(winWidget&&!layersGPUAccelerated,102,535) fuzzy-if(skiaContent,102,11000) == 632423-1.html 632423-1-ref.html
 random-if(winWidget||OSX==1010) == 632781-verybig.html 632781-ref.html
-== 632781-normalsize.html 632781-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 632781-normalsize.html 632781-ref.html
 fuzzy-if(d2d&&/^Windows\x20NT\x206\.2/.test(http.oscpu),1,559) fuzzy-if(!isDebugBuild&&gtkWidget&&/^Linux\x20i686/.test(http.oscpu),102,140) == 633344-1.html 633344-1-ref.html # bug 1103623, Linux32 from GCC update
 fuzzy-if(skiaContent,1,500) == 634232-1.html 634232-1-ref.html
-fuzzy-if(skiaContent,3,120000) == 635302-1.html 635302-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,3,120000) == 635302-1.html 635302-1-ref.html
 fuzzy(1,68) fuzzy-if(gtkWidget,1,70) fuzzy-if(skiaContent,1,300) == 635373-1.html 635373-1-ref.html
 random-if(d2d) fuzzy-if(winWidget&&!d2d,20,118) fuzzy-if(skiaContent,2,550) == 635373-2.html 635373-2-ref.html
 random-if(d2d) fuzzy-if(winWidget&&!d2d,20,116) fuzzy-if(skiaContent,2,650) == 635373-3.html 635373-3-ref.html
 HTTP(..) == 635639-1.html 635639-1-ref.html
 HTTP(..) == 635639-2.html 635639-2-ref.html
 random == 637597-1.html 637597-1-ref.html # bug 637597 was never really fixed!
-== 637852-1.html 637852-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 637852-1.html 637852-1-ref.html
 == 637852-2.html 637852-2-ref.html
 == 637852-3.html 637852-3-ref.html
 == 641770-1.html 641770-1-ref.html
@@ -1676,7 +1677,7 @@ needs-focus == 652301-1b.html 652301-1-ref.html
 fuzzy-if(skiaContent,2,5) == 652775-1.html 652775-1-ref.html
 fuzzy-if(skiaContent,1,5) == 653930-1.html 653930-1-ref.html
 HTTP(..) == 654057-1.html 654057-1-ref.html
-fuzzy-if(skiaContent,1,4500) == 654950-1.html 654950-1-ref.html # Quartz alpha blending doesn't match GL alpha blending
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(skiaContent,1,4500) == 654950-1.html 654950-1-ref.html # Quartz alpha blending doesn't match GL alpha blending
 == 655549-1.html 655549-1-ref.html
 == 655836-1.html 655836-1-ref.html
 != 656875.html about:blank
@@ -1707,7 +1708,7 @@ needs-focus != 703186-1.html 703186-2.html
 == 714519-1-q.html 714519-1-ref.html
 == 714519-2-as.html 714519-2-ref.html
 == 714519-2-q.html 714519-2-ref.html
-fuzzy-if(true,1,21) fuzzy-if(d2d,68,173) fuzzy-if(cocoaWidget,1,170) == 718521.html 718521-ref.html # bug 773482
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(true,1,21) fuzzy-if(d2d,68,173) fuzzy-if(cocoaWidget,1,170) == 718521.html 718521-ref.html # bug 773482
 == 720987.html 720987-ref.html
 == 722888-1.html 722888-1-ref.html
 fuzzy(1,40000) == 722923-1.html 722923-1-ref.html
@@ -1728,10 +1729,10 @@ fuzzy-if(cocoaWidget,1,300000) fuzzy-if(skiaContent,2,300000) == 745934-1.html 7
 == 758561-1.html 758561-1-ref.html
 fuzzy-if(true,1,90) fuzzy-if(skiaContent,1,320) == 759036-1.html 759036-1-ref.html
 fuzzy-if(true,17,5886) == 759036-2.html 759036-2-ref.html
-== 776265-1a.html 776265-1-ref.html
-== 776265-1b.html 776265-1-ref.html
-== 776265-1c.html 776265-1-ref.html
-== 776265-1d.html 776265-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 776265-1a.html 776265-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 776265-1b.html 776265-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 776265-1c.html 776265-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 776265-1d.html 776265-1-ref.html
 == 776265-2a.html 776265-2-ref.html
 == 776265-2b.html 776265-2-ref.html
 == 776265-2c.html 776265-2-ref.html
@@ -1760,7 +1761,7 @@ fuzzy-if(asyncPan,190,510) fuzzy-if(asyncPan&&!layersGPUAccelerated,102,510) == 
 == 827577-1b.html 827577-1-ref.html
 == 827799-1.html about:blank
 == 829958.html 829958-ref.html
-== 836844-1.html 836844-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 836844-1.html 836844-1-ref.html
 == 841192-1.html 841192-1-ref.html
 == 844178.html 844178-ref.html
 fuzzy-if(OSX,1,364) fuzzy-if(skiaContent,1,320) == 846144-1.html 846144-1-ref.html
@@ -1783,7 +1784,7 @@ fuzzy-if(OSX,1,364) fuzzy-if(skiaContent,1,320) == 846144-1.html 846144-1-ref.ht
 == 894931-1.html 894931-1-ref.html
 == 897491-1.html 897491-1-ref.html
 == 897491-2.html 897491-2-ref.html
-fuzzy(2,10000) == 902330-1.html 902330-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(2,10000) == 902330-1.html 902330-1-ref.html
 == 906199-1.html 906199-1-ref.html
 == 921716-1.html 921716-1-ref.html
 == 926155-1.html 926155-1-ref.html
@@ -1837,7 +1838,7 @@ fuzzy-if(skiaContent,1,24000) == 1025914-1.html 1025914-1-ref.html
 == 1042104-1.html 1042104-1-ref.html
 == 1043537-1.html 1043537-1-ref.html
 == 1044198-1.html 1044198-1-ref.html
-== 1049499-1.html 1049499-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 1049499-1.html 1049499-1-ref.html
 == 1050493-1.html 1050493-1-ref.html
 == 1050788-1.html about:blank
 == 1053035-1-flex.html 1053035-1-ref.html
@@ -1854,7 +1855,7 @@ test-pref(dom.webcomponents.enabled,true) fails-if(stylo||styloVsGecko) == 10665
 == 1078262-1.html about:blank
 test-pref(layout.testing.overlay-scrollbars.always-visible,false) == 1081072-1.html 1081072-1-ref.html
 == 1081185-1.html 1081185-1-ref.html
-== 1097437-1.html 1097437-1-ref.html
+pref(layout.css.devPixelsPerPx,"1.0") == 1097437-1.html 1097437-1-ref.html
 == 1103258-1.html 1103258-1-ref.html # assertion crash test with layers culling test
 == 1105137-1.html 1105137-1-ref.html
 fuzzy-if(d2d,36,304) fuzzy-if(/^Windows\x20NT\x2010\.0/.test(http.oscpu)&&d2d,127,701) HTTP(..) == 1116480-1-fakeitalic-overflow.html 1116480-1-fakeitalic-overflow-ref.html
@@ -1881,7 +1882,7 @@ fuzzy-if(skiaContent,1,800000) == 1119117-1b.html 1119117-1-ref.html
 == 1156129-1.html 1156129-1-ref.html
 pref(dom.use_xbl_scopes_for_remote_xul,true) HTTP(..) == 1157127-1.html 1157127-1-ref.html
 == 1169331-1.html 1169331-1-ref.html
-fuzzy(1,74) fails-if(gtkWidget) == 1174332-1.html 1174332-1-ref.html # bug 1312658
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy(1,74) fails-if(gtkWidget) == 1174332-1.html 1174332-1-ref.html # bug 1312658
 == 1179078-1.html 1179078-1-ref.html
 == 1179288-1.html 1179288-1-ref.html
 == 1190635-1.html 1190635-1-ref.html
@@ -1921,7 +1922,7 @@ fuzzy(8,1900) == 1291528.html 1291528-ref.html
 # background color.
 fuzzy(255,1000) skip-if(!cocoaWidget) == 1294102-1.html 1294102-1-ref.html
 fuzzy-if(skiaContent,15,50) == 1295466-1.xhtml 1295466-1-ref.xhtml #bug 982547
-fuzzy-if(gtkWidget,14,29) == 1313772.xhtml 1313772-ref.xhtml # Bug 1128229
+pref(layout.css.devPixelsPerPx,"1.0") fuzzy-if(gtkWidget,14,29) == 1313772.xhtml 1313772-ref.xhtml # Bug 1128229
 fuzzy(2,320000) == 1315113-1.html 1315113-1-ref.html
 fuzzy(2,20000) == 1315113-2.html 1315113-2-ref.html
 == 1315632-1.html 1315632-1-ref.html
