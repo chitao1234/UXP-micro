@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html>
+<html lang="en">
 <!--
 https://bugzilla.mozilla.org/show_bug.cgi?id=1121643
 -->
@@ -59,11 +59,13 @@ let testFontWhitelist = function* (useMono, useSans, useSerif) {
   // and all fonts are allowed.
   info("font whitelist: " + JSON.stringify(whitelist));
   let whitelistEmpty = whitelist.length === 0;
-  is(useMono || whitelistEmpty, fontUsed("mono") === fonts.mono,
+  // Generics may resolve to the same installed family. A family selected by
+  // another generic is still allowed, even when this generic's flag is false.
+  is(whitelistEmpty || whitelist.indexOf(fonts.mono) != -1, fontUsed("mono") === fonts.mono,
      "Correct mono whitelisting state; got " + fontUsed("mono") + ", requested " + fonts.mono);
-  is(useSans || whitelistEmpty, fontUsed("sans") === fonts.sans,
+  is(whitelistEmpty || whitelist.indexOf(fonts.sans) != -1, fontUsed("sans") === fonts.sans,
      "Correct sans whitelisting state; got " + fontUsed("sans") + ", requested " + fonts.sans);
-  is(useSerif || whitelistEmpty, fontUsed("serif") === fonts.serif,
+  is(whitelistEmpty || whitelist.indexOf(fonts.serif) != -1, fontUsed("serif") === fonts.serif,
      "Correct serif whitelisting state; got " + fontUsed("serif") + ", requested " + fonts.serif);
 }
 
