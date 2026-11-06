@@ -22,7 +22,10 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=598895
 SimpleTest.waitForExplicitFinish();
 
 addLoadEvent(function() {
+SpecialPowers.pushPrefEnv({set: [["browser.link.open_newwindow", 2]]}, function() {
 var win1 = window.open();
+// Keep the font language identical to the loaded English helper documents.
+win1.document.documentElement.lang = "en";
 win1.document.body.textContent = "Should show";
 
 var windowsLoaded = 0;
@@ -36,8 +39,8 @@ window.onmessage = function (ev) {
     win1.close();
     win2.close();
     win3.close();
-    ok(compareSnapshots(one, two, true)[0], "Popups should look identical");
-    ok(compareSnapshots(one, three, false)[0], "Popups should not look identical");
+    assertSnapshots(one, two, true, null, "first popup", "same-content popup");
+    assertSnapshots(one, three, false, null, "first popup", "empty popup");
 
     SimpleTest.finish();
   }
@@ -45,6 +48,7 @@ window.onmessage = function (ev) {
 
 var win2 = window.open("file_bug598895_1.html");
 var win3 = window.open("file_bug598895_2.html");
+});
 });
 </script>
 </pre>
