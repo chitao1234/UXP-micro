@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"
-     style="font: 24px monospace">
+     xml:lang="en" style="font: 24px monospace">
 
   <!-- We need these two rects so that getBoundingClientRect of the <svg> does
        not just return the region covered by the <text>, which would result in
