@@ -56,14 +56,14 @@ function tick() {
   
   if (runNumber == 2) {
     var text = textChildren(d.body);
-    is(text, "ABC", "Wrong text before reload.");
+    is(text, "XYZ", "Wrong text before reload.");
     f.contentWindow.location.reload();
     return;
   }
 
   if (runNumber == 3) {
     var text = textChildren(d.body);
-    is(text, "XYZ", "Wrong text after reload.");
+    is(text, "ABC", "Wrong text after reload.");
     SimpleTest.finish();
     return;
   }
