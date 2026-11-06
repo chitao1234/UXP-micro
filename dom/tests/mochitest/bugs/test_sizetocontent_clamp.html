@@ -28,44 +28,49 @@ SimpleTest.waitForExplicitFinish();
 // pixels to protect against minor variances.
 var epsilon =  navigator.platform.indexOf("Win") == -1 ? 5 : 20;
 
-// Windows 8 has a minimum 122 pixel inner window width due to
-// outer window chrome.
-var isWin8 = (navigator.userAgent.indexOf("Windows NT 6.2") != -1);
-
-var innerWidthMin = (isWin8 ? 120 : 100);
-var innerWidthMax = (isWin8 ? 125 : 100);
-
-var isExecuted = false;
-
 function test() {
-  var w = window.open('data:text/html,null', null, 'width=300,height=300');
-
+  // Window chrome/native themes can impose a minimum larger than100px. Use
+  // window.open's100px result as an independent reference for the clamp;
+  // sizeToContent must shrink a300px popup to the same dimensions.
+  var reference = window.open("file_empty.html", "", "width=100,height=100");
+  SimpleTest.registerCleanupFunction(() => reference.close());
   SimpleTest.waitForFocus(function() {
-    w.onresize = function() {
+    var expectedWidth = reference.innerWidth;
+    var expectedHeight = reference.innerHeight;
+    ok(expectedWidth >= 100 && expectedWidth < 300 - epsilon,
+       "The reference width is clamped and smaller than the test popup");
+    ok(expectedHeight >= 100 && expectedHeight < 300 - epsilon,
+       "The reference height is clamped and smaller than the test popup");
+    reference.close();
 
-      if (w.innerWidth > 300 - epsilon || isExecuted) {
-        return;
-      }
-
-      isExecuted = true;
-
-      ok(w.innerWidth + epsilon >= innerWidthMin && w.innerWidth - epsilon <= innerWidthMax,
-         "innerWidth should be between " + innerWidthMin + " and " + innerWidthMax + " but it was: " + w.innerWidth);
-      ok(w.innerHeight + epsilon >= 100 && w.innerHeight - epsilon <= 100,
-         "innerHeight should be around 100" + " but it was: " + w.innerHeight);
-
-      w.close();
-
-      SimpleTest.waitForFocus(function() {
-        SimpleTest.finish();
-      });
-    };
-    w.sizeToContent();
-  }, w);
+    var w = window.open("file_empty.html", "", "width=300,height=300");
+    SimpleTest.registerCleanupFunction(() => w.close());
+    SimpleTest.waitForFocus(function() {
+      var executed = false;
+      w.onresize = function() {
+        if (w.innerWidth > 300 - epsilon || executed) {
+          return;
+        }
+        executed = true;
+        ok(Math.abs(w.innerWidth - expectedWidth) <= epsilon,
+           "sizeToContent width matches the independently clamped100px popup: " +
+           w.innerWidth + " versus " + expectedWidth);
+        ok(Math.abs(w.innerHeight - expectedHeight) <= epsilon,
+           "sizeToContent height matches the independently clamped100px popup: " +
+           w.innerHeight + " versus " + expectedHeight);
+        w.close();
+        SimpleTest.waitForFocus(SimpleTest.finish);
+      };
+      w.sizeToContent();
+    }, w);
+  }, reference);
 }
 
-SimpleTest.waitForFocus(function() {
-  synthesizeMouseAtCenter(document.getElementsByTagName('button')[0], {});
+// The sizeToContent regression needs a resizable popup, not a tab.
+SpecialPowers.pushPrefEnv({set: [["browser.link.open_newwindow", 2]]}, function() {
+  SimpleTest.waitForFocus(function() {
+    synthesizeMouseAtCenter(document.getElementsByTagName('button')[0], {});
+  });
 });
 
 </script>
