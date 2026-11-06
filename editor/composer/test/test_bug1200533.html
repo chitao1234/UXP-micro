@@ -23,7 +23,7 @@ SimpleTest.waitForExplicitFinish();
 var content = document.getElementById('content');
 
 var tests = [
-    // text area, value of spellchecker.dictionary, result.
+    // Text area, value of spellchecker.dictionary.override, result.
     // Result: Document language.
     [ "none",  "", "en-US" ],
     // Result: Element language.
@@ -40,9 +40,9 @@ var tests = [
     [ "en-generic",      "en-AU", "en-AU" ],
     [ "ko-not-avail",    "en-AU", "en-AU" ],
 
-    // Result: Random en-*.
-    [ "en-ZA-not-avail", "de-DE", "*" ],
-    [ "en-generic",      "de-DE", "*" ],
+    // The explicit global override takes priority over document language.
+    [ "en-ZA-not-avail", "de-DE", "de-DE" ],
+    [ "en-generic",      "de-DE", "de-DE" ],
     // Result: Preference value.
     [ "ko-not-avail",    "de-DE", "de-DE" ],
   ];
@@ -90,7 +90,7 @@ var loadListener = function(evt) {
     is(existenceChecks[2], true, "true expected (de-DE directory should exist)");
   }
 
-  SpecialPowers.pushPrefEnv({set: [["spellchecker.dictionary", tests[loadCount][1]]]},
+  SpecialPowers.pushPrefEnv({set: [["spellchecker.dictionary.override", tests[loadCount][1]]]},
                             function() { continueTest(evt) });
 }
 
