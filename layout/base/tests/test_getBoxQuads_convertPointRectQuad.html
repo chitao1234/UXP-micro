@@ -686,7 +686,7 @@ function runTest() {
   // Test that converting between nodes in different toplevel browsing contexts
   // throws an exception.
   try {
-    openedWindow = window.open("data:text/html,<div id='d'>","");
+    openedWindow = window.open("file_getBoxQuads_convertPointRectQuad_frame2.html","");
   } catch (ex) {
     // in some cases we can't open the window.
     openedWindow = null;
