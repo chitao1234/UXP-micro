@@ -10,7 +10,7 @@
 <p id="display">
 <input id="input"
   style="position: absolute; top: 5px; left: 5px; border: solid 15px blue; width: 100px; height: 20px;"
-  onclick="gClickCount++;">
+  onclick="gClickCount++;" onauxclick="gAuxClickCount++;">
 </p>
 <div id="content" style="display: none">
   
@@ -19,6 +19,7 @@
 <script type="application/javascript">
 
 var gClickCount = 0;
+var gAuxClickCount = 0;
 
 SimpleTest.waitForExplicitFinish();
 SimpleTest.waitForFocus(runTests);
@@ -69,33 +70,42 @@ function doTest(aButton)
   if (aButton != 2 &&
       (aButton != 1 || !isEnabledMiddleClickPaste()) &&
       (aButton != 0 || !isEnabledAccessibleCaret())) {
-    gClickCount = 0;
+    // Non-primary buttons dispatch auxclick, not click (bug 1304044).
+    var expectedClickCount = aButton == 0 ? 1 : 0;
+    var expectedAuxClickCount = aButton == 1 ? 1 : 0;
+    gClickCount = gAuxClickCount = 0;
     // click on border of input
     synthesizeMouse(input, 5, 5, { button: aButton });
-    is(gClickCount, 1,
+    is(gClickCount, expectedClickCount,
        "click event doesn't fired on input element (button is " +
          aButton + ")");
+    is(gAuxClickCount, expectedAuxClickCount,
+       "auxclick count on input border (button is " + aButton + ")");
 
-    gClickCount = 0;
+    gClickCount = gAuxClickCount = 0;
     // down on border
     synthesizeMouse(input, 5, 5, { type: "mousedown", button: aButton });
     // up on anonymous div of input
     synthesizeMouse(input, 20, 20, { type: "mouseup", button: aButton });
-    is(gClickCount, 1,
+    is(gClickCount, expectedClickCount,
        "click event doesn't fired on input element (button is " +
          aButton + ")");
+    is(gAuxClickCount, expectedAuxClickCount,
+       "auxclick count from border to anonymous div (button is " + aButton + ")");
 
-    gClickCount = 0;
+    gClickCount = gAuxClickCount = 0;
     // down on anonymous div of input
     synthesizeMouse(input, 20, 20, { type: "mousedown", button: aButton });
     // up on border
     synthesizeMouse(input, 5, 5, { type: "mouseup", button: aButton });
-    is(gClickCount, 1,
+    is(gClickCount, expectedClickCount,
        "click event doesn't fired on input element (button is " +
          aButton + ")");
+    is(gAuxClickCount, expectedAuxClickCount,
+       "auxclick count from anonymous div to border (button is " + aButton + ")");
   }
 
-  gClickCount = 0;
+  gClickCount = gAuxClickCount = 0;
   // down on outside of input
   synthesizeMouse(input, -3, -3, { type: "mousedown", button: aButton });
   // up on border
@@ -103,6 +113,8 @@ function doTest(aButton)
   is(gClickCount, 0,
      "click event is fired on input element unexpectedly (button is " +
        aButton + ")");
+  is(gAuxClickCount, 0,
+     "auxclick is not fired when mousedown is outside input (button is " + aButton + ")");
 }
 
 </script>
