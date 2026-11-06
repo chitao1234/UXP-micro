@@ -5,11 +5,15 @@ let cs = Cc["@mozilla.org/cookiemanager;1"]
 
 addMessageListener("getCookieCountAndClear", () => {
   let count = 0;
-  for (let list = cs.enumerator; list.hasMoreElements(); list.getNext())
+  let cookies = [];
+  for (let list = cs.enumerator; list.hasMoreElements();) {
+    let cookie = list.getNext().QueryInterface(Ci.nsICookie2);
+    cookies.push({host: cookie.host, path: cookie.path, name: cookie.name});
     ++count;
+  }
   cs.removeAll();
 
-  sendAsyncMessage("getCookieCountAndClear:return", { count });
+  sendAsyncMessage("getCookieCountAndClear:return", { count, cookies });
 });
 
 cs.removeAll();

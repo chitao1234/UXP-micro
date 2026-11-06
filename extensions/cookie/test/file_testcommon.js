@@ -62,7 +62,8 @@ function runTest() {
   // set a cookie from a domain of "localhost"
   document.cookie = "oh=hai";
 
-  gScript.addMessageListener("getCookieCountAndClear:return", ({ count }) => {
+  gScript.addMessageListener("getCookieCountAndClear:return", ({ count, cookies }) => {
+    info("Stored cookie identities: " + JSON.stringify(cookies));
     is(count, gExpectedCookies, "total number of cookies");
     finishTest();
   });

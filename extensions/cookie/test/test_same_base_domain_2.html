@@ -5,7 +5,9 @@
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>        
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
-<body onload="setupTest('http://test1.example.org/tests/extensions/cookie/test/file_subdomain_inner.html', 4, 2)">
+<!-- Two HTTP cookies, two script cookies on the related origins, and the
+     parent's cookie; matches Firefox's same-base-domain fixture. -->
+<body onload="setupTest('http://test1.example.org/tests/extensions/cookie/test/file_subdomain_inner.html', 5, 2)">
 <p id="display"></p>
 <pre id="test">
 <script class="testbody" type="text/javascript" src="file_testcommon.js">
