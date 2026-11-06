@@ -18,33 +18,36 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=564115
 const TEST_URL = "/tests/layout/forms/test/bug564115_window.html";
 
 addLoadEvent(function() {
-  var win = open(TEST_URL, "", "width=600,height=600");
-  SimpleTest.waitForFocus(function() {
-    var doc = win.document;
-    var input = doc.querySelector("input");
+  // Refocusing must switch between separate windows, rather than two tabs.
+  SpecialPowers.pushPrefEnv({set: [["browser.link.open_newwindow", 2]]}, function() {
+    var win = open(TEST_URL, "", "width=600,height=600");
+    SimpleTest.waitForFocus(function() {
+      var doc = win.document;
+      var input = doc.querySelector("input");
 
-    // Focus the input box, and wait for the focus to actually happen
-    input.focus();
-    setTimeout(function() {
-      // Scroll down a bit
-      win.scrollTo(0, 5000);
-
+      // Focus the input box, and wait for the focus to actually happen
+      input.focus();
       setTimeout(function() {
-        is(Math.round(win.pageYOffset), 5000, "Page should be scrolled correctly");
+        // Scroll down a bit
+        win.scrollTo(0, 5000);
 
-        // Refocus the window
-        SimpleTest.waitForFocus(function() {
+        setTimeout(function() {
+          is(Math.round(win.pageYOffset), 5000, "Page should be scrolled correctly");
+
+          // Refocus the window
           SimpleTest.waitForFocus(function() {
-            is(Math.round(win.pageYOffset), 5000,
-               "The page's scroll offset should not have been changed");
+            SimpleTest.waitForFocus(function() {
+              is(Math.round(win.pageYOffset), 5000,
+                 "The page's scroll offset should not have been changed");
 
-            win.close();
-            SimpleTest.finish();
-          }, win);
-        });
+              win.close();
+              SimpleTest.finish();
+            }, win);
+          });
+        }, 0);
       }, 0);
-    }, 0);
-  }, win);
+    }, win);
+  });
 });
 
 SimpleTest.waitForExplicitFinish();
