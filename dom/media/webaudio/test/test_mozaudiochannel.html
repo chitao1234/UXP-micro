@@ -53,10 +53,12 @@ function test_permission(aChannel) {
     [{ "type": "audio-channel-" + aChannel, "allow": true, "context": document }],
     function() {
       var ac = new AudioContext(aChannel);
-      is(ac.mozAudioChannelType, aChannel, "Default ac channel == '" + aChannel + "'");
+      // The proprietary string constructor was removed by UXP7fcb7f5446.
+      // A permission must not make that ignored argument select a channel.
+      is(ac.mozAudioChannelType, "normal", "Constructor argument is ignored with permission for '" + aChannel + "'");
 
       var channel = SpecialPowers.wrap(ac).testAudioChannelInAudioNodeStream();
-      is(channel, aChannel, "AudioNodeStream is using the correct new audio channel.");
+      is(channel, "normal", "AudioNodeStream keeps the default channel with permission.");
 
       runTest();
     }
