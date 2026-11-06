@@ -10,14 +10,23 @@ var names = [
   "span", "_moz_generated_content_before", "_moz_generated_content_after"
 ];
 
-if (SpecialPowers.getBoolPref("dom.animations-api.core.enabled")) {
-  names.forEach(name => {
-    var element = document.createElement(name);
-    element.animate({ "color": ["red", "blue"] }, { duration: 1000 });
-    is(element.getAnimations().length, 1);
-  });
-} else {
-  ok("Test requires Web Animations, which is disabled.");
-}
+SimpleTest.waitForExplicitFinish();
+SpecialPowers.pushPrefEnv({set: [
+  ["dom.animations-api.getAnimations.enabled", true]
+]}, function() {
+  // The optional API is exposed when a realm's bindings are created. Use a
+  // fresh document after the pref takes effect, keeping the elements detached.
+  var frame = document.createElement("iframe");
+  SimpleTest.registerCleanupFunction(() => frame.remove());
+  frame.onload = function() {
+    names.forEach(name => {
+      var element = frame.contentDocument.createElement(name);
+      element.animate({ "color": ["red", "blue"] }, { duration: 1000 });
+      is(element.getAnimations().length, 1, name + " has one animation");
+    });
+    SimpleTest.finish();
+  };
+  document.body.appendChild(frame);
+});
 
 </script>
