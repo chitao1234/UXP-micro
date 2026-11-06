@@ -54,9 +54,10 @@ addLoadEvent(function() {
     doPrincipalTest(i);
   }
 
-  for (i of [ "five", "six" ]) {
-    doContentTest(i);
-  }
+  doContentTest("five");
+  // <object> now has an explicit scheme whitelist, unlike <iframe>.
+  is($("six").contentDocument, null,
+     "A javascript: object URL must not create a content document");
 
   SimpleTest.finish();
 });
