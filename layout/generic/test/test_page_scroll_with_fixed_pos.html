@@ -10,7 +10,10 @@
 <p id="display"></p>
 <script class="testbody">
 SimpleTest.waitForExplicitFinish();
-window.open("./page_scroll_with_fixed_pos_window.html", "", "width=600,height=600");
+// The fixed-width header cases need the requested600px viewport, not a tab.
+SpecialPowers.pushPrefEnv({set: [["browser.link.open_newwindow", 2]]}, function() {
+  window.open("./page_scroll_with_fixed_pos_window.html", "", "width=600,height=600");
+});
 </script>
 </pre>
 </body>
