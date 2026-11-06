@@ -77,6 +77,19 @@ function _EU_isWin(aWindow = window) {
   return navigator.platform.indexOf("Win") > -1;
 }
 
+function _EU_maybeWrap(object) {
+  // EventUtils is also loaded without SpecialPowers, including in chrome.
+  var haveWrap = false;
+  try {
+    haveWrap = SpecialPowers.wrap != undefined;
+  } catch (e) {}
+  if (!haveWrap) {
+    return object;
+  }
+  var c = Object.getOwnPropertyDescriptor(window, "Components");
+  return c && c.value && !c.writable ? object : SpecialPowers.wrap(object);
+}
+
 /**
  * Send a mouse event to the node aTarget (aTarget can be an id, or an
  * actual node) . The "event" passed in to aEvent is just a JavaScript
@@ -176,7 +189,10 @@ function sendDragEvent(aEvent, aTarget, aWindow = window) {
   var relatedTargetArg = aEvent.relatedTarget || null;
   var dataTransfer     = aEvent.dataTransfer  || null;
 
-  event.initDragEvent(typeArg, canBubbleArg, cancelableArg, viewArg, detailArg,
+  // The drag session can supply a chrome-owned DataTransfer. Initialize through
+  // SpecialPowers in content tests so WebIDL can unwrap that object. Keep the
+  // native event itself for dispatchDOMEventViaPresShell.
+  _EU_maybeWrap(event).initDragEvent(typeArg, canBubbleArg, cancelableArg, viewArg, detailArg,
                       screenXArg, screenYArg, clientXArg, clientYArg,
                       ctrlKeyArg, altKeyArg, shiftKeyArg, metaKeyArg,
                       buttonArg, relatedTargetArg, dataTransfer);
@@ -2010,11 +2026,11 @@ function synthesizeDragOver(aSrcElement, aDestElement, aDragData, aDropEffect, a
       for (var i = 0; i < aDragData.length; i++) {
         var item = aDragData[i];
         for (var j = 0; j < item.length; j++) {
-          dataTransfer.mozSetDataAt(item[j].type, item[j].data, i);
+          _EU_maybeWrap(dataTransfer).mozSetDataAt(item[j].type, item[j].data, i);
         }
       }
     }
-    dataTransfer.dropEffect = aDropEffect || "move";
+    _EU_maybeWrap(dataTransfer).dropEffect = aDropEffect || "move";
     event.preventDefault();
   };
 
@@ -2061,7 +2077,7 @@ function synthesizeDropAfterDragOver(aResult, aDataTransfer, aDestElement, aDest
     aDestWindow = window;
   }
 
-  var effect = aDataTransfer.dropEffect;
+  var effect = _EU_maybeWrap(aDataTransfer).dropEffect;
   var event;
 
   if (aResult) {
