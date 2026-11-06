@@ -61,7 +61,7 @@ function runTest() {
 
 SimpleTest.waitForExplicitFinish();
 onload = function() {
-  SpecialPowers.pushPrefEnv({"set": [
+  var prefs = [
     ["beacon.enabled", true],
     ["browser.send_pings", true],
     ["browser.send_pings.max_per_link", -1],
@@ -71,5 +71,11 @@ onload = function() {
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.openWindow.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-  ]}, runTest);
+  ];
+  // UXP disables reporting by default. Only the report-context test needs to
+  // opt in; the other request-context tests keep the product reporting policy.
+  if (gTest == "testCSPReport") {
+    prefs.push(["security.csp.reporting.enabled", true]);
+  }
+  SpecialPowers.pushPrefEnv({"set": prefs}, runTest);
 };
