@@ -254,17 +254,8 @@ private:
   bool CheckPermission(const char* type);
   static bool CheckPermission(nsPIDOMWindowInner* aWindow, const char* aType);
 
-  // This enum helps SendBeaconInternal to apply different behaviors to body
-  // types.
-  enum BeaconType {
-    eBeaconTypeBlob,
-    eBeaconTypeArrayBuffer,
-    eBeaconTypeOther
-  };
-
   bool SendBeaconInternal(const nsAString& aUrl,
                           BodyExtractorBase* aBody,
-                          BeaconType aType,
                           ErrorResult& aRv);
 
   RefPtr<nsMimeTypeArray> mMimeTypes;

@@ -17,39 +17,70 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=1210302
 <pre id="test">
 <script class="testbody" type="text/javascript">
 
-var beaconUrl = "http://example.com/tests/dom/tests/mochitest/beacon/beacon-preflight-handler.sjs?beacon";
-
-var intervalID = null;
-
-function queryIfBeaconSucceeded() {
-  clearInterval(intervalID);
-  var xhr = new XMLHttpRequest();
-  xhr.open("GET", "beacon-preflight-handler.sjs?verify", true);
-  xhr.onload = function() {
-    is(xhr.responseText, "green", "SendBeacon should have succeeded after preflight!");
-    SimpleTest.finish();
-  };
-  xhr.onerror = function() {
-    ok(false, "xhr request returned error");
-    SimpleTest.finish();
-  };
-  xhr.send();
-}
-
-// not enabled by default yet.
+// Adapt the allowed/rejected preflight and safelisted-body controls from
+// current WPT beacon/beacon-cors.https.window.js (Firefox309a5a015112).
 SimpleTest.waitForExplicitFinish();
-SpecialPowers.pushPrefEnv({'set': [["beacon.enabled", true]]}, beginTest);
+const SERVER = "beacon-preflight-handler.sjs";
 
-function beginTest() {
-  var abv = new Uint8Array([0,1,2,3]);
-  var blob = new Blob(abv, {type: "application/badness, text/plain"});
-  var sent = navigator.sendBeacon(beaconUrl, blob);
-  ok(sent, "sending the beacon should start successfully");
-
-  // we have to make sure sending the beacon did not fail, so
-  // we have to wait for 2 seconds before we can query the result.
-  intervalID = setInterval(queryIfBeaconSucceeded, 2000);
+function query(operation, token) {
+  return new Promise((resolve, reject) => {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", SERVER + "?op=" + operation + "&id=" + token);
+    xhr.onload = () => {
+      try {
+        is(xhr.status, 200, operation + " query succeeds");
+        resolve(JSON.parse(xhr.responseText));
+      } catch (error) { reject(error); }
+    };
+    xhr.onerror = () => reject(new Error(operation + " request failed"));
+    xhr.send();
+  });
 }
+
+async function beginTest() {
+  const cases = [
+    { name: "unsafe-allowed", type: "application/badness, text/plain", mode: "allow", preflight: 1, posts: 1 },
+    { name: "unsafe-rejected", type: "application/octet-stream", mode: "deny", preflight: 1, posts: 0 },
+    { name: "unsafe-no-credentials", type: "application/octet-stream", mode: "no-credentials", preflight: 1, posts: 0 },
+    { name: "safe-blob", type: "text/plain", mode: "allow", preflight: 0, posts: 1 },
+    { name: "buffer", type: "", mode: "allow", preflight: 0, posts: 1, buffer: true },
+  ];
+  const run = "beacon-" + Date.now();
+  for (const test of cases) {
+    const token = run + "-" + test.name;
+    await query("reset", token);
+    const settled = query(test.posts ? "wait-post" : "wait-options", token);
+    const data = test.buffer ? new Uint8Array([0, 1, 2, 3]) :
+      new Blob([new Uint8Array([0, 1, 2, 3])], {type: test.type});
+    const url = "http://example.com/tests/dom/tests/mochitest/beacon/" + SERVER +
+      "?op=beacon&id=" + token + "&mode=" + test.mode;
+    ok(navigator.sendBeacon(url, data), test.name + ": sending is accepted asynchronously");
+    await settled;
+    if (!test.posts) {
+      const observed = await query("observe-no-post", token);
+      is(observed.posts, 0, test.name + ": rejected preflight never sends a POST");
+    }
+    const result = await query("counts", token);
+    is(result.options, test.preflight, test.name + ": correct OPTIONS count");
+    is(result.posts, test.posts, test.name + ": correct POST count");
+    if (test.preflight) {
+      is(result.origin, location.origin, test.name + ": preflight carries the origin");
+      is(result.requestMethod, "POST", test.name + ": preflight requests POST");
+      is(result.requestHeaders, "content-type", test.name + ": preflight requests Content-Type");
+    }
+    if (test.posts) {
+      is(result.contentType, test.type, test.name + ": body Content-Type is preserved");
+      is(result.bytes.join(","), "0,1,2,3", test.name + ": exact body bytes arrive");
+    }
+  }
+}
+
+SpecialPowers.pushPrefEnv({set: [["beacon.enabled", true]]}, function() {
+  beginTest().then(SimpleTest.finish, error => {
+    ok(false, String(error));
+    SimpleTest.finish();
+  });
+});
 
 </script>
 </pre>

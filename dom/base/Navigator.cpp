@@ -856,37 +856,37 @@ Navigator::SendBeacon(const nsAString& aUrl,
                       ErrorResult& aRv)
 {
   if (aData.IsNull()) {
-    return SendBeaconInternal(aUrl, nullptr, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, nullptr, aRv);
   }
 
   if (aData.Value().IsArrayBuffer()) {
     BodyExtractor<const ArrayBuffer> body(&aData.Value().GetAsArrayBuffer());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   if (aData.Value().IsArrayBufferView()) {
     BodyExtractor<const ArrayBufferView> body(&aData.Value().GetAsArrayBufferView());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   if (aData.Value().IsBlob()) {
     BodyExtractor<nsIXHRSendable> body(&aData.Value().GetAsBlob());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   if (aData.Value().IsFormData()) {
     BodyExtractor<nsIXHRSendable> body(&aData.Value().GetAsFormData());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   if (aData.Value().IsUSVString()) {
     BodyExtractor<const nsAString> body(&aData.Value().GetAsUSVString());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   if (aData.Value().IsURLSearchParams()) {
     BodyExtractor<nsIXHRSendable> body(&aData.Value().GetAsURLSearchParams());
-    return SendBeaconInternal(aUrl, &body, eBeaconTypeOther, aRv);
+    return SendBeaconInternal(aUrl, &body, aRv);
   }
 
   MOZ_CRASH("Invalid data type.");
@@ -896,7 +896,6 @@ Navigator::SendBeacon(const nsAString& aUrl,
 bool
 Navigator::SendBeaconInternal(const nsAString& aUrl,
                               BodyExtractorBase* aBody,
-                              BeaconType aType,
                               ErrorResult& aRv)
 {
   if (!mWindow) {
@@ -937,11 +936,28 @@ Navigator::SendBeaconInternal(const nsAString& aUrl,
 
   nsLoadFlags loadFlags = nsIRequest::LOAD_NORMAL;
 
-  // No need to use CORS for sendBeacon unless it's a BLOB
-  nsSecurityFlags securityFlags = aType == eBeaconTypeBlob
-    ? nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS
-    : nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_INHERITS;
-  securityFlags |= nsILoadInfo::SEC_COOKIES_INCLUDE;
+  nsCOMPtr<nsIInputStream> in;
+  nsAutoCString contentTypeWithCharset;
+  nsAutoCString charset;
+  uint64_t length = 0;
+  if (aBody) {
+    aRv = aBody->GetAsStream(getter_AddRefs(in), &length,
+                             contentTypeWithCharset, charset);
+    if (NS_WARN_IF(aRv.Failed())) {
+      return false;
+    }
+  }
+
+  // Match Fetch's extracted content type, as current Firefox does. BufferSource
+  // has no content type; only non-safelisted types require a CORS request.
+  nsSecurityFlags securityFlags = nsILoadInfo::SEC_COOKIES_INCLUDE;
+  if (aBody && !contentTypeWithCharset.IsVoid() &&
+      !nsContentUtils::IsCORSSafelistedRequestHeader(
+          NS_LITERAL_CSTRING("content-type"), contentTypeWithCharset)) {
+    securityFlags |= nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS;
+  } else {
+    securityFlags |= nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_INHERITS;
+  }
 
   nsCOMPtr<nsIChannel> channel;
   rv = NS_NewChannel(getter_AddRefs(channel),
@@ -966,24 +982,7 @@ Navigator::SendBeaconInternal(const nsAString& aUrl,
   }
   httpChannel->SetReferrer(documentURI);
 
-  nsCOMPtr<nsIInputStream> in;
-  nsAutoCString contentTypeWithCharset;
-  nsAutoCString charset;
-  uint64_t length = 0;
-
   if (aBody) {
-    aRv = aBody->GetAsStream(getter_AddRefs(in), &length,
-                             contentTypeWithCharset, charset);
-    if (NS_WARN_IF(aRv.Failed())) {
-      return false;
-    }
-
-    if (aType == eBeaconTypeArrayBuffer) {
-      MOZ_ASSERT(contentTypeWithCharset.IsEmpty());
-      MOZ_ASSERT(charset.IsEmpty());
-      contentTypeWithCharset.Assign("application/octet-stream");
-    }
-
     nsCOMPtr<nsIUploadChannel2> uploadChannel = do_QueryInterface(channel);
     if (!uploadChannel) {
       aRv.Throw(NS_ERROR_FAILURE);
