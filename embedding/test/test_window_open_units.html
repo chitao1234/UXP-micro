@@ -14,22 +14,27 @@
 <script class="testbody" type="text/javascript">
 SimpleTest.waitForExplicitFinish();
 
-SimpleTest.waitForFocus(function() {
-  SpecialPowers.setFullZoom(window, 2);
-
-  var p = window;
-  var w = window.open("about:blank", "", "width=200,height=100");
+// Exercise popup dimensions independently of the application's tab policy.
+SpecialPowers.pushPrefEnv({
+  set: [["browser.link.open_newwindow.restriction", 2]]
+}, function() {
   SimpleTest.waitForFocus(function() {
-    ok(w.innerWidth <= 402 && w.innerWidth >= 398,
-       "width (" + w.innerWidth + ") should be around twice what was requested (200)");
-    ok(w.innerHeight <= 202 && w.innerHeight >= 198,
-       "height (" + w.innerHeight + ") should be around twice what was requested (100)");
+    SpecialPowers.setFullZoom(window, 2);
 
-    SpecialPowers.setFullZoom(window, 1);
-    w.close();
-    SimpleTest.finish();
-  }, w, true);
-}, window, false);
+    var p = window;
+    var w = window.open("about:blank", "", "width=200,height=100");
+    SimpleTest.waitForFocus(function() {
+      ok(w.innerWidth <= 402 && w.innerWidth >= 398,
+         "width (" + w.innerWidth + ") should be around twice what was requested (200)");
+      ok(w.innerHeight <= 202 && w.innerHeight >= 198,
+         "height (" + w.innerHeight + ") should be around twice what was requested (100)");
+
+      SpecialPowers.setFullZoom(window, 1);
+      w.close();
+      SimpleTest.finish();
+    }, w, true);
+  }, window, false);
+});
 
 </script>
 </pre>
