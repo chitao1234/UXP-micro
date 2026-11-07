@@ -26,12 +26,12 @@ import buildconfig
 from collections import OrderedDict
 
 # Regular expressions for unifying install.rdf
-FIND_TARGET_PLATFORM = re.compile(r"""
+FIND_TARGET_PLATFORM = re.compile(br"""
     <(?P<ns>[-._0-9A-Za-z]+:)?targetPlatform>       # The targetPlatform tag, with any namespace
     (?P<platform>[^<]*)                             # The actual platform value
     </(?P=ns)?targetPlatform>                       # The closing tag
     """, re.X)
-FIND_TARGET_PLATFORM_ATTR = re.compile(r"""
+FIND_TARGET_PLATFORM_ATTR = re.compile(br"""
     (?P<tag><(?:[-._0-9A-Za-z]+:)?Description)      # The opening part of the <Description> tag
     (?P<attrs>[^>]*?)\s+                            # The initial attributes
     (?P<ns>[-._0-9A-Za-z]+:)?targetPlatform=        # The targetPlatform attribute, with any namespace
@@ -73,7 +73,7 @@ class UnifiedExecutableFile(BaseFile):
         creating the instance.
         skip_if_older is ignored.
         '''
-        assert isinstance(dest, basestring)
+        assert isinstance(dest, str)
         tmpfiles = []
         try:
             for e in self._executables:
@@ -148,8 +148,11 @@ class UnifiedFinder(BaseFinder):
         if not isinstance(file1, ExecutableFile) and \
                 not isinstance(file2, ExecutableFile):
             from difflib import unified_diff
-            for line in unified_diff(file1.open().readlines(),
-                                     file2.open().readlines(),
+            # BaseFile streams are binary. Decode only for diagnostics; byte
+            # comparison and generated file contents must remain lossless.
+            content1 = file1.open().read().decode('utf-8', 'replace').splitlines(True)
+            content2 = file2.open().read().decode('utf-8', 'replace').splitlines(True)
+            for line in unified_diff(content1, content2,
                                      os.path.join(self._finder1.base, path),
                                      os.path.join(self._finder2.base, path)):
                 errors.out.write(line)
@@ -193,10 +196,10 @@ class UnifiedBuildFinder(UnifiedFinder):
             # Copy everything from the first file up to the end of its <body>,
             # insert a <hr> between the two files and copy the second file's
             # content beginning after its leading <h1>.
-            return GeneratedFile(''.join(
-                content1[:content1.index('</body>\n')] +
-                ['<hr> </hr>\n'] +
-                content2[content2.index('<h1>about:buildconfig</h1>\n') + 1:]
+            return GeneratedFile(b''.join(
+                content1[:content1.index(b'</body>\n')] +
+                [b'<hr> </hr>\n'] +
+                content2[content2.index(b'<h1>about:buildconfig</h1>\n') + 1:]
             ))
         elif basename == 'install.rdf':
             # install.rdf files often have em:targetPlatform (either as
@@ -206,15 +209,15 @@ class UnifiedBuildFinder(UnifiedFinder):
             content1, content2 = (
                 FIND_TARGET_PLATFORM_ATTR.sub(lambda m: \
                     m.group('tag') + m.group('attrs') + m.group('otherattrs') +
-                        '<%stargetPlatform>%s</%stargetPlatform>' % \
-                        (m.group('ns') or "", m.group('platform'), m.group('ns') or ""),
+                        b'<%stargetPlatform>%s</%stargetPlatform>' % \
+                        (m.group('ns') or b"", m.group('platform'), m.group('ns') or b""),
                     f.open().read()
                 ) for f in (file1, file2)
             )
 
             platform2 = FIND_TARGET_PLATFORM.search(content2)
             return GeneratedFile(FIND_TARGET_PLATFORM.sub(
-                lambda m: m.group(0) + platform2.group(0) if platform2 else '',
+                lambda m: m.group(0) + platform2.group(0) if platform2 else b'',
                 content1
             ))
         elif path.endswith('.xpi'):

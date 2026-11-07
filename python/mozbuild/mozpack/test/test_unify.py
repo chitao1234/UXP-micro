@@ -27,7 +27,10 @@ class TestUnified(TestWithTmpDir):
     def create_one(self, which, path, content):
         file = self.tmppath(os.path.join(which, path))
         ensureParentDir(file)
-        open(file, 'wb').write(content)
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+        with open(file, 'wb') as fh:
+            fh.write(content)
 
     def create_both(self, path, content):
         for p in ['a', 'b']:
@@ -49,13 +52,13 @@ class TestUnifiedFinder(TestUnified):
         finder = UnifiedFinder(FileFinder(self.tmppath('a')),
                                FileFinder(self.tmppath('b')),
                                sorted=['test'])
-        self.assertEqual(sorted([(f, c.open().read())
+        self.assertEqual(sorted([(f, c.open().read().decode('utf-8'))
                                  for f, c in finder.find('foo')]),
                          [('foo/bar', 'foobar'), ('foo/baz', 'foobaz')])
         self.assertRaises(ErrorMessage, any, finder.find('bar'))
         self.assertRaises(ErrorMessage, any, finder.find('baz'))
         self.assertRaises(ErrorMessage, any, finder.find('qux'))
-        self.assertEqual(sorted([(f, c.open().read())
+        self.assertEqual(sorted([(f, c.open().read().decode('utf-8'))
                                  for f, c in finder.find('test')]),
                          [('test/bar', 'a\nb\nc\n'),
                           ('test/foo', 'a\nb\nc\n')])
@@ -70,7 +73,7 @@ class TestUnifiedBuildFinder(TestUnified):
         self.create_both('chrome.manifest', 'a\nb\nc\n')
         self.create_one('a', 'chrome/chrome.manifest', 'a\nb\nc\n')
         self.create_one('b', 'chrome/chrome.manifest', 'b\nc\na\n')
-        self.assertEqual(sorted([(f, c.open().read()) for f, c in
+        self.assertEqual(sorted([(f, c.open().read().decode('utf-8')) for f, c in
                                  finder.find('**/chrome.manifest')]),
                          [('chrome.manifest', 'a\nb\nc\n'),
                           ('chrome/chrome.manifest', 'a\nb\nc\n')])
@@ -94,7 +97,7 @@ class TestUnifiedBuildFinder(TestUnified):
                             '</body>',
                             '</html>',
                         ]))
-        self.assertEqual(sorted([(f, c.open().read()) for f, c in
+        self.assertEqual(sorted([(f, c.open().read().decode('utf-8')) for f, c in
                                  finder.find('**/buildconfig.html')]),
                          [('chrome/browser/foo/buildconfig.html', '\n'.join([
                              '<html>',
@@ -110,13 +113,13 @@ class TestUnifiedBuildFinder(TestUnified):
         # Test xpi file unification
         xpi = MockDest()
         with JarWriter(fileobj=xpi, compress=True) as jar:
-            jar.add('foo', 'foo')
-            jar.add('bar', 'bar')
+            jar.add('foo', b'foo')
+            jar.add('bar', b'bar')
         foo_xpi = xpi.read()
         self.create_both('foo.xpi', foo_xpi)
 
         with JarWriter(fileobj=xpi, compress=True) as jar:
-            jar.add('foo', 'bar')
+            jar.add('foo', b'bar')
         self.create_one('a', 'bar.xpi', foo_xpi)
         self.create_one('b', 'bar.xpi', xpi.read())
 
@@ -191,7 +194,7 @@ class TestUnifiedBuildFinder(TestUnified):
                 self.create_one('b', filename, rdf_b)
                 results.append((filename, result))
 
-            self.assertEqual(sorted([(f, c.open().read()) for f, c in
+            self.assertEqual(sorted([(f, c.open().read().decode('utf-8')) for f, c in
                                      finder.find('**/install.rdf')]), results)
 
 

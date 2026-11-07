@@ -89,7 +89,7 @@ class TestWebIDLCodegenManager(unittest.TestCase):
 
         p = args['state_path']
 
-        with open(p, 'wb') as fh:
+        with open(p, 'w', encoding='utf-8', newline='\n') as fh:
             json.dump({
                 'version': WebIDLCodegenManagerState.VERSION + 1,
                 'foobar': '1',
@@ -195,7 +195,8 @@ class TestWebIDLCodegenManager(unittest.TestCase):
                 break
 
         self.assertIsNotNone(child_path)
-        child_content = open(child_path, 'rb').read()
+        with open(child_path, 'r', encoding='utf-8') as fh:
+            child_content = fh.read()
 
         with MockedOpen({child_path: child_content + '\n/* */'}):
             m2 = WebIDLCodegenManager(**args)
@@ -219,7 +220,8 @@ class TestWebIDLCodegenManager(unittest.TestCase):
                 child_path = p
 
         self.assertIsNotNone(parent_path)
-        parent_content = open(parent_path, 'rb').read()
+        with open(parent_path, 'r', encoding='utf-8') as fh:
+            parent_content = fh.read()
 
         with MockedOpen({parent_path: parent_content + '\n/* */'}):
             m2 = WebIDLCodegenManager(**args)

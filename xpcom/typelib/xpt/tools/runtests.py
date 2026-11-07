@@ -32,7 +32,7 @@
 
 import difflib
 import os
-from io import StringIO
+from io import BytesIO, StringIO
 import subprocess
 import tempfile
 import mozunit
@@ -79,7 +79,7 @@ class TestIIDString(unittest.TestCase):
         self.assertEqual(iid_str, xpt.Typelib.iid_to_string(iid))
 
     def test_iid_roundtrip(self):
-        iid = "\x11\x22\x33\x44\x55\x66\x77\x88\x99\x00\xaa\xbb\xcc\xdd\xee\xff"
+        iid = b"\x11\x22\x33\x44\x55\x66\x77\x88\x99\x00\xaa\xbb\xcc\xdd\xee\xff"
         iid_str = xpt.Typelib.iid_to_string(iid)
         self.assertEqual(iid, xpt.Typelib.string_to_iid(iid_str))
 
@@ -196,7 +196,7 @@ class TestTypelibReadWrite(unittest.TestCase, TypelibCompareMixin):
 # TODO: test flags in various combinations
 class TestTypelibRoundtrip(unittest.TestCase, TypelibCompareMixin):
     def checkRoundtrip(self, t):
-        s = StringIO()
+        s = BytesIO()
         t.write(s)
         s.seek(0)
         t2 = xpt.Typelib.read(s)
