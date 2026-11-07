@@ -27,10 +27,9 @@ class TestNsinstall(unittest.TestCase):
     def tearDown(self):
         # Unicode strings means non-ASCII children can be deleted properly on
         # Windows
-        if sys.stdin.encoding is None:
-            tmpdir = str(self.tmpdir)
-        else:
-            tmpdir = str(self.tmpdir, sys.stdin.encoding)
+        tmpdir = self.tmpdir
+        if isinstance(tmpdir, bytes):
+            tmpdir = tmpdir.decode(sys.stdin.encoding or 'utf-8')
         rmtree(tmpdir)
 
     # utility methods for tests

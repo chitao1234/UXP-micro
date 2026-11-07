@@ -18,7 +18,7 @@ import logging
 from time import localtime
 from datetime import datetime
 from MozZipFile import ZipFile
-from io import StringIO
+from io import BytesIO
 from collections import defaultdict
 
 from mozbuild.preprocessor import Preprocessor
@@ -26,8 +26,10 @@ from mozbuild.action.buildlist import addEntriesToListFile
 from mozpack.files import FileFinder
 import mozpack.path as mozpath
 if sys.platform == 'win32':
-    from ctypes import windll, WinError
-    CreateHardLink = windll.kernel32.CreateHardLinkA
+    from ctypes import windll, WinError, c_wchar_p, c_void_p, c_int
+    CreateHardLink = windll.kernel32.CreateHardLinkW
+    CreateHardLink.argtypes = [c_wchar_p, c_wchar_p, c_void_p]
+    CreateHardLink.restype = c_int
 
 __all__ = ['JarMaker']
 
@@ -43,13 +45,13 @@ class ZipEntry(object):
     def __init__(self, name, zipfile):
         self._zipfile = zipfile
         self._name = name
-        self._inner = StringIO()
-        self.needs_bytes = False
+        self._inner = BytesIO()
+        self.needs_bytes = True
 
     def write(self, content):
         '''Append the given content to this zip entry'''
 
-        self._inner.write(content)
+        self._inner.write(content.encode('utf-8') if isinstance(content, str) else content)
         return
 
     def close(self):

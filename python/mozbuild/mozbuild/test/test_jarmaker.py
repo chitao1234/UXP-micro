@@ -44,10 +44,13 @@ if sys.platform == "win32":
                     ("nFileIndexLow", DWORD)]
 
     # http://msdn.microsoft.com/en-us/library/aa363858
-    CreateFile = ctypes.windll.kernel32.CreateFileA
-    CreateFile.argtypes = [ctypes.c_char_p, DWORD, DWORD, ctypes.c_void_p,
+    CreateFile = ctypes.windll.kernel32.CreateFileW
+    CreateFile.argtypes = [ctypes.c_wchar_p, DWORD, DWORD, ctypes.c_void_p,
                            DWORD, DWORD, HANDLE]
     CreateFile.restype = HANDLE
+    CloseHandle = ctypes.windll.kernel32.CloseHandle
+    CloseHandle.argtypes = [HANDLE]
+    CloseHandle.restype = ctypes.c_int
 
     # http://msdn.microsoft.com/en-us/library/aa364952
     GetFileInformationByHandle = ctypes.windll.kernel32.GetFileInformationByHandle
@@ -55,14 +58,14 @@ if sys.platform == "win32":
     GetFileInformationByHandle.restype = ctypes.c_int
 
     # http://msdn.microsoft.com/en-us/library/aa364996
-    GetVolumePathName = ctypes.windll.kernel32.GetVolumePathNameA
-    GetVolumePathName.argtypes = [ctypes.c_char_p, ctypes.c_char_p, DWORD]
+    GetVolumePathName = ctypes.windll.kernel32.GetVolumePathNameW
+    GetVolumePathName.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, DWORD]
     GetVolumePathName.restype = ctypes.c_int
 
     # http://msdn.microsoft.com/en-us/library/aa364993
-    GetVolumeInformation = ctypes.windll.kernel32.GetVolumeInformationA
-    GetVolumeInformation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, DWORD,
-                                     LPDWORD, LPDWORD, LPDWORD, ctypes.c_char_p,
+    GetVolumeInformation = ctypes.windll.kernel32.GetVolumeInformationW
+    GetVolumeInformation.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, DWORD,
+                                     LPDWORD, LPDWORD, LPDWORD, ctypes.c_wchar_p,
                                      DWORD]
     GetVolumeInformation.restype = ctypes.c_int
 
@@ -70,12 +73,12 @@ def symlinks_supported(path):
     if sys.platform == "win32":
         # Add 1 for a trailing backslash if necessary, and 1 for the terminating
         # null character.
-        volpath = ctypes.create_string_buffer(len(path) + 2)
+        volpath = ctypes.create_unicode_buffer(len(path) + 2)
         rv = GetVolumePathName(path, volpath, len(volpath))
         if rv == 0:
             raise WinError()
 
-        fsname = ctypes.create_string_buffer(MAX_PATH + 1)
+        fsname = ctypes.create_unicode_buffer(MAX_PATH + 1)
         rv = GetVolumeInformation(volpath, None, 0, None, None, None, fsname,
                                   len(fsname))
         if rv == 0:
@@ -89,12 +92,14 @@ def symlinks_supported(path):
 def _getfileinfo(path):
     """Return information for the given file. This only works on Windows."""
     fh = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, None, OPEN_EXISTING, 0, None)
-    if fh is None:
+    if fh == HANDLE(-1).value:
         raise WinError()
-    info = BY_HANDLE_FILE_INFORMATION()
-    rv = GetFileInformationByHandle(fh, info)
-    if rv == 0:
-        raise WinError()
+    try:
+        info = BY_HANDLE_FILE_INFORMATION()
+        if not GetFileInformationByHandle(fh, info):
+            raise WinError()
+    finally:
+        CloseHandle(fh)
     return info
 
 def is_symlink_to(dest, src):

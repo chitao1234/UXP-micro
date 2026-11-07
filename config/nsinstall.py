@@ -149,7 +149,8 @@ def _nsinstall_internal(argv):
 
 # nsinstall as a native command is always UTF-8
 def nsinstall(argv):
-  return _nsinstall_internal([str(arg, "utf-8") for arg in argv])
+  return _nsinstall_internal([arg.decode("utf-8") if isinstance(arg, bytes) else arg
+                              for arg in argv])
 
 if __name__ == '__main__':
   # sys.argv corrupts characters outside the system code page on Windows
