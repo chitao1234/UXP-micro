@@ -16,6 +16,14 @@
  *          recognize the return code from tha main program.
  */
 
+/* The MinGW ANSI printf wrapper adds a space for "% u", unlike both NSPR
+ * and the native Windows CRT. Use the CRT oracle that this Windows test's
+ * I64 format strings already target; keep every comparison intact. */
+#ifdef __MINGW32__
+#undef __USE_MINGW_ANSI_STDIO
+#define __USE_MINGW_ANSI_STDIO 0
+#endif
+
 #include "prinit.h"
 #include "prprf.h"
 #include "prlog.h"
