@@ -85,15 +85,18 @@ function hitEventLoop(aFunc, aTimes)
   }
 }
 
-const zoomResetTopic = "browser-fullZoom:zoomReset";
-SpecialPowers.registerObservers(zoomResetTopic);
-
 function onZoomReset(aCallback) {
-  var specialPowersTopic = "specialpowers-" + zoomResetTopic;
-  SpecialPowers.addObserver(function observe() {
-    SpecialPowers.removeObserver(observe, specialPowersTopic);
+  if (SpecialPowers.getFullZoom(window) == 1) {
     SimpleTest.executeSoon(aCallback);
-  }, specialPowersTopic, false);
+    return;
+  }
+  // Match current Firefox: wait for the viewport change, not an asynchronous
+  // browser-UI observer that can arrive after the next case has begun.
+  window.addEventListener("resize", function onResize() {
+    is(SpecialPowers.getFullZoom(window), 1, "Zoom should be reset to 1");
+    window.removeEventListener("resize", onResize);
+    SimpleTest.executeSoon(aCallback);
+  });
 }
 
 function setDeltaMultiplierSettings(aSettings, aCallback)
@@ -868,20 +871,27 @@ function doTestScroll(aSettings, aCallback)
       return;
     }
 
-    gScrollableElement.scrollTop = 1000;
-    gScrollableElement.scrollLeft = 1000;
-
     var currentTest = kTests[currentTestIndex];
     description = "doTestScroll(aSettings=" + aSettings.description + "), " + currentTest.description + ": ";
     if (currentTest.prepare) {
-      currentTest.prepare(doTestCurrentScroll);
+      // prepare() may change overflow or positioning. As in current Firefox,
+      // paint those changes before sending the wheel event.
+      currentTest.prepare(doWaitForPaintsAndScroll);
     } else {
       doTestCurrentScroll();
     }
   }
 
+  function doWaitForPaintsAndScroll() {
+    waitForAllPaintsFlushed(doTestCurrentScroll);
+  }
+
   function doTestCurrentScroll() {
     var currentTest = kTests[currentTestIndex];
+    // A position change in prepare() can reconstruct the scroll frame.
+    // Establish the initial offsets on the final frame, after preparation.
+    gScrollableElement.scrollTop = 1000;
+    gScrollableElement.scrollLeft = 1000;
     sendWheelAndWait(10, 10, currentTest.event, function () {
       if (currentTest.expected == kNoScroll) {
         is(gScrollableElement.scrollTop, 1000, description + "scrolled vertical");
@@ -1157,7 +1167,9 @@ function doTestZoom(aSettings, aCallback)
         }
       }
 
-      synthesizeKey("0", { accelKey: true });
+      if (SpecialPowers.getFullZoom(window) != 1) {
+        synthesizeKey("0", { accelKey: true });
+      }
       onZoomReset(function () {
         hitEventLoop(doNextTest, 20);
       });

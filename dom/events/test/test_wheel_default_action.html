@@ -17,7 +17,8 @@
 SimpleTest.waitForExplicitFinish();
 SimpleTest.requestFlakyTimeout("untriaged");
 SpecialPowers.pushPrefEnv({"set": [
-    ["mousewheel.system_scroll_override_on_root_content.enabled", false]
+    ["mousewheel.system_scroll_override_on_root_content.enabled", false],
+    ["browser.link.open_newwindow.restriction", 2]
 ]}, runTest);
 
 var subWin = null;
