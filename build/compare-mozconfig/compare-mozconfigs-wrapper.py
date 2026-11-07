@@ -53,8 +53,7 @@ class TestCompareMozconfigs(unittest.TestCase):
                                         platform + ',' + beta_mozconfig_path +
                                         ',' + nightly_mozconfig_path])
 
-            if ret_code > 0:
-                return ret_code
+            self.assertEqual(0, ret_code)
 
             log.info("Comparing release against nightly mozconfigs")
             ret_code = subprocess.call([python_exe, script_path, '--whitelist',
