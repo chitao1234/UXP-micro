@@ -27,7 +27,10 @@
     try {
       var x = plugin.getJavaCodebase();
       return true;
-    } catch (e) {}
+    } catch (e) {
+      window.parent.postMessage({diagnostic: plugin.outerHTML + ": " + e +
+        "; document=" + document.documentURI}, "*");
+    }
     return false;
   }
   window.parent.postMessage({ "A": isSpawned(appletA),
@@ -42,58 +45,78 @@
                               ['plugin.java.mime', 'application/x-java-test']
                             ] }, runTest);
 
+  // The original test exercises directory-based file origins. The current
+  // unique-origin policy intentionally suppresses all three applets; exercise
+  // both policies without changing the product default.
+  var cases = [
+    {uniqueOrigin: true, allowed: false},
+    {uniqueOrigin: false, allowed: true},
+  ];
+  var caseIndex = 0;
+
   function runTest() {
-    // Create a empty file and point an iframe at it
+    var current = cases[caseIndex++];
+    SpecialPowers.pushPrefEnv({set: [
+      ["security.fileuri.unique_origin", current.uniqueOrigin],
+    ]}, function() { runCase(current); });
+  }
+
+  function runCase(current) {
     var Cc = SpecialPowers.Cc;
     var Ci = SpecialPowers.Ci;
-    var file = Cc["@mozilla.org/file/directory_service;1"]
-      .getService(Ci.nsIProperties)
-      .get("TmpD", Ci.nsIFile);
-    var subdir = Cc["@mozilla.org/file/directory_service;1"]
-      .getService(Ci.nsIProperties)
-      .get("TmpD", Ci.nsIFile);
-    file.append("test_bug406541.html");
-    file.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
+    var directory = Cc["@mozilla.org/file/directory_service;1"]
+      .getService(Ci.nsIProperties).get("TmpD", Ci.nsIFile);
+    directory.append("bug406541");
+    directory.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0700);
+    var file = directory.clone();
+    file.append("test.html");
+    file.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0600);
+    var subdir = directory.clone();
     subdir.append("subdir_bug406541");
-    subdir.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0600);
-
-    var i = document.createElement("iframe");
-    var loaded = false;
-    i.addEventListener("load", function initialLoad() {
-      if (!loaded) {
-        // Once loaded, use special powers to point it at the file
-        SpecialPowers.wrap(i.contentWindow).location.href = "file://" + file.path;
-        loaded = true;
-      } else {
-        // Inject the child-payload script to the file:/// origin. Let it test
-        // applet spawning and send the results in a postMessage. (Because I
-        // couldn't get SpecialPowers to let me touch applets cross-origin, then
-        // gave up.)
-        var innerdoc = SpecialPowers.wrap(i.contentWindow).document;
-        var s = innerdoc.createElement("script");
-        s.type = "text/javascript";
-        s.textContent = document.getElementById("child-payload").textContent;
-        var finished = false;
-        window.onmessage = function(message) {
-          ok(message.data.A, "Plugin A should spawn");
-          ok(!message.data.B, "Plugin B should NOT spawn");
-          ok(message.data.C, "Plugin C should spawn");
-          file.remove(false);
-          subdir.remove(false);
-          finished = true;
-          SimpleTest.finish();
-        };
-        innerdoc.body.appendChild(s);
-
-        SimpleTest.executeSoon(function() {
-          if (!finished) {
-            ok(finished, "Should have received callback by now");
-            SimpleTest.finish();
-          }
-        });
+    subdir.create(Ci.nsIFile.DIRECTORY_TYPE, 0700);
+    var fileURI = Cc["@mozilla.org/network/io-service;1"]
+      .getService(Ci.nsIIOService).newFileURI(file).spec;
+    SimpleTest.registerCleanupFunction(function() {
+      if (directory.exists()) {
+        directory.remove(true);
       }
-    }, false);
-    document.body.appendChild(i);
+    });
+
+    var frame = document.createElement("iframe");
+    var loaded = false;
+    frame.addEventListener("load", function() {
+      if (!loaded) {
+        loaded = true;
+        SpecialPowers.wrap(frame.contentWindow).location.href = fileURI;
+        return;
+      }
+      var innerdoc = SpecialPowers.wrap(frame.contentWindow).document;
+      var script = innerdoc.createElement("script");
+      script.textContent = document.getElementById("child-payload").textContent;
+      window.onmessage = function(message) {
+        if (message.source !== frame.contentWindow) {
+          return;
+        }
+        if (message.data.diagnostic) {
+          info(message.data.diagnostic);
+          return;
+        }
+        var context = "unique_origin=" + current.uniqueOrigin + ": ";
+        is(message.data.A, current.allowed, context + "same-directory applet");
+        is(message.data.B, false, context + "outside-directory applet is blocked");
+        is(message.data.C, current.allowed, context + "child-directory applet");
+        frame.remove();
+        window.onmessage = null;
+        directory.remove(true);
+        if (caseIndex < cases.length) {
+          runTest();
+        } else {
+          SimpleTest.finish();
+        }
+      };
+      innerdoc.body.appendChild(script);
+    });
+    document.body.appendChild(frame);
   }
 </script>
 </body>
