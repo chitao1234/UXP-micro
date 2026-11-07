@@ -26,7 +26,7 @@ class TestDispatcher(TestBase):
             mach.settings.register_provider(provider)
 
         if config:
-            if isinstance(config, basestring):
+            if isinstance(config, str):
                 config = StringIO(config)
             mach.settings.load_fps([config])
 

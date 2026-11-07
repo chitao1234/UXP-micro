@@ -5,7 +5,7 @@
 from unittest import TextTestRunner as _TestRunner, TestResult as _TestResult
 import unittest
 import inspect
-from io import StringIO
+from io import BytesIO, StringIO
 import os
 import sys
 
@@ -95,21 +95,28 @@ class MozTestRunner(_TestRunner):
         test(result)
         return result
 
-class MockedFile(StringIO):
-    def __init__(self, context, filename, content = ''):
-        self.context = context
-        self.name = filename
-        StringIO.__init__(self, content)
+def _mocked_file(base):
+    # Match Firefox's separate binary/text mocks; real build code opens both.
+    class MockedFile(base):
+        def __init__(self, context, filename, content):
+            self.context = context
+            self.name = filename
+            base.__init__(self, content)
 
-    def close(self):
-        self.context.files[self.name] = self.getvalue()
-        StringIO.close(self)
+        def close(self):
+            if not self.closed:
+                self.context.files[normcase(self.name)] = self.getvalue()
+                base.close(self)
 
-    def __enter__(self):
-        return self
+        def __enter__(self):
+            return self
 
-    def __exit__(self, type, value, traceback):
-        self.close()
+        def __exit__(self, type, value, traceback):
+            self.close()
+    return MockedFile
+
+MockedFile = _mocked_file(StringIO)
+MockedBytesFile = _mocked_file(BytesIO)
 
 def normcase(path):
     '''
@@ -146,16 +153,33 @@ class MockedOpen(object):
         for name, content in files.items():
             self.files[normcase(os.path.abspath(name))] = content
 
-    def __call__(self, name, mode = 'r'):
-        absname = normcase(os.path.abspath(name))
+    def __call__(self, name, mode='r', buffering=-1, encoding=None,
+                 errors=None, newline=None):
+        if isinstance(name, int):
+            return self.open(name, mode, buffering=buffering, encoding=encoding,
+                             errors=errors, newline=newline)
+        displayname = os.path.abspath(name)
+        absname = normcase(displayname)
         if 'w' in mode:
-            file = MockedFile(self, absname)
+            content = b'' if 'b' in mode else ''
         elif absname in self.files:
-            file = MockedFile(self, absname, self.files[absname])
+            content = self.files[absname]
+            if content is None:
+                raise IOError(2, 'No such file or directory')
         elif 'a' in mode:
-            file = MockedFile(self, absname, self.open(name, 'r').read())
+            with self.open(name, 'rb' if 'b' in mode else 'r') as existing:
+                content = existing.read()
         else:
-            file = self.open(name, mode)
+            return self.open(name, mode, buffering=buffering, encoding=encoding,
+                             errors=errors, newline=newline)
+        if 'b' in mode:
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+            file = MockedBytesFile(self, displayname, content)
+        else:
+            if isinstance(content, bytes):
+                content = content.decode(encoding or 'utf-8', errors or 'strict')
+            file = MockedFile(self, displayname, content)
         if 'a' in mode:
             file.seek(0, os.SEEK_END)
         return file

@@ -9,7 +9,10 @@ import sys
 
 from mach.base import MachError
 from mach.test.common import TestBase
-from mock import patch
+try:
+    from unittest.mock import patch
+except ImportError:
+    from mock import patch
 
 from mozunit import main
 
@@ -39,9 +42,9 @@ class TestEntryPoints(TestBase):
     def test_load_entry_point_from_directory(self, mock):
         # Ensure parent module is present otherwise we'll (likely) get
         # an error due to unknown parent.
-        if b'mach.commands' not in sys.modules:
-            mod = imp.new_module(b'mach.commands')
-            sys.modules[b'mach.commands'] = mod
+        if 'mach.commands' not in sys.modules:
+            mod = imp.new_module('mach.commands')
+            sys.modules['mach.commands'] = mod
 
         mock.return_value = [Entry([self.provider_dir])]
         # Mach error raised due to conditions_invalid.py

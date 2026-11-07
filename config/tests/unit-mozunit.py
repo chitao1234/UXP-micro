@@ -10,6 +10,37 @@ import unittest
 from tempfile import mkstemp
 
 class TestMozUnit(unittest.TestCase):
+    def test_mocked_open_keeps_real_filename_spelling(self):
+        fd, path = mkstemp(suffix='MiXeD')
+        os.close(fd)
+        try:
+            with open(path) as real_file:
+                expected = real_file.name
+            with MockedOpen({path: 'original'}):
+                with open(path, 'w') as mocked_file:
+                    self.assertEqual(mocked_file.name, expected)
+                    mocked_file.write('replacement')
+                with open(path) as mocked_file:
+                    self.assertEqual(mocked_file.read(), 'replacement')
+        finally:
+            os.remove(path)
+
+    def test_mocked_open_binary_and_encoding(self):
+        with MockedOpen({'text': 'caf\u00e9', 'bytes': b'caf\xc3\xa9'}):
+            with open('text', 'rb') as source:
+                self.assertEqual(source.read(), b'caf\xc3\xa9')
+            with open('bytes', encoding='utf-8') as source:
+                self.assertEqual(source.read(), 'caf\u00e9')
+            with open('new', 'wb') as target:
+                target.write(b'\x00\xff')
+                self.assertRaises(TypeError, target.write, 'text')
+            with open('new', 'rb') as source:
+                self.assertEqual(source.read(), b'\x00\xff')
+            with open('text', 'w', encoding='utf-8') as target:
+                self.assertRaises(TypeError, target.write, b'bytes')
+                target.write('caf\u00e9')
+            self.assertEqual(open('text', encoding='utf-8').read(), 'caf\u00e9')
+
     def test_error_reporting(self):
         class ErrorCase(unittest.TestCase):
             def runTest(self):

@@ -6,6 +6,7 @@ from __future__ import unicode_literals
 
 from io import StringIO
 import os
+import sys
 import unittest
 
 from mach.main import Mach
@@ -34,8 +35,9 @@ class TestBase(unittest.TestCase):
 
         stdout = StringIO()
         stderr = StringIO()
-        stdout.encoding = 'UTF-8'
-        stderr.encoding = 'UTF-8'
+        if sys.version_info < (3, 0):
+            stdout.encoding = 'UTF-8'
+            stderr.encoding = 'UTF-8'
 
         try:
             result = m.run(argv, stdout=stdout, stderr=stderr)
