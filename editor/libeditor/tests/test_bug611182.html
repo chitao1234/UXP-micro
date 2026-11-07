@@ -22,6 +22,9 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=611182
 
 /** Test for Bug 611182 **/
 SimpleTest.waitForExplicitFinish();
+// Disable spellchecking before any editor is created. Changing the body
+// attribute after load can leave asynchronous spelling decorations in snapshots.
+SpecialPowers.pushPrefEnv({set: [["layout.spellcheckDefault", 0]]}, function() {
 SimpleTest.waitForFocus(function() {
   var iframe = document.querySelector("iframe");
   var refElem = document.querySelector("#ref");
@@ -71,7 +74,13 @@ SimpleTest.waitForFocus(function() {
       is(textNode.textContent, "foo bar", "Backspace should work correctly");
 
       var snapshot = snapshotWindow(win, false);
-      ok(compareSnapshots(snapshot, ref, true)[0], "No bogus node should exist in the document");
+      var comparison = compareSnapshots(snapshot, ref, true);
+      ok(comparison[0], "No bogus node should exist in the document");
+      if (!comparison[0]) {
+        info("Edited DOM: " + doc.documentElement.outerHTML);
+        dump("REFTEST   IMAGE 1 (TEST): " + comparison[1] + "\n");
+        dump("REFTEST   IMAGE 2 (REFERENCE): " + comparison[2] + "\n");
+      }
 
       callback();
     }, false);
@@ -231,6 +240,7 @@ SimpleTest.waitForFocus(function() {
     testBackspace(TEST_URIS[currentTest++], runAllTests);
   }
   runAllTests();
+});
 });
 
 </script>
