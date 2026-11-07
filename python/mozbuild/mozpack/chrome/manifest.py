@@ -349,10 +349,12 @@ def parse_manifest(root, path, fileobj=None):
     base = mozpath.dirname(path)
     if root:
         path = os.path.normpath(os.path.abspath(os.path.join(root, path)))
-    if not fileobj:
+    if fileobj is None:
         fileobj = open(path)
     linenum = 0
     for line in fileobj:
+        if isinstance(line, bytes):
+            line = line.decode('utf-8')
         linenum += 1
         with errors.context(path, linenum):
             e = parse_manifest_line(base, line)

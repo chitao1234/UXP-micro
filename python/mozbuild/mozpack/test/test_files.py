@@ -131,33 +131,34 @@ class TestDest(TestWithTmpDir):
     def test_dest(self):
         dest = Dest(self.tmppath('dest'))
         self.assertFalse(dest.exists())
-        dest.write('foo')
+        dest.write(b'foo')
         self.assertTrue(dest.exists())
-        dest.write('foo')
-        self.assertEqual(dest.read(4), 'foof')
-        self.assertEqual(dest.read(), 'oo')
-        self.assertEqual(dest.read(), '')
-        dest.write('bar')
-        self.assertEqual(dest.read(4), 'bar')
+        dest.write(b'foo')
+        self.assertEqual(dest.read(4), b'foof')
+        self.assertEqual(dest.read(), b'oo')
+        self.assertEqual(dest.read(), b'')
+        dest.write(b'bar')
+        self.assertEqual(dest.read(4), b'bar')
         dest.close()
-        self.assertEqual(dest.read(), 'bar')
-        dest.write('foo')
+        self.assertEqual(dest.read(), b'bar')
+        dest.write(b'foo')
         dest.close()
-        dest.write('qux')
-        self.assertEqual(dest.read(), 'qux')
+        dest.write(b'qux')
+        self.assertEqual(dest.read(), b'qux')
 
-rand = ''.join(random.choice(string.letters) for i in range(131597))
+rand = bytes(random.choice(b'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
+             for i in range(131597))
 samples = [
-    '',
-    'test',
-    'fooo',
-    'same',
-    'same',
-    'Different and longer',
+    b'',
+    b'test',
+    b'fooo',
+    b'same',
+    b'same',
+    b'Different and longer',
     rand,
     rand,
-    rand[:-1] + '_',
-    'test'
+    rand[:-1] + b'_',
+    b'test'
 ]
 
 
@@ -210,7 +211,7 @@ class TestFile(TestWithTmpDir):
         Test whether File.open returns an appropriately reset file object.
         '''
         src = self.tmppath('src')
-        content = ''.join(samples)
+        content = b''.join(samples)
         with open(src, 'wb') as tmp:
             tmp.write(content)
 
@@ -227,7 +228,7 @@ class TestFile(TestWithTmpDir):
         dest = self.tmppath('dest')
 
         with open(src, 'wb') as tmp:
-            tmp.write('test')
+            tmp.write(b'test')
 
         # Initial copy
         f = File(src)
@@ -235,23 +236,23 @@ class TestFile(TestWithTmpDir):
 
         # Ensure subsequent copies won't trigger writes
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # When the source file is newer, but with the same content, no copy
         # should occur
         time = os.path.getmtime(src) - 1
         os.utime(dest, (time, time))
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # When the source file is older than the destination file, even with
         # different content, no copy should occur.
         with open(src, 'wb') as tmp:
-            tmp.write('fooo')
+            tmp.write(b'fooo')
         time = os.path.getmtime(dest) - 1
         os.utime(src, (time, time))
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # Double check that under conditions where a copy occurs, we would get
         # an exception.
@@ -261,7 +262,7 @@ class TestFile(TestWithTmpDir):
 
         # skip_if_older=False is expected to force a copy in this situation.
         f.copy(dest, skip_if_older=False)
-        self.assertEqual('fooo', open(dest, 'rb').read())
+        self.assertEqual(b'fooo', open(dest, 'rb').read())
 
 
 class TestAbsoluteSymlinkFile(TestWithTmpDir):
@@ -361,12 +362,12 @@ class TestPreprocessedFile(TestWithTmpDir):
         dest = self.tmppath('dest')
 
         with open(src, 'wb') as tmp:
-            tmp.write('#ifdef FOO\ntest\n#endif')
+            tmp.write(b'#ifdef FOO\ntest\n#endif')
 
         f = PreprocessedFile(src, depfile_path=None, marker='#', defines={'FOO': True})
         self.assertTrue(f.copy(dest))
 
-        self.assertEqual('test\n', open(dest, 'rb').read())
+        self.assertEqual(b'test\n', open(dest, 'rb').read())
 
     def test_preprocess_file_no_write(self):
         '''
@@ -378,7 +379,7 @@ class TestPreprocessedFile(TestWithTmpDir):
         depfile = self.tmppath('depfile')
 
         with open(src, 'wb') as tmp:
-            tmp.write('#ifdef FOO\ntest\n#endif')
+            tmp.write(b'#ifdef FOO\ntest\n#endif')
 
         # Initial copy
         f = PreprocessedFile(src, depfile_path=depfile, marker='#', defines={'FOO': True})
@@ -386,20 +387,20 @@ class TestPreprocessedFile(TestWithTmpDir):
 
         # Ensure subsequent copies won't trigger writes
         self.assertFalse(f.copy(DestNoWrite(dest)))
-        self.assertEqual('test\n', open(dest, 'rb').read())
+        self.assertEqual(b'test\n', open(dest, 'rb').read())
 
         # When the source file is older than the destination file, even with
         # different content, no copy should occur.
         with open(src, 'wb') as tmp:
-            tmp.write('#ifdef FOO\nfooo\n#endif')
+            tmp.write(b'#ifdef FOO\nfooo\n#endif')
         time = os.path.getmtime(dest) - 1
         os.utime(src, (time, time))
         self.assertFalse(f.copy(DestNoWrite(dest)))
-        self.assertEqual('test\n', open(dest, 'rb').read())
+        self.assertEqual(b'test\n', open(dest, 'rb').read())
 
         # skip_if_older=False is expected to force a copy in this situation.
         self.assertTrue(f.copy(dest, skip_if_older=False))
-        self.assertEqual('fooo\n', open(dest, 'rb').read())
+        self.assertEqual(b'fooo\n', open(dest, 'rb').read())
 
     def test_preprocess_file_dependencies(self):
         '''
@@ -411,10 +412,10 @@ class TestPreprocessedFile(TestWithTmpDir):
         deps = self.tmppath('src.pp')
 
         with open(src, 'wb') as tmp:
-            tmp.write('#ifdef FOO\ntest\n#endif')
+            tmp.write(b'#ifdef FOO\ntest\n#endif')
 
         with open(incl, 'wb') as tmp:
-            tmp.write('foo bar')
+            tmp.write(b'foo bar')
 
         # Initial copy
         f = PreprocessedFile(src, depfile_path=deps, marker='#', defines={'FOO': True})
@@ -422,21 +423,21 @@ class TestPreprocessedFile(TestWithTmpDir):
 
         # Update the source so it #includes the include file.
         with open(src, 'wb') as tmp:
-            tmp.write('#include incl\n')
+            tmp.write(b'#include incl\n')
         time = os.path.getmtime(dest) + 1
         os.utime(src, (time, time))
         self.assertTrue(f.copy(dest))
-        self.assertEqual('foo bar', open(dest, 'rb').read())
+        self.assertEqual(b'foo bar', open(dest, 'rb').read())
 
         # If one of the dependencies changes, the file should be updated. The
         # mtime of the dependency is set after the destination file, to avoid
         # both files having the same time.
         with open(incl, 'wb') as tmp:
-            tmp.write('quux')
+            tmp.write(b'quux')
         time = os.path.getmtime(dest) + 1
         os.utime(incl, (time, time))
         self.assertTrue(f.copy(dest))
-        self.assertEqual('quux', open(dest, 'rb').read())
+        self.assertEqual(b'quux', open(dest, 'rb').read())
 
         # Perform one final copy to confirm that we don't run the preprocessor
         # again. We update the mtime of the destination so it's newer than the
@@ -465,15 +466,15 @@ class TestPreprocessedFile(TestWithTmpDir):
         self.assertTrue(os.path.islink(dest))
 
         with open(pp_source, 'wb') as tmp:
-            tmp.write('#define FOO\nPREPROCESSED')
+            tmp.write(b'#define FOO\nPREPROCESSED')
 
         f = PreprocessedFile(pp_source, depfile_path=deps, marker='#',
-            defines={'FOO': True})
+                             defines={'FOO': True})
         self.assertTrue(f.copy(dest))
 
-        self.assertEqual('PREPROCESSED', open(dest, 'rb').read())
+        self.assertEqual(b'PREPROCESSED', open(dest, 'rb').read())
         self.assertFalse(os.path.islink(dest))
-        self.assertEqual('', open(source, 'rb').read())
+        self.assertEqual(b'', open(source, 'rb').read())
 
 class TestExistingFile(TestWithTmpDir):
     def test_required_missing_dest(self):
@@ -521,7 +522,7 @@ class TestGeneratedFile(TestWithTmpDir):
         Test whether GeneratedFile.open returns an appropriately reset file
         object.
         '''
-        content = ''.join(samples)
+        content = b''.join(samples)
         f = GeneratedFile(content)
         self.assertEqual(content[:42], f.open().read(42))
         self.assertEqual(content, f.open().read())
@@ -534,21 +535,21 @@ class TestGeneratedFile(TestWithTmpDir):
         dest = self.tmppath('dest')
 
         # Initial copy
-        f = GeneratedFile('test')
+        f = GeneratedFile(b'test')
         f.copy(dest)
 
         # Ensure subsequent copies won't trigger writes
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # When using a new instance with the same content, no copy should occur
-        f = GeneratedFile('test')
+        f = GeneratedFile(b'test')
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # Double check that under conditions where a copy occurs, we would get
         # an exception.
-        f = GeneratedFile('fooo')
+        f = GeneratedFile(b'fooo')
         self.assertRaises(RuntimeError, f.copy, DestNoWrite(dest))
 
 
@@ -565,7 +566,7 @@ class TestDeflatedFile(TestWithTmpDir):
         contents = {}
         with JarWriter(src) as jar:
             for content in samples:
-                name = ''.join(random.choice(string.letters)
+                name = ''.join(random.choice(string.ascii_letters)
                                for i in range(8))
                 jar.add(name, content, compress=True)
                 contents[name] = content
@@ -581,7 +582,7 @@ class TestDeflatedFile(TestWithTmpDir):
         object.
         '''
         src = self.tmppath('src.jar')
-        content = ''.join(samples)
+        content = b''.join(samples)
         with JarWriter(src) as jar:
             jar.add('content', content)
 
@@ -598,9 +599,9 @@ class TestDeflatedFile(TestWithTmpDir):
         dest = self.tmppath('dest')
 
         with JarWriter(src) as jar:
-            jar.add('test', 'test')
-            jar.add('test2', 'test')
-            jar.add('fooo', 'fooo')
+            jar.add('test', b'test')
+            jar.add('test2', b'test')
+            jar.add('fooo', b'fooo')
 
         jar = JarReader(src)
         # Initial copy
@@ -609,13 +610,13 @@ class TestDeflatedFile(TestWithTmpDir):
 
         # Ensure subsequent copies won't trigger writes
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # When using a different file with the same content, no copy should
         # occur
         f = DeflatedFile(jar['test2'])
         f.copy(DestNoWrite(dest))
-        self.assertEqual('test', open(dest, 'rb').read())
+        self.assertEqual(b'test', open(dest, 'rb').read())
 
         # Double check that under conditions where a copy occurs, we would get
         # an exception.
@@ -663,7 +664,7 @@ class TestManifestFile(TestWithTmpDir):
         )
 
         f.copy(self.tmppath('chrome.manifest'))
-        content = open(self.tmppath('chrome.manifest')).read()
+        content = open(self.tmppath('chrome.manifest'), 'rb').read()
         self.assertEqual(content[:42], f.open().read(42))
         self.assertEqual(content, f.open().read())
 
@@ -773,8 +774,8 @@ class TestMinifiedProperties(TestWithTmpDir):
         ]
         prop = GeneratedFile('\n'.join(propLines))
         self.assertEqual(MinifiedProperties(prop).open().readlines(),
-                         ['foo = bar\n', '\n'])
-        open(self.tmppath('prop'), 'wb').write('\n'.join(propLines))
+                         [b'foo = bar\n', b'\n'])
+        open(self.tmppath('prop'), 'w').write('\n'.join(propLines))
         MinifiedProperties(File(self.tmppath('prop'))) \
             .copy(self.tmppath('prop2'))
         self.assertEqual(open(self.tmppath('prop2')).readlines(),
@@ -782,6 +783,12 @@ class TestMinifiedProperties(TestWithTmpDir):
 
 
 class TestMinifiedJavaScript(TestWithTmpDir):
+    def test_minified_unicode(self):
+        source = GeneratedFile('let s = "caf\u00e9"; // remove comment\n')
+        output = MinifiedJavaScript(source).open().read()
+        self.assertIn('caf\u00e9'.encode('utf-8'), output)
+        self.assertNotIn(b'remove comment', output)
+
     orig_lines = [
         '// Comment line',
         'let foo = "bar";',
@@ -917,7 +924,7 @@ def do_check(test, finder, pattern, result):
 class TestFileFinder(MatchTestTemplate, TestWithTmpDir):
     def add(self, path):
         ensureParentDir(self.tmppath(path))
-        open(self.tmppath(path), 'wb').write(path)
+        open(self.tmppath(path), 'wb').write(path.encode('utf-8'))
 
     def do_check(self, pattern, result):
         do_check(self, self.finder, pattern, result)
@@ -1044,7 +1051,7 @@ class TestComposedFinder(MatchTestTemplate, TestWithTmpDir):
             real_path = mozpath.join('a', path)
         ensureParentDir(self.tmppath(real_path))
         if not content:
-            content = path
+            content = path.encode('utf-8')
         open(self.tmppath(real_path), 'wb').write(content)
 
     def do_check(self, pattern, result):
@@ -1057,8 +1064,8 @@ class TestComposedFinder(MatchTestTemplate, TestWithTmpDir):
         # Also add files in $tmp/a/foo/qux because ComposedFinder is
         # expected to mask foo/qux entirely with content from $tmp/b.
         ensureParentDir(self.tmppath('a/foo/qux/hoge'))
-        open(self.tmppath('a/foo/qux/hoge'), 'wb').write('hoge')
-        open(self.tmppath('a/foo/qux/bar'), 'wb').write('not the right content')
+        open(self.tmppath('a/foo/qux/hoge'), 'wb').write(b'hoge')
+        open(self.tmppath('a/foo/qux/bar'), 'wb').write(b'not the right content')
         self.finder = ComposedFinder({
             '': FileFinder(self.tmppath('a')),
             'foo/qux': FileFinder(self.tmppath('b')),

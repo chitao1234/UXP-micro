@@ -5,6 +5,7 @@
 import unittest
 import mozunit
 import os
+from io import BytesIO
 from mozpack.chrome.manifest import (
     ManifestContent,
     ManifestLocale,
@@ -24,10 +25,19 @@ from mozpack.chrome.manifest import (
     parse_manifest_line,
 )
 from mozpack.errors import errors, AccumulatedErrors
-from .test_errors import TestErrors
+from mozpack.test.test_errors import TestErrors
 
 
 class TestManifest(unittest.TestCase):
+    def test_empty_supplied_manifest(self):
+        self.assertEqual(list(parse_manifest('', 'absent.manifest', [])), [])
+
+    def test_binary_supplied_manifest(self):
+        entries = list(parse_manifest('', 'memory.manifest',
+                                      BytesIO(b'resource example content/\n')))
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(str(entries[0]), 'resource example content/')
+
     def test_parse_manifest(self):
         manifest = [
             'content global content/global/',

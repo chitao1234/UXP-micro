@@ -168,8 +168,8 @@ class UnpackFinder(BaseFinder):
         Return whether the given BaseFile looks like a ZIP/Jar.
         '''
         header = file.open().read(8)
-        return len(header) == 8 and (header[0:2] == 'PK' or
-                                     header[4:6] == 'PK')
+        return len(header) == 8 and (header[0:2] == b'PK' or
+                                     header[4:6] == b'PK')
 
     def _unjarize(self, entry, relpath):
         '''

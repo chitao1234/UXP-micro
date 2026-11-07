@@ -34,7 +34,7 @@ class TestUnpack(TestWithTmpDir):
     @classmethod
     def setUpClass(cls):
         cls.contents = get_contents(cls._get_copier(FlatFormatter),
-                                    read_all=True)
+                                    read_all=True, mode='rb')
 
     def _unpack_test(self, cls):
         # Format a package with the given formatter class
@@ -45,7 +45,7 @@ class TestUnpack(TestWithTmpDir):
         # formatted package.
         registry = FileRegistry()
         unpack_to_registry(self.tmpdir, registry)
-        self.assertEqual(get_contents(registry, read_all=True), self.contents)
+        self.assertEqual(get_contents(registry, read_all=True, mode='rb'), self.contents)
 
     def test_flat_unpack(self):
         self._unpack_test(FlatFormatter)

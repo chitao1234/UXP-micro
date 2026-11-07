@@ -26,7 +26,7 @@ class TestInstallManifest(TestWithTmpDir):
 
     def test_malformed(self):
         f = self.tmppath('manifest')
-        open(f, 'wb').write('junk\n')
+        open(f, 'wb').write(b'junk\n')
         with self.assertRaises(UnreadableInstallManifest):
             m = InstallManifest(f)
 
@@ -96,12 +96,12 @@ class TestInstallManifest(TestWithTmpDir):
         with open(p, 'rb') as fh:
             c = fh.read()
 
-        self.assertEqual(c.count('\n'), 9)
+        self.assertEqual(c.count(b'\n'), 9)
 
         lines = c.splitlines()
         self.assertEqual(len(lines), 9)
 
-        self.assertEqual(lines[0], '5')
+        self.assertEqual(lines[0], b'5')
 
         m2 = InstallManifest(path=p)
         self.assertEqual(m, m2)
@@ -169,7 +169,7 @@ class TestInstallManifest(TestWithTmpDir):
             pass
 
         m = InstallManifest()
-        m.add_pattern_link('%s/base' % source, '**', 'dest')
+        m.add_pattern_symlink('%s/base' % source, '**', 'dest')
 
         track = self.tmppath('track')
         m.write(path=track, expand_pattern=True)

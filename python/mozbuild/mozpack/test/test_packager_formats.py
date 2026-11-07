@@ -284,7 +284,7 @@ def fill_formatter(formatter, contents):
             formatter.add(k, v)
 
 
-def get_contents(registry, read_all=False):
+def get_contents(registry, read_all=False, mode='rt'):
     result = {}
     for k, v in registry:
         if k.endswith('.xpt'):
@@ -294,7 +294,8 @@ def get_contents(registry, read_all=False):
         elif isinstance(v, FileRegistry):
             result[k] = get_contents(v)
         elif isinstance(v, ManifestFile) or read_all:
-            result[k] = v.open().read().splitlines()
+            data = v.open().read()
+            result[k] = data if 'b' in mode else data.decode('utf-8').splitlines()
         else:
             result[k] = v
     return result

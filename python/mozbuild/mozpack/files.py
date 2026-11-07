@@ -5,6 +5,7 @@
 from __future__ import absolute_import
 
 import errno
+import codecs
 import os
 import platform
 import shutil
@@ -22,7 +23,8 @@ from mozpack.executables import (
     elfhack,
 )
 from mozpack.chrome.manifest import ManifestEntry
-from io import BytesIO
+from io import BytesIO, StringIO
+from mozfile import NamedTemporaryFile
 from mozpack.errors import (
     ErrorMessage,
     errors,
@@ -33,7 +35,6 @@ from collections import OrderedDict
 from jsmin import JavascriptMinify
 from tempfile import (
     mkstemp,
-    NamedTemporaryFile,
 )
 from tarfile import (
     TarFile,
@@ -459,7 +460,7 @@ class PreprocessedFile(BaseFile):
             target = mozpath.normpath(dest.name)
             with open(self.depfile, 'rb') as fileobj:
                 for rule in makeutil.read_dep_makefile(fileobj):
-                    if target in rule.targets():
+                    if any(target == mozpath.normpath(t) for t in rule.targets()):
                         pp_deps.update(rule.dependencies())
 
         skip = False
@@ -679,8 +680,8 @@ class MinifiedProperties(BaseFile):
         Return a file-like object allowing to read() the minified content of
         the properties file.
         '''
-        return BytesIO(''.join(l for l in self._file.open().readlines()
-                               if not l.startswith('#')))
+        return BytesIO(b''.join(l for l in self._file.open().readlines()
+                                if not l.startswith(b'#')))
 
 
 class MinifiedJavaScript(BaseFile):
@@ -693,16 +694,17 @@ class MinifiedJavaScript(BaseFile):
         self._verify_command = verify_command
 
     def open(self):
-        output = BytesIO()
-        minify = JavascriptMinify(self._file.open(), output, quote_chars="'\"`")
+        output = StringIO()
+        minify = JavascriptMinify(codecs.getreader('utf-8')(self._file.open()),
+                                 output, quote_chars="'\"`")
         minify.minify()
-        output.seek(0)
+        output_source = output.getvalue().encode('utf-8')
+        output = BytesIO(output_source)
 
         if not self._verify_command:
             return output
 
         input_source = self._file.open().read()
-        output_source = output.getvalue()
 
         with NamedTemporaryFile() as fh1, NamedTemporaryFile() as fh2:
             fh1.write(input_source)
@@ -713,7 +715,8 @@ class MinifiedJavaScript(BaseFile):
             try:
                 args = list(self._verify_command)
                 args.extend([fh1.name, fh2.name])
-                subprocess.check_output(args, stderr=subprocess.STDOUT)
+                subprocess.check_output(args, stderr=subprocess.STDOUT,
+                                        universal_newlines=True)
             except subprocess.CalledProcessError as e:
                 errors.warn('JS minification verification failed for %s:' %
                     (getattr(self._file, 'path', '<unknown>')))

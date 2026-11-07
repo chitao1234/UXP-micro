@@ -272,9 +272,9 @@ class JarFileReader(object):
         assert header['compression'] in [JAR_DEFLATED, JAR_STORED, JAR_BROTLI]
         self._data = data
         # Copy some local file header fields.
-        for name in ['filename', 'compressed_size',
-                     'uncompressed_size', 'crc32']:
+        for name in ['compressed_size', 'uncompressed_size', 'crc32']:
             setattr(self, name, header[name])
+        self.filename = header['filename'].decode('utf-8')
         self.compressed = header['compression'] != JAR_STORED
         self.compress = header['compression']
 
@@ -406,9 +406,10 @@ class JarReader(object):
             if (host == 0 and xattr & 0x10) or (host == 3 and
                                                 xattr & (0o40000 << 16)):
                 continue
-            entries[entry['filename']] = entry
+            filename = entry['filename'].decode('utf-8')
+            entries[filename] = entry
             if entry['offset'] < preload:
-                self._last_preloaded = entry['filename']
+                self._last_preloaded = filename
         self._entries = entries
         return entries
 
@@ -625,7 +626,7 @@ class JarWriter(object):
             deflater = data
         else:
             deflater = Deflater(compress, compress_level=self._compress_level)
-            if isinstance(data, basestring):
+            if isinstance(data, (str, bytes, memoryview)):
                 deflater.write(data)
             elif hasattr(data, 'read'):
                 if hasattr(data, 'seek'):
@@ -708,6 +709,10 @@ class Deflater(object):
         '''
         Append a buffer to the Deflater.
         '''
+        if isinstance(data, memoryview):
+            data = data.tobytes()
+        if isinstance(data, str):
+            data = data.encode('utf-8')
         self._data.write(data)
         if self.compress:
             if self._deflater:
