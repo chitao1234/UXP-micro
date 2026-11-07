@@ -19,6 +19,7 @@ from mozbuild.backend.recursivemake import (
     RecursiveMakeTraversal,
 )
 from mozbuild.frontend.emitter import TreeMetadataEmitter
+from mozbuild.frontend.context import FUNCTIONS, VARIABLES
 from mozbuild.frontend.reader import BuildReader
 
 from mozbuild.test.backend.common import BackendTester
@@ -555,7 +556,7 @@ class TestRecursiveMakeBackend(BackendTester):
         self.assertTrue(os.path.exists(all_tests_path))
         test_installs_path = mozpath.join(env.topobjdir, 'test-installs.pkl')
 
-        with open(test_installs_path, 'r') as fh:
+        with open(test_installs_path, 'rb') as fh:
             test_installs = pickle.load(fh)
 
         self.assertEqual(set(test_installs.keys()),
@@ -687,7 +688,7 @@ class TestRecursiveMakeBackend(BackendTester):
         var = 'DEFINES'
         defines = [val for val in lines if val.startswith(var)]
 
-        expected = ['DEFINES += -DFOO \'-DBAZ="ab\'\\\'\'cd"\' -UQUX -DBAR=7 -DVALUE=xyz']
+        expected = ['DEFINES += -DFOO \'-DBAZ="ab\'\\\'\'cd"\' -DBAR=7 -DVALUE=xyz -UQUX']
         self.assertEqual(defines, expected)
 
     def test_host_defines(self):
@@ -700,7 +701,7 @@ class TestRecursiveMakeBackend(BackendTester):
         var = 'HOST_DEFINES'
         defines = [val for val in lines if val.startswith(var)]
 
-        expected = ['HOST_DEFINES += -DFOO \'-DBAZ="ab\'\\\'\'cd"\' -UQUX -DBAR=7 -DVALUE=xyz']
+        expected = ['HOST_DEFINES += -DFOO \'-DBAZ="ab\'\\\'\'cd"\' -DBAR=7 -DVALUE=xyz -UQUX']
         self.assertEqual(defines, expected)
 
     def test_local_includes(self):
@@ -798,7 +799,7 @@ class TestRecursiveMakeBackend(BackendTester):
     def test_jar_manifests(self):
         env = self._consume('jar-manifests', RecursiveMakeBackend)
 
-        with open(os.path.join(env.topobjdir, 'backend.mk'), 'rb') as fh:
+        with open(os.path.join(env.topobjdir, 'backend.mk'), 'r') as fh:
             lines = fh.readlines()
 
         lines = [line.rstrip() for line in lines]
@@ -814,6 +815,8 @@ class TestRecursiveMakeBackend(BackendTester):
         m = InstallManifest(p)
         self.assertIn('testing/mochitest/tests/support-file.txt', m)
 
+    @unittest.skipUnless('add_android_eclipse_library_project' in FUNCTIONS,
+                         'Android Eclipse support was removed')
     def test_android_eclipse(self):
         env = self._consume('android_eclipse', RecursiveMakeBackend)
 
@@ -847,6 +850,8 @@ class TestRecursiveMakeBackend(BackendTester):
             stem = '%s/android_eclipse/%s' % (env.topobjdir, project_name)
             self.assertIn(command_template % (stem, stem), lines)
 
+    @unittest.skipUnless('ANDROID_INSTRUMENTATION_MANIFESTS' in VARIABLES,
+                         'Android instrumentation packaging was removed')
     def test_install_manifests_package_tests(self):
         """Ensure test suites honor package_tests=False."""
         env = self._consume('test-manifests-package-tests', RecursiveMakeBackend)
@@ -919,20 +924,20 @@ class TestRecursiveMakeBackend(BackendTester):
             'programs': [],
             'shared_libraries': [
                 {
-                    'basename': 'foo',
-                    'import_name': 'foo',
-                    'install_target': 'dist/bin',
-                    'lib_name': 'foo',
-                    'relobjdir': 'foo',
-                    'soname': 'foo',
-                },
-                {
                     'basename': 'bar',
                     'import_name': 'bar',
                     'install_target': 'dist/bin',
                     'lib_name': 'bar',
                     'relobjdir': 'bar',
                     'soname': 'bar',
+                },
+                {
+                    'basename': 'foo',
+                    'import_name': 'foo',
+                    'install_target': 'dist/bin',
+                    'lib_name': 'foo',
+                    'relobjdir': 'foo',
+                    'soname': 'foo',
                 }
             ],
         })

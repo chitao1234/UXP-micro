@@ -126,7 +126,9 @@ class InstallManifest(object):
                 version)
 
         for line in fileobj:
-            line = line.rstrip()
+            # FIELD_SEPARATOR is whitespace too. Preserve an empty final field,
+            # such as a pattern installed at the root of its destination.
+            line = line.rstrip('\n')
 
             fields = line.split(self.FIELD_SEPARATOR)
 

@@ -1201,9 +1201,6 @@ class RecursiveMakeBackend(CommonBackend):
         manifest = path.replace('/', '_')
         install_manifest = self._install_manifests[manifest]
         reltarget = mozpath.relpath(target, path)
-        if not reltarget:
-            reltarget = '.'
-
 
         # Also emit the necessary rules to create $(DIST)/branding during
         # partial tree builds. The locale makefiles rely on this working.

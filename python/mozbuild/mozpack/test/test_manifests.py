@@ -113,6 +113,23 @@ class TestInstallManifest(TestWithTmpDir):
 
         self.assertEqual(c, c2)
 
+    def test_root_pattern_roundtrip(self):
+        source = self.tmppath('source')
+        os.mkdir(source)
+        with open(os.path.join(source, 'file.txt'), 'w'):
+            pass
+
+        for method in ('add_pattern_symlink', 'add_pattern_copy'):
+            manifest = InstallManifest()
+            getattr(manifest, method)(source, '*', '')
+            path = self.tmppath('manifest')
+            manifest.write(path=path)
+            loaded = InstallManifest(path=path)
+            self.assertEqual(loaded, manifest)
+            registry = FileRegistry()
+            loaded.populate_registry(registry)
+            self.assertEqual(registry.paths(), ['file.txt'])
+
     def test_populate_registry(self):
         m = self._get_test_manifest()
         r = FileRegistry()
