@@ -29,6 +29,11 @@ function startTest(test, token) {
   var handler = {
     "ontimeout": function() {
       Log(token, "timed out: ended=" + v.seenEnded + ", suspend=" + v.seenSuspend);
+      Log(token, "playback state: " + JSON.stringify({
+        paused: v.paused, currentTime: v.currentTime, duration: v.duration,
+        readyState: v.readyState, networkState: v.networkState,
+        error: v.error && v.error.code
+      }));
     }
   };
   manager.started(token, handler);
@@ -97,6 +102,41 @@ function startTest(test, token) {
   v.addEventListener("ended", checkEnded, false);
   v.addEventListener("suspend", checkSuspended, false);
 
+  if (test.name == "spacestorm-1000Hz-100ms.ogg") {
+    // UXP 27c6a7f477 deliberately limits AudioInfo to rates >= 8000Hz.
+    // Keep this 1000Hz fixture as an explicit rejection check rather than
+    // waiting for an ended event that the current policy cannot produce.
+    var sawError = false;
+    var rejectedPlay = false;
+    function finishRejectedSource() {
+      if (sawError && rejectedPlay) {
+        finish();
+      }
+    }
+    v.addEventListener("error", function onError() {
+      v.removeEventListener("error", onError);
+      is(v.error.code, MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED,
+         test.name + ": rate below 8000Hz is rejected as unsupported");
+      sawError = true;
+      finishRejectedSource();
+    });
+    document.body.appendChild(v);
+    v.play().then(function() {
+      ok(false, test.name + ": a rate below the supported floor must not play");
+      finish();
+    }, function(error) {
+      is(error.name, "NotSupportedError", test.name + ": play promise rejects");
+      rejectedPlay = true;
+      finishRejectedSource();
+    });
+    return;
+  }
+
+  // removeNodeAndSource clears onerror before its deliberate empty-src load.
+  v.onerror = function() {
+    ok(false, test.name + " failed playback: " + v.error.code + ": " + v.error.message);
+    finish();
+  };
   document.body.appendChild(v);
   v.play();
 
