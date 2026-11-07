@@ -475,24 +475,24 @@ class TestJarrer(unittest.TestCase):
 
     def test_jarrer(self):
         copier = Jarrer()
-        copier.add('foo/bar', GeneratedFile('foobar'))
-        copier.add('foo/qux', GeneratedFile('fooqux'))
-        copier.add('foo/deep/nested/directory/file', GeneratedFile('fooz'))
-        copier.add('bar', GeneratedFile('bar'))
-        copier.add('qux/foo', GeneratedFile('quxfoo'))
-        copier.add('qux/bar', GeneratedFile(''))
+        copier.add('foo/bar', GeneratedFile(b'foobar'))
+        copier.add('foo/qux', GeneratedFile(b'fooqux'))
+        copier.add('foo/deep/nested/directory/file', GeneratedFile(b'fooz'))
+        copier.add('bar', GeneratedFile(b'bar'))
+        copier.add('qux/foo', GeneratedFile(b'quxfoo'))
+        copier.add('qux/bar', GeneratedFile(b''))
 
         dest = MockDest()
         copier.copy(dest)
         self.check_jar(dest, copier)
 
         copier.remove('foo')
-        copier.add('test', GeneratedFile('test'))
+        copier.add('test', GeneratedFile(b'test'))
         copier.copy(dest)
         self.check_jar(dest, copier)
 
         copier.remove('test')
-        copier.add('test', GeneratedFile('replaced-content'))
+        copier.add('test', GeneratedFile(b'replaced-content'))
         copier.copy(dest)
         self.check_jar(dest, copier)
 
@@ -512,8 +512,8 @@ class TestJarrer(unittest.TestCase):
 
     def test_jarrer_compress(self):
         copier = Jarrer()
-        copier.add('foo/bar', GeneratedFile('ffffff'))
-        copier.add('foo/qux', GeneratedFile('ffffff'), compress=False)
+        copier.add('foo/bar', GeneratedFile(b'ffffff'))
+        copier.add('foo/qux', GeneratedFile(b'ffffff'), compress=False)
 
         dest = MockDest()
         copier.copy(dest)
