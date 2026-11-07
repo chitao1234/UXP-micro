@@ -260,7 +260,7 @@ MouseScrollHandler::SynthesizeNativeMouseScrollEvent(nsWindowBase* aWidget,
   pt.x = aPoint.x;
   pt.y = aPoint.y;
 
-  HWND target = useFocusedWindow ? ::WindowFromPoint(pt) : ::GetFocus();
+  HWND target = useFocusedWindow ? ::GetFocus() : ::WindowFromPoint(pt);
   NS_ENSURE_TRUE(target, NS_ERROR_FAILURE);
 
   WPARAM wParam = 0;
