@@ -4,7 +4,7 @@
 
 from __future__ import unicode_literals
 
-import cPickle as pickle
+import pickle
 import os
 import shutil
 import tempfile
@@ -80,7 +80,7 @@ ALL_TESTS = {
             "reason": "bug 820380",
             "relpath": "test_0201_app_launch_apply_update.js",
             "run-sequentially": "Launches application.",
-            "skip-if": os == 'android'",
+            "skip-if": "os == 'android'",
             "tail": ""
         },
         {
@@ -96,7 +96,7 @@ ALL_TESTS = {
             "reason": "bug 820380",
             "relpath": "test_0201_app_launch_apply_update.js",
             "run-sequentially": "Launches application.",
-            "skip-if": os == 'android'",
+            "skip-if": "os == 'android'",
             "tail": ""
         }
     ],

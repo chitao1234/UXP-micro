@@ -7,6 +7,8 @@ from __future__ import unicode_literals
 import os
 import unittest
 
+import mozpack.path as mozpath
+
 from shutil import rmtree
 
 from tempfile import (
@@ -53,17 +55,17 @@ class TestMozconfigLoader(unittest.TestCase):
     def test_find_legacy_env(self):
         """Ensure legacy mozconfig path definitions result in error."""
 
-        os.environ[b'MOZ_MYCONFIG'] = '/foo'
+        os.environ['MOZ_MYCONFIG'] = '/foo'
 
         with self.assertRaises(MozconfigFindException) as e:
             self.get_loader().find_mozconfig()
 
-        self.assertTrue(e.exception.message.startswith('The MOZ_MYCONFIG'))
+        self.assertTrue(str(e.exception).startswith('The MOZ_MYCONFIG'))
 
     def test_find_multiple_configs(self):
         """Ensure multiple relative-path MOZCONFIGs result in error."""
         relative_mozconfig = '.mconfig'
-        os.environ[b'MOZCONFIG'] = relative_mozconfig
+        os.environ['MOZCONFIG'] = relative_mozconfig
 
         srcdir = self.get_temp_dir()
         curdir = self.get_temp_dir()
@@ -71,7 +73,7 @@ class TestMozconfigLoader(unittest.TestCase):
         loader = MozconfigLoader(srcdir)
         for d in dirs:
             path = os.path.join(d, relative_mozconfig)
-            with open(path, 'wb') as f:
+            with open(path, 'w') as f:
                 f.write(path)
 
         orig_dir = os.getcwd()
@@ -82,14 +84,14 @@ class TestMozconfigLoader(unittest.TestCase):
         finally:
             os.chdir(orig_dir)
 
-        self.assertIn('exists in more than one of', e.exception.message)
+        self.assertIn('exists in more than one of', str(e.exception))
         for d in dirs:
-            self.assertIn(d, e.exception.message)
+            self.assertIn(d, str(e.exception))
 
     def test_find_multiple_but_identical_configs(self):
         """Ensure multiple relative-path MOZCONFIGs pointing at the same file are OK."""
         relative_mozconfig = '../src/.mconfig'
-        os.environ[b'MOZCONFIG'] = relative_mozconfig
+        os.environ['MOZCONFIG'] = relative_mozconfig
 
         topdir = self.get_temp_dir()
         srcdir = os.path.join(topdir, 'src')
@@ -113,7 +115,7 @@ class TestMozconfigLoader(unittest.TestCase):
     def test_find_no_relative_configs(self):
         """Ensure a missing relative-path MOZCONFIG is detected."""
         relative_mozconfig = '.mconfig'
-        os.environ[b'MOZCONFIG'] = relative_mozconfig
+        os.environ['MOZCONFIG'] = relative_mozconfig
 
         srcdir = self.get_temp_dir()
         curdir = self.get_temp_dir()
@@ -128,14 +130,14 @@ class TestMozconfigLoader(unittest.TestCase):
         finally:
             os.chdir(orig_dir)
 
-        self.assertIn('does not exist in any of', e.exception.message)
+        self.assertIn('does not exist in any of', str(e.exception))
         for d in dirs:
-            self.assertIn(d, e.exception.message)
+            self.assertIn(d, str(e.exception))
 
     def test_find_relative_mozconfig(self):
         """Ensure a relative MOZCONFIG can be found in the srcdir."""
         relative_mozconfig = '.mconfig'
-        os.environ[b'MOZCONFIG'] = relative_mozconfig
+        os.environ['MOZCONFIG'] = relative_mozconfig
 
         srcdir = self.get_temp_dir()
         curdir = self.get_temp_dir()
@@ -156,24 +158,24 @@ class TestMozconfigLoader(unittest.TestCase):
 
     def test_find_abs_path_not_exist(self):
         """Ensure a missing absolute path is detected."""
-        os.environ[b'MOZCONFIG'] = '/foo/bar/does/not/exist'
+        os.environ['MOZCONFIG'] = '/foo/bar/does/not/exist'
 
         with self.assertRaises(MozconfigFindException) as e:
             self.get_loader().find_mozconfig()
 
-        self.assertIn('path that does not exist', e.exception.message)
-        self.assertTrue(e.exception.message.endswith('/foo/bar/does/not/exist'))
+        self.assertIn('path that does not exist', str(e.exception))
+        self.assertTrue(str(e.exception).endswith('/foo/bar/does/not/exist'))
 
     def test_find_path_not_file(self):
         """Ensure non-file paths are detected."""
 
-        os.environ[b'MOZCONFIG'] = gettempdir()
+        os.environ['MOZCONFIG'] = gettempdir()
 
         with self.assertRaises(MozconfigFindException) as e:
             self.get_loader().find_mozconfig()
 
-        self.assertIn('refers to a non-file', e.exception.message)
-        self.assertTrue(e.exception.message.endswith(gettempdir()))
+        self.assertIn('refers to a non-file', str(e.exception))
+        self.assertTrue(str(e.exception).endswith(gettempdir()))
 
     def test_find_default_files(self):
         """Ensure default paths are used when present."""
@@ -199,7 +201,7 @@ class TestMozconfigLoader(unittest.TestCase):
             MozconfigLoader(d).find_mozconfig()
 
         self.assertIn('Multiple default mozconfig files present',
-            e.exception.message)
+            str(e.exception))
 
     def test_find_deprecated_path_srcdir(self):
         """Ensure we error when deprecated path locations are present."""
@@ -212,15 +214,15 @@ class TestMozconfigLoader(unittest.TestCase):
                 MozconfigLoader(d).find_mozconfig()
 
             self.assertIn('This implicit location is no longer',
-                e.exception.message)
-            self.assertIn(d, e.exception.message)
+                str(e.exception))
+            self.assertIn(d, str(e.exception))
 
     def test_find_deprecated_home_paths(self):
         """Ensure we error when deprecated home directory paths are present."""
 
         for p in MozconfigLoader.DEPRECATED_HOME_PATHS:
             home = self.get_temp_dir()
-            os.environ[b'HOME'] = home
+            os.environ['HOME'] = home
             path = os.path.join(home, p)
 
             with open(path, 'w'):
@@ -230,8 +232,8 @@ class TestMozconfigLoader(unittest.TestCase):
                 self.get_loader().find_mozconfig()
 
             self.assertIn('This implicit location is no longer',
-                e.exception.message)
-            self.assertIn(path, e.exception.message)
+                str(e.exception))
+            self.assertIn(path, str(e.exception))
 
     def test_read_no_mozconfig(self):
         # This is basically to ensure changes to defaults incur a test failure.
@@ -324,14 +326,14 @@ class TestMozconfigLoader(unittest.TestCase):
                 self.assertEqual(vars.get('%s_IS_SET' % var), '1')
 
     def test_read_empty_mozconfig_objdir_environ(self):
-        os.environ[b'MOZ_OBJDIR'] = b'obj-firefox'
+        os.environ['MOZ_OBJDIR'] = 'obj-firefox'
         with NamedTemporaryFile(mode='w') as mozconfig:
             result = self.get_loader().read_mozconfig(mozconfig.name)
             self.assertEqual(result['topobjdir'], 'obj-firefox')
 
     def test_read_capture_mk_options_objdir_environ(self):
         """Ensures mk_add_options calls are captured and override the environ."""
-        os.environ[b'MOZ_OBJDIR'] = b'obj-firefox'
+        os.environ['MOZ_OBJDIR'] = 'obj-firefox'
         with NamedTemporaryFile(mode='w') as mozconfig:
             mozconfig.write('mk_add_options MOZ_OBJDIR=/foo/bar\n')
             mozconfig.flush()
@@ -379,9 +381,9 @@ class TestMozconfigLoader(unittest.TestCase):
 
     def test_read_modify_variables(self):
         """Variables modified by mozconfig are detected."""
-        old_path = os.path.realpath(b'/usr/bin/gcc')
-        new_path = os.path.realpath(b'/usr/local/bin/clang')
-        os.environ[b'CC'] = old_path
+        old_path = os.path.realpath('/usr/bin/gcc')
+        new_path = os.path.realpath('/usr/local/bin/clang')
+        os.environ['CC'] = old_path
 
         with NamedTemporaryFile(mode='w') as mozconfig:
             mozconfig.write('CC="%s"\n' % new_path)
@@ -396,8 +398,8 @@ class TestMozconfigLoader(unittest.TestCase):
 
     def test_read_unmodified_variables(self):
         """Variables modified by mozconfig are detected."""
-        cc_path = os.path.realpath(b'/usr/bin/gcc')
-        os.environ[b'CC'] = cc_path
+        cc_path = os.path.realpath('/usr/bin/gcc')
+        os.environ['CC'] = cc_path
 
         with NamedTemporaryFile(mode='w') as mozconfig:
             mozconfig.flush()
@@ -411,8 +413,8 @@ class TestMozconfigLoader(unittest.TestCase):
 
     def test_read_removed_variables(self):
         """Variables unset by the mozconfig are detected."""
-        cc_path = os.path.realpath(b'/usr/bin/clang')
-        os.environ[b'CC'] = cc_path
+        cc_path = os.path.realpath('/usr/bin/clang')
+        os.environ['CC'] = cc_path
 
         with NamedTemporaryFile(mode='w') as mozconfig:
             mozconfig.write('unset CC\n')
@@ -449,7 +451,7 @@ class TestMozconfigLoader(unittest.TestCase):
             result = loader.read_mozconfig(mozconfig.name)
 
             self.assertEqual(result['vars']['added']['TEST'],
-                loader.topsrcdir.replace(os.sep, '/'))
+                mozpath.normsep(loader.topsrcdir))
             self.assertEqual(result['env']['added'], {})
 
     def test_read_empty_variable_value(self):
@@ -478,10 +480,10 @@ class TestMozconfigLoader(unittest.TestCase):
             with self.assertRaises(MozconfigLoadException) as e:
                 self.get_loader().read_mozconfig(mozconfig.name)
 
-            self.assertTrue(e.exception.message.startswith(
+            self.assertTrue(str(e.exception).startswith(
                 'Evaluation of your mozconfig exited with an error'))
             self.assertEqual(e.exception.path,
-                mozconfig.name.replace(os.sep, '/'))
+                mozpath.normsep(mozconfig.name))
             self.assertEqual(e.exception.output, ['hello world'])
 
 

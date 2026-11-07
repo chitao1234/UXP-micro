@@ -251,7 +251,8 @@ class MozconfigLoader(object):
             output = subprocess.check_output(command, stderr=subprocess.STDOUT,
                 cwd=self.topsrcdir, env=env)
         except subprocess.CalledProcessError as e:
-            lines = e.output.splitlines()
+            lines = e.output.decode(locale.getpreferredencoding(False),
+                                    errors='replace').splitlines()
 
             # Output before actual execution shouldn't be relevant.
             try:
