@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html>
+<html lang="en">
 <head>
   <title>Test for scroll snapping</title>
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
@@ -798,6 +798,9 @@ function doTest() {
 }
 
 SimpleTest.waitForExplicitFinish();
+// 176 cases each wait for at least 31 stable animation frames, in addition
+// to smooth scrolling. At a 30Hz refresh rate this alone takes over 180s.
+SimpleTest.requestLongerTimeout(6);
 addLoadEvent(doTest);
 </script>
 </pre>
