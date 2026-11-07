@@ -82,7 +82,7 @@ class TestWithTmpDir(unittest.TestCase):
             os.symlink(dummy_path, self.tmppath('dummy_symlink'))
             os.remove(self.tmppath('dummy_symlink'))
         except EnvironmentError:
-            pass
+            return
         finally:
             os.remove(dummy_path)
 
@@ -315,7 +315,7 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
 
     def test_replace_symlink(self):
         if not self.symlink_supported:
-            return
+            self.skipTest('symbolic link creation is unavailable')
 
         source = self.tmppath('source')
         with open(source, 'a'):
@@ -334,8 +334,8 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
         self.assertEqual(link, source)
 
     def test_noop(self):
-        if not hasattr(os, 'symlink'):
-            return
+        if not self.symlink_supported:
+            self.skipTest('symbolic link creation is unavailable')
 
         source = self.tmppath('source')
         dest = self.tmppath('dest')
@@ -452,7 +452,7 @@ class TestPreprocessedFile(TestWithTmpDir):
         the symlink is not overwritten by the preprocessor output.
         '''
         if not self.symlink_supported:
-            return
+            self.skipTest('symbolic link creation is unavailable')
 
         source = self.tmppath('source')
         dest = self.tmppath('dest')

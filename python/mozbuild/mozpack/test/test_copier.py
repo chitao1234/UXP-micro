@@ -232,7 +232,7 @@ class TestFileCopier(TestWithTmpDir):
         """Directory symlinks in destination are replaced if they need to be
         real directories."""
         if not self.symlink_supported:
-            return
+            self.skipTest('symbolic link creation is unavailable')
 
         dest = self.tmppath('dest')
 
@@ -262,7 +262,7 @@ class TestFileCopier(TestWithTmpDir):
         remove_all_directory_symlinks.
         """
         if not self.symlink_supported:
-            return
+            self.skipTest('symbolic link creation is unavailable')
 
         dest = self.tmppath('dest')
 
