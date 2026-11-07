@@ -5,10 +5,17 @@
 #
 # Unit tests for xpidl.py
 
+import sys
+import os
+# The direct-script directory contains xpidl.py and shadows the xpidl package.
+# Match Firefox's script entry point without affecting package imports.
+if not __package__:
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 import mozunit
 import unittest
-from . import xpidl
-from . import header
+from xpidl import xpidl
+from xpidl import header
 
 
 class TestParser(unittest.TestCase):
