@@ -30,7 +30,6 @@ from mozbuild.frontend.context import (
 )
 
 from mozbuild.test.common import MockConfig
-from types import StringTypes
 
 import mozpack.path as mozpath
 
@@ -114,7 +113,7 @@ class TestSandbox(unittest.TestCase):
         sandbox = self.sandbox()
 
         with self.assertRaises(SandboxExecutionError) as se:
-            sandbox.exec_source('True = 1')
+            sandbox.exec_source('sorted = 1')
 
         e = se.exception
         self.assertIsInstance(e.exc_value, KeyError)

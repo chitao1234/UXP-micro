@@ -656,8 +656,19 @@ def StrictOrderingOnAppendListWithFlagsFactory(flags):
             return self._flags[name]
 
         def __setitem__(self, name, value):
-            raise TypeError("'%s' object does not support item assignment" %
-                            self.__class__.__name__)
+            if not isinstance(name, slice):
+                raise TypeError("'%s' object does not support item assignment" %
+                                self.__class__.__name__)
+            if not isinstance(value, list):
+                raise ValueError('List can only be sliced with other list instances.')
+            StrictOrderingOnAppendListMixin.ensure_sorted(value)
+            result = super(StrictOrderingOnAppendListWithFlagsSpecialization,
+                           self).__setitem__(name, value)
+            for key in set(self._flags) - set(self):
+                del self._flags[key]
+            if isinstance(value, StrictOrderingOnAppendListWithFlags):
+                self._update_flags(value)
+            return result
 
         def _update_flags(self, other):
             if self._flags_type._flags != other._flags_type._flags:

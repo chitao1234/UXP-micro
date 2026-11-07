@@ -646,7 +646,7 @@ class BuildReaderError(Exception):
             s.write('the execution. The reported error is:\n')
             s.write('\n')
             s.write(''.join('    %s\n' % l
-                            for l in self.validation_error.message.splitlines()))
+                            for l in str(self.validation_error).splitlines()))
             s.write('\n')
         else:
             s.write('The error appears to be part of the %s ' % __name__)

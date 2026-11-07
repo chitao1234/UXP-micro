@@ -309,6 +309,12 @@ class Sandbox(dict):
     def __len__(self):
         raise NotImplementedError('Not supported')
 
+    def __bool__(self):
+        # Python's traceback/linecache inspects the truth value of f_globals.
+        # Use the underlying globals dictionary without exposing the sandbox's
+        # unsupported public length operation to scripts.
+        return dict.__len__(self) != 0
+
     def __iter__(self):
         raise NotImplementedError('Not supported')
 

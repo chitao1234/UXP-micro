@@ -40,8 +40,20 @@ class Piyo(ContextDerivedValue):
     def __str__(self):
         return self.value
 
-    def __cmp__(self, other):
-        return cmp(self.value, str(other))
+    def __eq__(self, other):
+        return self.value == str(other)
+
+    def __lt__(self, other):
+        return self.value < str(other)
+
+    def __le__(self, other):
+        return self.value <= str(other)
+
+    def __gt__(self, other):
+        return self.value > str(other)
+
+    def __ge__(self, other):
+        return self.value >= str(other)
 
     def __hash__(self):
         return hash(self.value)
