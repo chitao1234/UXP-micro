@@ -49,6 +49,8 @@
 <script type="application/javascript">
 
 SimpleTest.waitForFocus(runTests, window);
+// Match Firefox78/current: the complete multiplier/zoom matrix is lengthy.
+SimpleTest.requestLongerTimeout(6);
 SimpleTest.requestFlakyTimeout("untriaged");
 
 var winUtils = SpecialPowers.getDOMWindowUtils(window);
