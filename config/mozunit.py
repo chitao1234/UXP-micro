@@ -74,7 +74,10 @@ class _MozTestResult(_TestResult):
 
     def printFail(self, test, err):
         exctype, value, tb = err
-        message = value.message.splitlines()[0] if value.message else 'NO MESSAGE'
+        # Python 3 exceptions have no .message attribute. Match current
+        # Firefox's fallback so a test error cannot crash result reporting.
+        detail = getattr(value, 'message', str(value))
+        message = detail.splitlines()[0] if detail else 'NO MESSAGE'
         # Skip test runner traceback levels
         while tb and self._is_relevant_tb_level(tb):
             tb = tb.tb_next

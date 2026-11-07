@@ -4,11 +4,35 @@
 
 import sys
 import os
-from mozunit import main, MockedOpen
+from mozunit import main, MockedOpen, MozTestRunner
+from io import StringIO
 import unittest
 from tempfile import mkstemp
 
 class TestMozUnit(unittest.TestCase):
+    def test_error_reporting(self):
+        class ErrorCase(unittest.TestCase):
+            def runTest(self):
+                raise TypeError("first line\nsecond line")
+
+        output = StringIO()
+        result = MozTestRunner(stream=output).run(unittest.TestSuite([ErrorCase()]))
+        self.assertFalse(result.wasSuccessful())
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("TEST-UNEXPECTED-FAIL", output.getvalue())
+        self.assertIn("first line", output.getvalue())
+
+    def test_assertion_reporting(self):
+        class FailureCase(unittest.TestCase):
+            def runTest(self):
+                self.assertEqual("actual", "expected")
+
+        output = StringIO()
+        result = MozTestRunner(stream=output).run(unittest.TestSuite([FailureCase()]))
+        self.assertFalse(result.wasSuccessful())
+        self.assertEqual(len(result.failures), 1)
+        self.assertIn("TEST-UNEXPECTED-FAIL", output.getvalue())
+
     def test_mocked_open(self):
         # Create a temporary file on the file system.
         (fd, path) = mkstemp()
