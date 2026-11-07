@@ -29,7 +29,7 @@ class ConfigEnvironment(ConfigStatus.ConfigEnvironment):
             self.substs = ReadOnlyDict(d)
 
             d = dict(self.substs_unicode)
-            d['top_srcdir'] = top_srcdir.decode('utf-8')
+            d['top_srcdir'] = top_srcdir
             self.substs_unicode = ReadOnlyDict(d)
 
 

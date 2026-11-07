@@ -191,6 +191,12 @@ class ConfigureTestSandbox(ConfigureSandbox):
 
         func = self._subprocess_paths.get(program)
         retcode, stdout, stderr = func(stdin, args[1:])
+        # subprocess returns bytes unless its caller explicitly requests text.
+        # Production configure decodes that output; text-only fakes hide this
+        # boundary on Python 2 and fail before reaching the check on Python 3.
+        if not (kargs.get('universal_newlines') or kargs.get('text') or kargs.get('encoding')):
+            stdout = stdout.encode('utf-8') if isinstance(stdout, str) else stdout
+            stderr = stderr.encode('utf-8') if isinstance(stderr, str) else stderr
 
         class Process(object):
             def communicate(self, stdin=None):

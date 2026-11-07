@@ -136,7 +136,8 @@ class TestSimplePackager(unittest.TestCase):
 
         formatter = MockFormatter()
         packager = SimplePackager(formatter)
-        curdir = os.path.abspath(os.curdir)
+        # Match mozpack's drive-letter normalization for manifest contexts.
+        curdir = os.path.normpath(mozpath.abspath(os.curdir))
         file = GeneratedFileWithPath(os.path.join(curdir, 'foo',
                                                   'bar.manifest'),
                                      'resource bar bar/\ncontent bar bar/')
@@ -321,7 +322,7 @@ class TestSimplePackager(unittest.TestCase):
         with self.assertRaises(ErrorMessage) as e:
             packager.close()
 
-        self.assertEqual(e.exception.message,
+        self.assertEqual(str(e.exception),
             'Error: "bar/baz.manifest" is included from "base.manifest", '
             'which is outside "bar"')
 
@@ -340,7 +341,7 @@ class TestSimplePackager(unittest.TestCase):
         with self.assertRaises(ErrorMessage) as e:
             packager.close()
 
-        self.assertEqual(e.exception.message,
+        self.assertEqual(str(e.exception),
             'Error: "bar/baz.manifest" is included from "base.manifest", '
             'which is outside "bar"')
 

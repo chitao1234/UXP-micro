@@ -20,17 +20,20 @@ class TestMakefile(unittest.TestCase):
         rule = Rule()
         rule.dump(out)
         self.assertEqual(out.getvalue(), '')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_targets(['foo', 'bar'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar:\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_targets(['baz'])
         rule.add_dependencies(['qux', 'hoge', 'piyo'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar baz: qux hoge piyo\n')
+        out.seek(0)
         out.truncate(0)
 
         rule = Rule(['foo', 'bar'])
@@ -43,42 +46,50 @@ class TestMakefile(unittest.TestCase):
             '\techo $@\n' +
             '\t$(BAZ) -o $@ $<\n' +
             '\t$(TOUCH) $@\n')
+        out.seek(0)
         out.truncate(0)
 
         rule = Rule(['foo'])
         rule.add_dependencies(['bar', 'foo', 'baz'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo: bar baz\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_targets(['bar'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_targets(['bar'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_dependencies(['bar'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_dependencies(['qux'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz qux\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_dependencies(['qux'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz qux\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_dependencies(['hoge', 'hoge'])
         rule.dump(out)
         self.assertEqual(out.getvalue(), 'foo bar: baz qux hoge\n')
+        out.seek(0)
         out.truncate(0)
 
         rule.add_targets(['fuga', 'fuga'])
@@ -100,6 +111,7 @@ class TestMakefile(unittest.TestCase):
             '\techo foo\n' +
             'bar baz: hoge\n' +
             '\techo $@\n')
+        out.seek(0)
         out.truncate(0)
 
         mk.dump(out)

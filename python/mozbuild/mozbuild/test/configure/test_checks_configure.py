@@ -48,18 +48,22 @@ class TestChecksConfigure(unittest.TestCase):
         foo(True)
         self.assertEqual(out.getvalue(), 'checking for a thing... yes\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(False)
         self.assertEqual(out.getvalue(), 'checking for a thing... no\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(42)
         self.assertEqual(out.getvalue(), 'checking for a thing... 42\n')
 
+        out.seek(0)
         out.truncate(0)
         foo('foo')
         self.assertEqual(out.getvalue(), 'checking for a thing... foo\n')
 
+        out.seek(0)
         out.truncate(0)
         data = ['foo', 'bar']
         foo(data)
@@ -75,22 +79,27 @@ class TestChecksConfigure(unittest.TestCase):
 
         foo = sandbox['foo']
 
+        out.seek(0)
         out.truncate(0)
         foo(True)
         self.assertEqual(out.getvalue(), 'checking for a thing... yes\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(False)
         self.assertEqual(out.getvalue(), 'checking for a thing... no\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(42)
         self.assertEqual(out.getvalue(), 'checking for a thing... 42\n')
 
+        out.seek(0)
         out.truncate(0)
         foo('foo')
         self.assertEqual(out.getvalue(), 'checking for a thing... foo\n')
 
+        out.seek(0)
         out.truncate(0)
         data = ['foo', 'bar']
         foo(data)
@@ -111,22 +120,27 @@ class TestChecksConfigure(unittest.TestCase):
 
         foo = sandbox['foo']
 
+        out.seek(0)
         out.truncate(0)
         foo(True)
         self.assertEqual(out.getvalue(), 'checking for a thing... yes\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(False)
         self.assertEqual(out.getvalue(), 'checking for a thing... not found\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(42)
         self.assertEqual(out.getvalue(), 'checking for a thing... 42\n')
 
+        out.seek(0)
         out.truncate(0)
         foo('foo')
         self.assertEqual(out.getvalue(), 'checking for a thing... foo\n')
 
+        out.seek(0)
         out.truncate(0)
         foo(['foo', 'bar'])
         self.assertEqual(out.getvalue(), 'checking for a thing... foo bar\n')
@@ -406,7 +420,7 @@ class TestChecksConfigure(unittest.TestCase):
         with self.assertRaises(ConfigureError) as e:
             self.get_result('check_prog("FOO", "foo")')
 
-        self.assertEqual(e.exception.message,
+        self.assertEqual(str(e.exception),
                          'progs must resolve to a list or tuple!')
 
         with self.assertRaises(ConfigureError) as e:
@@ -415,7 +429,7 @@ class TestChecksConfigure(unittest.TestCase):
                 'check_prog("FOO", ("known-a",), input=foo)'
             )
 
-        self.assertEqual(e.exception.message,
+        self.assertEqual(str(e.exception),
                          'input must resolve to a tuple or a list with a '
                          'single element, or a string')
 
@@ -425,7 +439,7 @@ class TestChecksConfigure(unittest.TestCase):
                 'check_prog("FOO", ("known-a",), input=foo)'
             )
 
-        self.assertEqual(e.exception.message,
+        self.assertEqual(str(e.exception),
                          'input must resolve to a tuple or a list with a '
                          'single element, or a string')
 

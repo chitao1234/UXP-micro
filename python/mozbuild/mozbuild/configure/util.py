@@ -6,6 +6,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import codecs
 import itertools
+import io
 import locale
 import logging
 import os
@@ -52,7 +53,7 @@ class ConfigureOutputHandler(logging.Handler):
             fd1 = self._stdout.fileno()
             fd2 = self._stderr.fileno()
             self._same_output = self._is_same_output(fd1, fd2)
-        except AttributeError:
+        except (AttributeError, io.UnsupportedOperation):
             self._same_output = self._stdout == self._stderr
         self._stdout_waiting = None
         self._debug = deque(maxlen=maxlen + 1)

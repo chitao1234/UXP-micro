@@ -52,7 +52,8 @@ javac = check_java_tool('javac')
 def javac_version(javac):
     try:
         output = subprocess.check_output([javac, '-version'],
-                                         stderr=subprocess.STDOUT).rstrip()
+                                         stderr=subprocess.STDOUT,
+                                         universal_newlines=True).rstrip()
         version = Version(output.split(' ')[-1])
         if version < '1.7':
             die('javac 1.7 or higher is required (found %s)' % version)

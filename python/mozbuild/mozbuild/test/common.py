@@ -35,8 +35,10 @@ class MockConfig(object):
             'DLL_SUFFIX': '.so'
         }, **extra_substs)
 
-        self.substs_unicode = ReadOnlyDict({k.decode('utf-8'): v.decode('utf-8',
-            'replace') for k, v in list(self.substs.items())})
+        self.substs_unicode = ReadOnlyDict({
+            k.decode('utf-8') if isinstance(k, bytes) else k:
+            v.decode('utf-8', 'replace') if isinstance(v, bytes) else v
+            for k, v in self.substs.items()})
 
         self.defines = self.substs
 

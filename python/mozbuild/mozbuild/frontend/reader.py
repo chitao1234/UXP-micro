@@ -149,10 +149,9 @@ class EmptyConfig(object):
         })
         udict = {}
         for k, v in list(self.substs.items()):
-            if isinstance(v, str):
-                udict[k.decode('utf-8')] = v.decode('utf-8')
-            else:
-                udict[k] = v
+            if isinstance(k, bytes):
+                k = k.decode('utf-8')
+            udict[k] = v.decode('utf-8') if isinstance(v, bytes) else v
         self.substs_unicode = self.PopulateOnGetDict(EmptyValue, udict)
         self.defines = self.substs
         self.external_source_dir = None
