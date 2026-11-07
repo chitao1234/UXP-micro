@@ -23,7 +23,7 @@ stubPreparedMessages.set("console.log('foobar', 'test')", new ConsoleMessage({
 		"test"
 	],
 	"repeat": 1,
-	"repeatId": "{\"id\":null,\"allowRepeating\":true,\"source\":\"console-api\",\"type\":\"log\",\"level\":\"log\",\"messageText\":null,\"parameters\":[\"foobar\",\"test\"],\"repeatId\":null,\"stacktrace\":null,\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/new-console-output/test/fixtures/stub-generators/test-tempfile.js?key=console.log(%27foobar%27%2C%20%27test%27)\",\"line\":1,\"column\":27},\"groupId\":null,\"exceptionDocURL\":null,\"userProvidedStyles\":[]}",
+	"repeatId": "{\"id\":null,\"allowRepeating\":true,\"source\":\"console-api\",\"type\":\"log\",\"level\":\"log\",\"messageText\":null,\"parameters\":[\"foobar\",\"test\"],\"repeatId\":null,\"stacktrace\":null,\"frame\":{\"source\":\"http://example.com/browser/devtools/client/webconsole/new-console-output/test/fixtures/stub-generators/test-tempfile.js?key=console.log(%27foobar%27%2C%20%27test%27)\",\"line\":1,\"column\":27},\"groupId\":null,\"exceptionDocURL\":null,\"userProvidedStyles\":[],\"notes\":null}",
 	"stacktrace": null,
 	"frame": {
 		"source": "http://example.com/browser/devtools/client/webconsole/new-console-output/test/fixtures/stub-generators/test-tempfile.js?key=console.log(%27foobar%27%2C%20%27test%27)",
