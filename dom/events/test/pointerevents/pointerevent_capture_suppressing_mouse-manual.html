@@ -38,6 +38,7 @@
             var isPointerCapture = false;
             var isRelatedTargetValueTested = false;
             var isTargetAuthenticityTested = false;
+            var lostPointerCaptureReceived = false;
             var count = 0;
 
             var detected_pointertypes = {};
@@ -54,13 +55,13 @@
             var test_pointerover_capture = async_test("pointerover event with capture received");
 
             var test_pointerout_no_capture = async_test("pointerout event without capture received");
-            var test_pointerout_capture = async_test("pointerout event with capture received");
+            var test_pointerout_after_capture = async_test("pointerout event after lostpointercapture received");
 
             var test_pointerenter_no_capture = async_test("pointerenter event without capture received");
             var test_pointerenter_capture = async_test("pointerenter event with capture received");
 
             var test_pointerleave_no_capture = async_test("pointerleave event without capture received");
-            var test_pointerleave_capture = async_test("pointerleave event with capture received");
+            var test_pointerleave_after_capture = async_test("pointerleave event after lostpointercapture received");
 
             window.onload = function() {
                 on_event(captureButton, 'pointerdown', function(e) {
@@ -77,6 +78,7 @@
 
                 on_event(target0, 'lostpointercapture', function(e) {
                     isPointerCapture = false;
+                    lostPointerCaptureReceived = true;
                     test_lostpointercapture.done();
                     log("lostpointercapture", target0);
                 });
@@ -92,15 +94,15 @@
                         test_pointerover_capture.done();
                         if (!isRelatedTargetValueTested) {
                             test(function() {
-                                assert_true(event.relatedTarget==null, "relatedTarget is null when the capture is set")
-                            }, "relatedTarget is null when the capture is set. relatedTarget is " + event.relatedTarget);
+                                assert_not_equals(event.relatedTarget, null, "relatedTarget should behave the same as when the capture is not set")
+                            }, "relatedTarget is not null for boundary events even when the capture is set.");
                             isRelatedTargetValueTested = true;
                         }
                         var hitTest = document.elementFromPoint(event.clientX, event.clientY);
                         if(event.target !== hitTest && !isTargetAuthenticityTested) {
                             test(function () {
-                                assert_unreached("pointerover for this target shouldn't trigger events on capture target");
-                            }, "pointerover should only trigger over the black rectangle");
+                                assert_not_equals(event.target, hitTest, "pointerover should be fired on capture target even if the pointer is not over it");
+                            }, "pointerover targets the black rectangle even when the pointer is elsewhere");
                             isTargetAuthenticityTested = true;
                         }
                     }
@@ -112,9 +114,13 @@
                 on_event(target0, "pointerout", function (event) {
                     log("pointerout", target0);
                     if(isPointerCapture) {
-                        test_pointerout_capture.done();
+                        test(function() {
+                            assert_unreached("pointerout must not leave the capturing node during capture");
+                        }, "pointerout is suppressed on the capturing node");
                     }
-                    else {
+                    else if (lostPointerCaptureReceived) {
+                        test_pointerout_after_capture.done();
+                    } else {
                         test_pointerout_no_capture.done();
                     }
                 });
@@ -132,9 +138,13 @@
                 on_event(target0, "pointerleave", function (event) {
                     log("pointerleave", target0);
                     if(isPointerCapture) {
-                        test_pointerleave_capture.done();
+                        test(function() {
+                            assert_unreached("pointerleave must not leave the capturing node during capture");
+                        }, "pointerleave is suppressed on the capturing node");
                     }
-                    else {
+                    else if (lostPointerCaptureReceived) {
+                        test_pointerleave_after_capture.done();
+                    } else {
                         test_pointerleave_no_capture.done();
                     }
                 });

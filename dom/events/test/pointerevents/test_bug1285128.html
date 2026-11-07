@@ -44,7 +44,9 @@ function runTests() {
   synthesizeMouseAtCenter(target1, { type: "mouseup" });
 }
 
-SpecialPowers.pushPrefEnv({"set": [["dom.w3c_pointer_events.enabled", true]]}, runTests);
+SimpleTest.waitForFocus(function() {
+  SpecialPowers.pushPrefEnv({"set": [["dom.w3c_pointer_events.enabled", true]]}, runTests);
+});
 
 </script>
 </body>

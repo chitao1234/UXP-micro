@@ -68,14 +68,16 @@
 
             function run() {
                 // After invoking the setPointerCapture method on an element, subsequent pointer events for the specified pointer must be targeted at that element.
-                // Additionally, the relatedTarget property of all such pointer events must be set to null.
+                // Boundary events keep relatedTarget during capture, as in the
+                // updated upstream capture-suppression test.
                 // TA: 13.3
                 on_event(target0, "pointerover", function (event) {
                     log("pointerover", document.getElementById('target0'));
                     if(isPointerCapture && isPointeroverGot) {
                         test(function() {
-                            assert_true(event.relatedTarget==null, "relatedTarget is null when the capture is set")
-                        }, "relatedTarget is null when the capture is set. relatedTarget is " + event.relatedTarget);
+                            assert_equals(event.relatedTarget, captureButton,
+                                          "capture boundary comes from the button");
+                        }, "relatedTarget identifies the previous target when capture is set");
                         done();
                     }
                 });
