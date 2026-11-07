@@ -22,16 +22,29 @@ function playElement(e) {
     return;
   }
 
-  e.play();
-  info("Element play: " + e._name);
+  ok(!e.ownerDocument.defaultView,
+     e._name + ": element starts in the destroyed iframe document");
   var reviveElement = function() {
-    document.body.appendChild(e);
     e.onended = function() {
       info("Element ended: " + e._name);
+      ok(e.ended, e._name + ": reactivated element played to completion");
       removeNodeAndSource(e);
       // Play next element.
       playElement(elements.pop());
     }
+    // play() creates its promise in the owner document's window. A destroyed
+    // document has no such window (current Firefox also rejects the old call).
+    // Reactivate by adoption first, retaining the loaded media and decoder.
+    document.body.appendChild(e);
+    is(e.ownerDocument, document, e._name + ": adopted into the live document");
+    info("Element play: " + e._name);
+    e.play().then(function() {
+      ok(!e.paused, e._name + ": reactivated play promise resolved");
+    }, function(error) {
+      ok(false, e._name + ": reactivated play rejected: " + error);
+      removeNodeAndSource(e);
+      SimpleTest.finish();
+    });
   }
   setTimeout(reviveElement, 2000);
 }
