@@ -4,7 +4,7 @@ def WebIDLTest(parser, harness):
     parser.parse("""
         dictionary Dict {};
         interface MozMapArg {
-          void foo(MozMap<Dict> arg);
+          void foo(record<DOMString, Dict> arg);
         };
     """)
 
@@ -19,7 +19,7 @@ def WebIDLTest(parser, harness):
     signature = members[0].signatures()[0]
     args = signature[1]
     harness.check(len(args), 1, "Should have one arg")
-    harness.ok(args[0].type.isMozMap(), "Should have a MozMap type here")
+    harness.ok(args[0].type.isRecord(), "Should have a record type here")
     harness.ok(args[0].type.inner.isDictionary(),
                "Should have a dictionary inner type")
 
@@ -28,7 +28,7 @@ def WebIDLTest(parser, harness):
     try:
         parser.parse("""
             interface MozMapVoidArg {
-              void foo(MozMap<void> arg);
+              void foo(record<DOMString, void> arg);
             };
         """)
 
