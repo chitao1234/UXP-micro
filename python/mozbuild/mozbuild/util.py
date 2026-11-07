@@ -17,6 +17,7 @@ import hashlib
 import itertools
 import os
 import io
+import pprint
 import re
 import stat
 import sys
@@ -410,11 +411,13 @@ class ListMixin(object):
 
         return super(ListMixin, self).extend(l)
 
-    def __setslice__(self, i, j, sequence):
-        if not isinstance(sequence, list):
-            raise ValueError('List can only be sliced with other list instances.')
-
-        return super(ListMixin, self).__setslice__(i, j, sequence)
+    def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            if not isinstance(value, list):
+                raise ValueError('List can only be sliced with other list instances.')
+            if key.step:
+                raise ValueError('List cannot be sliced with a nonzero step value')
+        return super(ListMixin, self).__setitem__(key, value)
 
     def __add__(self, other):
         # Allow None and EmptyValue is a special case because it makes undefined
@@ -498,11 +501,10 @@ class StrictOrderingOnAppendListMixin(object):
 
         return super(StrictOrderingOnAppendListMixin, self).extend(l)
 
-    def __setslice__(self, i, j, sequence):
-        StrictOrderingOnAppendListMixin.ensure_sorted(sequence)
-
-        return super(StrictOrderingOnAppendListMixin, self).__setslice__(i, j,
-            sequence)
+    def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            StrictOrderingOnAppendListMixin.ensure_sorted(value)
+        return super(StrictOrderingOnAppendListMixin, self).__setitem__(key, value)
 
     def __add__(self, other):
         StrictOrderingOnAppendListMixin.ensure_sorted(other)
@@ -540,9 +542,10 @@ class ListWithActionMixin(object):
         l = [self._action(i) for i in l]
         return super(ListWithActionMixin, self).extend(l)
 
-    def __setslice__(self, i, j, sequence):
-        sequence = [self._action(item) for item in sequence]
-        return super(ListWithActionMixin, self).__setslice__(i, j, sequence)
+    def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            value = [self._action(item) for item in value]
+        return super(ListWithActionMixin, self).__setitem__(key, value)
 
     def __iadd__(self, other):
         other = [self._action(i) for i in other]
@@ -1066,11 +1069,10 @@ class TypedListMixin(object):
 
         return super(TypedListMixin, self).extend(l)
 
-    def __setslice__(self, i, j, sequence):
-        sequence = self._ensure_type(sequence)
-
-        return super(TypedListMixin, self).__setslice__(i, j,
-            sequence)
+    def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            value = self._ensure_type(value)
+        return super(TypedListMixin, self).__setitem__(key, value)
 
     def __add__(self, other):
         other = self._ensure_type(other)
@@ -1236,67 +1238,6 @@ class EnumString(str):
         return EnumStringSubclass
 
 
-def _escape_char(c):
-    # str.encode('unicode_espace') doesn't escape quotes, presumably because
-    # quoting could be done with either ' or ".
-    if c == "'":
-        return "\\'"
-    return c.encode('unicode_escape').decode('ascii')
-
-# Mapping table between raw characters below \x80 and their escaped
-# counterpart, when they differ
-_INDENTED_REPR_TABLE = {
-    c: e
-    for c, e in [(x, _escape_char(x)) for x in map(chr, range(128))]
-    if c != e
-}
-
-# Build regex from the KEYS (raw special chars), with a CAPTURING group
-# so re.split() returns the matched chars interleaved in the output list.
-pattern = '(' + '|'.join(re.escape(c) for c in _INDENTED_REPR_TABLE.keys()) + ')'
-_INDENTED_REPR_RE = re.compile(pattern)
 def indented_repr(o, indent=4):
-    '''Similar to repr(), but returns an indented representation of the object
-    One notable difference with repr is that the returned representation
-    assumes `from __future__ import unicode_literals`.
-    '''
-    one_indent = ' ' * indent
-    def recurse_indented_repr(o, level):
-        if isinstance(o, dict):
-            yield '{\n'
-            for k, v in sorted(o.items()):
-                yield one_indent * (level + 1)
-                for d in recurse_indented_repr(k, level + 1):
-                    yield d
-                yield ': '
-                for d in recurse_indented_repr(v, level + 1):
-                    yield d
-                yield ',\n'
-            yield one_indent * level
-            yield '}'
-        elif isinstance(o, bytes):
-            yield 'b'
-            yield repr(o)
-        elif isinstance(o, str):
-            yield "'"
-            # We want a readable string (non escaped unicode), but some
-            # special characters need escaping (e.g. \n, \t, etc.)
-            for i, s in enumerate(_INDENTED_REPR_RE.split(o)):
-                if i % 2:
-                    for c in s:
-                        yield _INDENTED_REPR_TABLE[c]
-                else:
-                    yield s
-            yield "'"
-        elif hasattr(o, '__iter__'):
-            yield '[\n'
-            for i in o:
-                yield one_indent * (level + 1)
-                for d in recurse_indented_repr(i, level + 1):
-                    yield d
-                yield ',\n'
-            yield one_indent * level
-            yield ']'
-        else:
-            yield repr(o)
-    return ''.join(recurse_indented_repr(o, 0))
+    """Return an indented, evaluable representation of a Python object."""
+    return pprint.pformat(o, indent=indent)

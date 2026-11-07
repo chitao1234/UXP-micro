@@ -224,19 +224,19 @@ class TestHierarchicalStringList(unittest.TestCase):
     def test_exports_subdir(self):
         self.assertEqual(self.EXPORTS._children, {})
         self.EXPORTS.foo += ["foo.h"]
-        self.assertItemsEqual(self.EXPORTS._children, {"foo" : True})
+        self.assertCountEqual(self.EXPORTS._children, {"foo" : True})
         self.assertEqual(self.EXPORTS.foo._strings, ["foo.h"])
         self.EXPORTS.bar += ["bar.h"]
-        self.assertItemsEqual(self.EXPORTS._children,
+        self.assertCountEqual(self.EXPORTS._children,
                               {"foo" : True, "bar" : True})
         self.assertEqual(self.EXPORTS.foo._strings, ["foo.h"])
         self.assertEqual(self.EXPORTS.bar._strings, ["bar.h"])
 
     def test_exports_multiple_subdir(self):
         self.EXPORTS.foo.bar = ["foobar.h"]
-        self.assertItemsEqual(self.EXPORTS._children, {"foo" : True})
-        self.assertItemsEqual(self.EXPORTS.foo._children, {"bar" : True})
-        self.assertItemsEqual(self.EXPORTS.foo.bar._children, {})
+        self.assertCountEqual(self.EXPORTS._children, {"foo" : True})
+        self.assertCountEqual(self.EXPORTS.foo._children, {"bar" : True})
+        self.assertCountEqual(self.EXPORTS.foo.bar._children, {})
         self.assertEqual(self.EXPORTS._strings, [])
         self.assertEqual(self.EXPORTS.foo._strings, [])
         self.assertEqual(self.EXPORTS.foo.bar._strings, ["foobar.h"])
@@ -245,21 +245,21 @@ class TestHierarchicalStringList(unittest.TestCase):
         with self.assertRaises(ValueError) as ve:
             self.EXPORTS += "foo.h"
         self.assertEqual(str(ve.exception),
-                         "Expected a list of strings, not <type '%s'>" % str_type)
+                         "Expected a list of strings, not <class '%s'>" % str_type)
 
     def test_invalid_exports_set(self):
         with self.assertRaises(ValueError) as ve:
             self.EXPORTS.foo = "foo.h"
 
         self.assertEqual(str(ve.exception),
-                         "Expected a list of strings, not <type '%s'>" % str_type)
+                         "Expected a list of strings, not <class '%s'>" % str_type)
 
     def test_invalid_exports_append_base(self):
         with self.assertRaises(ValueError) as ve:
             self.EXPORTS += "foo.h"
 
         self.assertEqual(str(ve.exception),
-                         "Expected a list of strings, not <type '%s'>" % str_type)
+                         "Expected a list of strings, not <class '%s'>" % str_type)
 
     def test_invalid_exports_bool(self):
         with self.assertRaises(ValueError) as ve:
@@ -267,7 +267,7 @@ class TestHierarchicalStringList(unittest.TestCase):
 
         self.assertEqual(str(ve.exception),
                          "Expected a list of strings, not an element of "
-                         "<type 'bool'>")
+                         "<class 'bool'>")
 
     def test_del_exports(self):
         with self.assertRaises(MozbuildDeletionError) as mde:
@@ -737,7 +737,7 @@ class TestTypedList(unittest.TestCase):
         # Adding a TypedList to a TypedList shouldn't even trigger the code
         # that does coercion at all.
         l2 = cls()
-        list.__setslice__(l, 0, -1, [1, 2])
+        list.__setitem__(l, slice(0, -1), [1, 2])
         l2 += l
         self.assertEqual(len(objs), 2)
         self.assertEqual(type(l2[0]), int)
@@ -753,10 +753,10 @@ class TestTypedList(unittest.TestCase):
 class TypedTestStrictOrderingOnAppendList(unittest.TestCase):
     def test_init(self):
         class Unicode(str):
-            def __init__(self, other):
+            def __new__(cls, other):
                 if not isinstance(other, str):
                     raise ValueError()
-                super(Unicode, self).__init__(other)
+                return str.__new__(cls, other)
 
         cls = TypedList(Unicode, StrictOrderingOnAppendList)
         l = cls()
@@ -894,30 +894,20 @@ class TestEnumString(unittest.TestCase):
 class TestIndentedRepr(unittest.TestCase):
     def test_indented_repr(self):
         data = textwrap.dedent(r'''
-        {
+        {   b'c': 'xyz',
             'a': 1,
             'b': b'abc',
-            b'c': 'xyz',
             'd': False,
-            'e': {
-                'a': 1,
-                'b': b'2',
-                'c': '3',
-            },
-            'f': [
-                1,
-                b'2',
-                '3',
-            ],
+            'e': {'a': 1, 'b': b'2', 'c': '3'},
+            'f': [1, b'2', '3'],
             'pile_of_bytes': b'\xf0\x9f\x92\xa9',
             'pile_of_poo': '💩',
             'special_chars': '\\\'"\x08\n\t',
-            'with_accents': 'éàñ',
-        }''').lstrip()
+            'with_accents': 'éàñ'}
+        ''').lstrip()
 
         obj = eval(data)
-
-        self.assertEqual(indented_repr(obj), data)
+        self.assertEqual(indented_repr(obj) + '\n', data)
 
 
 if __name__ == '__main__':
