@@ -91,7 +91,7 @@ class LintRoller(object):
 
         :param paths: A path or iterable of paths to linter definitions.
         """
-        if isinstance(paths, basestring):
+        if isinstance(paths, str):
             paths = (paths,)
 
         for path in paths:
@@ -108,7 +108,7 @@ class LintRoller(object):
                  :class:`~result.ResultContainer`s as the value.
         """
         paths = paths or []
-        if isinstance(paths, basestring):
+        if isinstance(paths, str):
             paths = [paths]
 
         if not self.linters:

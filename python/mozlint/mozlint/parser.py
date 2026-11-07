@@ -34,10 +34,11 @@ class Parser(object):
         write_bytecode = sys.dont_write_bytecode
         sys.dont_write_bytecode = True
 
-        module_name = '{}.{}'.format(parent_module, uuid.uuid1().get_hex())
-        imp.load_source(module_name, path)
-
-        sys.dont_write_bytecode = write_bytecode
+        module_name = '{}.{}'.format(parent_module, uuid.uuid1().hex)
+        try:
+            imp.load_source(module_name, path)
+        finally:
+            sys.dont_write_bytecode = write_bytecode
 
         mod = sys.modules[module_name]
 
@@ -63,7 +64,7 @@ class Parser(object):
 
         for attr in ('include', 'exclude'):
             if attr in linter and (not isinstance(linter[attr], list) or
-                                   not all(isinstance(a, basestring) for a in linter[attr])):
+                                   not all(isinstance(a, str) for a in linter[attr])):
                 raise LinterParseError(linter['path'], "The {} directive must be a "
                                                        "list of strings!".format(attr))
 

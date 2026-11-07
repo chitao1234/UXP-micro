@@ -14,6 +14,7 @@ except ImportError:
 
 class NullTerminal(object):
     """Replacement for `blessings.Terminal()` that does no formatting."""
+    number_of_colors = 0
     class NullCallableString(str):
         """A dummy callable Unicode stolen from blessings"""
         def __new__(cls):
