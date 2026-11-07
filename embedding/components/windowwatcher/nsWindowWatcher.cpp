@@ -59,6 +59,7 @@
 #include "nsIPrefService.h"
 #include "nsSandboxFlags.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/CheckedInt.h"
 #include "mozilla/dom/DOMStorage.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/TabParent.h"
@@ -2332,14 +2333,19 @@ nsWindowWatcher::SizeOpenedWindow(nsIDocShellTreeOwner* aTreeOwner,
         }
       }
 
-      if (left + winWidth > screenLeft + screenWidth ||
-          left + winWidth < left) {
+      CheckedInt<decltype(left)> leftPlusWinWidth = left;
+      leftPlusWinWidth += winWidth;
+      if (!leftPlusWinWidth.isValid() ||
+          leftPlusWinWidth.value() > screenLeft + screenWidth) {
         left = screenLeft + screenWidth - winWidth;
       }
       if (left < screenLeft) {
         left = screenLeft;
       }
-      if (top + winHeight > screenTop + screenHeight || top + winHeight < top) {
+      CheckedInt<decltype(top)> topPlusWinHeight = top;
+      topPlusWinHeight += winHeight;
+      if (!topPlusWinHeight.isValid() ||
+          topPlusWinHeight.value() > screenTop + screenHeight) {
         top = screenTop + screenHeight - winHeight;
       }
       if (top < screenTop) {

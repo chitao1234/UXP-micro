@@ -13,13 +13,17 @@
 <script class="testbody" type="text/javascript">
 SimpleTest.waitForExplicitFinish();
 
+SpecialPowers.pushPrefEnv({set: [
+  ["browser.link.open_newwindow.restriction", 2],
+]}, function() {
 SimpleTest.waitForFocus(function() {
   var x;
   var y;
 
   // window should be constrained to the screen rect,
   // which we assume is less than 10000px square
-  var w1 = window.open("about:blank", "", "left=16000,top=16000,width=100,height=100");
+  // Use sizes above the native minimum so both windows differ by exactly 50px.
+  var w1 = window.open("about:blank", "", "left=16000,top=16000,width=300,height=300");
   SimpleTest.waitForFocus(function() {
     ok(w1.screenX < 10000 && w1.screenY < 10000,
        "window should not be opened off-screen: got location " +
@@ -29,7 +33,7 @@ SimpleTest.waitForFocus(function() {
     w1.close();
 
     // larger window dimensions should result in a shift of the constrained location
-    var w2 = window.open("about:blank", "", "left=16000,top=16000,width=150,height=150");
+    var w2 = window.open("about:blank", "", "left=16000,top=16000,width=350,height=350");
     SimpleTest.waitForFocus(function() {
       ok(w2.screenX == x - 50 && w2.screenY == y - 50,
          "constrained window position did not depend on size as expected: got " +
@@ -49,6 +53,7 @@ SimpleTest.waitForFocus(function() {
     }, w2, true);
   }, w1, true);
 }, window, false);
+});
 
 </script>
 </pre>
