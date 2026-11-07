@@ -44,7 +44,9 @@ class CompilerPreprocessor(Preprocessor):
         context = self.context
         def normalize_numbers(value):
             if isinstance(value, (str,)):
-                if value[-1:] == 'L' and value[:-1].isdigit():
+                if value.isdigit():
+                    value = int(value)
+                elif value[-1:] == 'L' and value[:-1].isdigit():
                     value = int(value[:-1])
             return value
         # Our Preprocessor doesn't handle macros with parameters, so we hack
@@ -83,6 +85,14 @@ class CompilerPreprocessor(Preprocessor):
 
 
 class TestCompilerPreprocessor(unittest.TestCase):
+    def test_zero_condition(self):
+        pp = CompilerPreprocessor({'B': '0'})
+        pp.out = StringIO()
+        source = StringIO('#if B\nWRONG\n#else\nZERO\n#endif\n')
+        source.name = 'zero'
+        pp.do_include(source)
+        self.assertEqual(pp.out.getvalue(), 'ZERO\n')
+
     def test_expansion(self):
         pp = CompilerPreprocessor({
             'A': 1,

@@ -13,6 +13,27 @@ import os
 import sys
 from collections import deque
 from contextlib import contextmanager
+from mozbuild.version import RichVersion
+
+
+class Version(RichVersion):
+    """Configure's permissive tool version, with its historical numeric API.
+
+    Tool versions may have one or four numeric components and vendor suffixes.
+    Keep their full ordering while exposing the leading three numbers, as
+    Firefox's configure Version wrapper does.
+    """
+    @property
+    def major(self):
+        return self.level.MAJOR
+
+    @property
+    def minor(self):
+        return self.level.MINOR
+
+    @property
+    def patch(self):
+        return self.level.PATCH
 
 def getpreferredencoding():
     # locale._parse_localename makes locale.getpreferredencoding

@@ -20,9 +20,8 @@ from mozbuild.configure.util import (
     ConfigureOutputHandler,
     getpreferredencoding,
     LineIO,
+    Version,
 )
-
-from mozbuild.version import Version
 
 from mozbuild.configure import (
     ConfigureSandbox,
@@ -438,11 +437,18 @@ class TestLogSubprocessOutput(unittest.TestCase):
         self.assertEqual(status, 0)
         quote_char = "'"
         if getpreferredencoding().lower() == 'utf-8':
-            quote_char = '\u00B4'.encode('utf-8')
+            quote_char = '\u00B4'
         self.assertEqual(out.getvalue().strip(), quote_char)
 
 
 class TestVersion(unittest.TestCase):
+    def test_tool_suffix_and_four_component_version(self):
+        version = Version('13.2.0-vendor1')
+        self.assertEqual((version.major, version.minor, version.patch), (13, 2, 0))
+        self.assertEqual(str(version), '13.2.0-vendor1')
+        self.assertGreater(Version('10.0.22621.1'), '10.0.22621.0')
+        self.assertLess(Version('10.0.22621.1'), '10.0.22622.0')
+
     def test_version_simple(self):
         v = Version('1')
         self.assertEqual(v, '1')
