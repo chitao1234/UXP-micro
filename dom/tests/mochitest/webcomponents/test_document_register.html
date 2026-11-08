@@ -4,8 +4,8 @@
 https://bugzilla.mozilla.org/show_bug.cgi?id=783129
 -->
 <head>
-  <title>Test for document.registerElement using custom prototype</title>
-  <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
+  <title>Test for customElements.define</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
 <body>
@@ -16,36 +16,28 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=783129
 
 <script>
 
-function testRegisterExtend(tag, extend, proto, expectException) {
+function testDefineExtend(tag, extend, definition, expectException) {
   try {
-    document.registerElement(tag, { prototype: proto, extends: extend });
-    ok(!expectException, "Registered " + tag + " extending " + extend + " containing " + proto + " in proto chain.");
+    customElements.define(tag, definition, { extends: extend });
+    ok(!expectException, "Defined " + tag + " extending " + extend + ".");
   } catch (ex) {
-    ok(expectException, "Did not register " + tag + " extending " + extend + " containing " + proto + " in proto chain.");
+    ok(expectException, "Did not define " + tag + " extending " + extend + ".");
   }
 }
 
-function testRegisterSimple(tag, proto, expectException) {
+function testDefineSimple(tag, definition, expectException) {
   try {
-    document.registerElement(tag, { prototype: proto });
-    ok(!expectException, "Registered " + tag + " containing " + proto + " in proto chain.");
+    customElements.define(tag, definition);
+    ok(!expectException, "Defined " + tag + " extending HTMLElement.");
   } catch (ex) {
-    ok(expectException, "Did not register " + tag + " containing " + proto + " in proto chain.");
+    ok(expectException, "Did not define " + tag + " extending HTMLElement.");
   }
 }
 
 function startTest() {
-  // Test registering some simple prototypes.
-  testRegisterSimple("x-html-obj-elem", Object.create(HTMLElement.prototype), false);
-  testRegisterSimple("x-html-obj-p", Object.create(HTMLParagraphElement.prototype), false);
-
-  // If prototype is an interface prototype object for any interface object,
-  // registration will throw.
-  testRegisterSimple("x-html-elem", HTMLElement.prototype, true);
-  testRegisterSimple("x-html-select", HTMLSelectElement.prototype, true);
-  testRegisterSimple("some-elem", HTMLElement.prototype, true);
-  testRegisterSimple("x-html-p", HTMLParagraphElement.prototype, true);
-  testRegisterSimple("x-html-span", HTMLSpanElement.prototype, true);
+  // Test defining some simple definition.
+  testDefineSimple("x-html-obj-elem", class extends HTMLElement {}, false);
+  testDefineSimple("x-html-obj-p", class extends HTMLParagraphElement {}, false);
 
   // Make sure the prototype on unresolved elements is HTMLElement not HTMLUnknownElement.
   var unresolved = document.getElementById("unresolved");
@@ -54,66 +46,94 @@ function startTest() {
   var anotherUnresolved = document.createElement("maybe-custom-element");
   is(anotherUnresolved.__proto__, HTMLElement.prototype, "Unresolved custom elements should have HTMLElement as prototype.");
 
-  // Registering without a prototype should automatically create one inheriting from HTMLElement.
-  testRegisterSimple("x-elem-no-proto", null, false);
-
-  var simpleProto = Object.create(HTMLElement.prototype);
-  testRegisterSimple("x-elem-simple-proto", simpleProto, false);
-
-  // Test registering some invalid prototypes.
-  testRegisterSimple("x-invalid-number", 42, true);
-  testRegisterSimple("x-invalid-boolean", false, true);
-  testRegisterSimple("x-invalid-float", 1.0, true);
-  // A prototype with a non-configurable "constructor" property must throw.
-  var nonConfigProto = Object.create(HTMLElement.prototype,
-    { constructor: { configurable: false, value: function() {} } });
-  testRegisterSimple("x-non-config-proto", nonConfigProto, true);
+  // Test defining some invalid definition.
+  testDefineSimple("x-invalid-number", 42, true);
+  testDefineSimple("x-invalid-boolean", false, true);
+  testDefineSimple("x-invalid-float", 1.0, true);
 
   // Test invalid custom element names.
-  testRegisterSimple("invalid", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("annotation-xml", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("color-profile", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("font-face", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("font-face-src", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("font-face-uri", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("font-face-format", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("font-face-name", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("missing-glyph", Object.create(HTMLElement.prototype), true);
+  testDefineSimple("invalid", class extends HTMLElement {}, true);
+  testDefineSimple("annotation-xml", class extends HTMLElement {}, true);
+  testDefineSimple("color-profile", class extends HTMLElement {}, true);
+  testDefineSimple("font-face", class extends HTMLElement {}, true);
+  testDefineSimple("font-face-src", class extends HTMLElement {}, true);
+  testDefineSimple("font-face-uri", class extends HTMLElement {}, true);
+  testDefineSimple("font-face-format", class extends HTMLElement {}, true);
+  testDefineSimple("font-face-name", class extends HTMLElement {}, true);
+  testDefineSimple("missing-glyph", class extends HTMLElement {}, true);
 
-  // Test registering elements that extend from an existing element.
-  testRegisterExtend("x-extend-span", "span", Object.create(HTMLElement.prototype), false);
-  testRegisterExtend("x-extend-span-caps", "SPAN", Object.create(HTMLElement.prototype), false);
+  // Test defining elements that extend from an existing element.
+  testDefineExtend("x-extend-span", "span", class extends HTMLElement {}, false);
+  testDefineExtend("x-extend-span-caps", "SPAN", class extends HTMLElement {}, true);
 
-  // Test registering elements that extend from a non-existing element.
-  testRegisterExtend("x-extend-span-nonexist", "nonexisting", Object.create(HTMLElement.prototype), true);
+  // Test defining elements that extend from a non-existing element.
+  testDefineExtend("x-extend-span-nonexist", "nonexisting", class extends HTMLElement {}, true);
 
   // Test registration with duplicate type.
-  testRegisterSimple("x-dupe-me", Object.create(HTMLElement.prototype), false);
-  testRegisterSimple("x-dupe-me", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("X-DUPE-ME", Object.create(HTMLElement.prototype), true);
-  testRegisterSimple("x-dupe-me", null, true);
-  testRegisterExtend("x-dupe-me", "span", Object.create(HTMLElement.prototype), true);
+  testDefineSimple("x-dupe-me", class extends HTMLElement {}, false);
+  testDefineSimple("x-dupe-me", class extends HTMLElement {}, true);
+  testDefineSimple("X-DUPE-ME", class extends HTMLElement {}, true);
+  testDefineExtend("x-dupe-me", "span", class extends HTMLElement {}, true);
 
-  // document.createElement with extended type.
-  var extendedProto = Object.create(HTMLButtonElement.prototype);
-  var buttonConstructor = document.registerElement("x-extended-button", { prototype: extendedProto, extends: "button" });
+  // customElements.define with extended type.
+  class ExtendButton extends HTMLButtonElement {};
+  customElements.define("x-extended-button", ExtendButton, { extends: "button" });
   var extendedButton = document.createElement("button", {is: "x-extended-button"});
   is(extendedButton.tagName, "BUTTON", "Created element should have local name of BUTTON");
-  is(extendedButton.__proto__, extendedProto, "Created element should have the prototype of the extended type.");
-  is(extendedButton.getAttribute("is"), "x-extended-button", "The |is| attribute of the created element should be the extended type.");
+  is(extendedButton.__proto__, ExtendButton.prototype, "Created element should have the prototype of the extended type.");
+  is(extendedButton.getAttribute("is"), "x-extended-button", "The extended type retains this branch's is attribute.");
   is(extendedButton.type, "submit", "Created element should be a button with type of \"submit\"");
 
   // Custom element constructor.
-  var constructedButton = new buttonConstructor();
+  var constructedButton = new ExtendButton();
   is(constructedButton.tagName, "BUTTON", "Created element should have local name of BUTTON");
-  is(constructedButton.__proto__, extendedProto, "Created element should have the prototype of the extended type.");
-  is(constructedButton.getAttribute("is"), "x-extended-button", "The |is| attribute of the created element should be the extended type.");
+  is(constructedButton.__proto__, ExtendButton.prototype, "Created element should have the prototype of the extended type.");
 
   // Try creating an element with a custom element name, but not in the html namespace.
-  var htmlNamespaceProto = Object.create(HTMLElement.prototype);
-  document.registerElement("x-in-html-namespace", { prototype: htmlNamespaceProto });
+  class XInHTMLNamespace extends HTMLElement {};
+  customElements.define("x-in-html-namespace", XInHTMLNamespace);
   var wrongNamespaceElem = document.createElementNS("http://www.w3.org/2000/svg", "x-in-html-namespace");
-  isnot(wrongNamespaceElem.__proto__, htmlNamespaceProto, "Definition for element in html namespace should not apply to SVG elements.");
+  isnot(wrongNamespaceElem.__proto__, XInHTMLNamespace.prototype, "Definition for element in html namespace should not apply to SVG elements.");
+
+  var div = document.createElement("div");
+  div.appendChild(extendedButton);
+  is(div.innerHTML, '<button is="x-extended-button"></button>', "'is value' should be serialized.");
+
+  const de = SpecialPowers.Ci.nsIDocumentEncoder;
+  var htmlencoder = SpecialPowers.Cc["@mozilla.org/layout/documentEncoder;1?type=text/html"].createInstance(SpecialPowers.Ci.nsIDocumentEncoder);
+  htmlencoder.init(document, "text/html", de.OutputLFLineBreak);
+  htmlencoder.setCharset("UTF-8");
+  htmlencoder.setContainerNode(div);
+  is(htmlencoder.encodeToString(), '<button is="x-extended-button"></button>',
+     "'is value' should be serialized (html).");
+
+  var xhtmlencoder = SpecialPowers.Cc["@mozilla.org/layout/documentEncoder;1?type=application/xhtml+xml"].createInstance(SpecialPowers.Ci.nsIDocumentEncoder);
+  xhtmlencoder.init(document, "application/xhtml+xml", de.OutputLFLineBreak);
+  xhtmlencoder.setCharset("UTF-8");
+  xhtmlencoder.setContainerNode(div);
+  {
+    const serialized = xhtmlencoder.encodeToString();
+    const parsed = new DOMParser().parseFromString(serialized, "application/xml");
+    is(parsed.documentElement.localName, "button", "Serialized element is a button");
+    is(parsed.documentElement.namespaceURI, "http://www.w3.org/1999/xhtml",
+       "Serialized element preserves its namespace");
+    is(parsed.documentElement.getAttribute("is"), "x-extended-button",
+       "Serialized element preserves the extended type");
+  }
+
+  var xmlencoder = SpecialPowers.Cc["@mozilla.org/layout/documentEncoder;1?type=text/xml"].createInstance(SpecialPowers.Ci.nsIDocumentEncoder);
+  xmlencoder.init(document, "text/xml", de.OutputLFLineBreak);
+  xmlencoder.setCharset("UTF-8");
+  xmlencoder.setContainerNode(div);
+  {
+    const serialized = xmlencoder.encodeToString();
+    const parsed = new DOMParser().parseFromString(serialized, "application/xml");
+    is(parsed.documentElement.localName, "button", "Serialized element is a button");
+    is(parsed.documentElement.namespaceURI, "http://www.w3.org/1999/xhtml",
+       "Serialized element preserves its namespace");
+    is(parsed.documentElement.getAttribute("is"), "x-extended-button",
+       "Serialized element preserves the extended type");
+  }
 }
 
 startTest();

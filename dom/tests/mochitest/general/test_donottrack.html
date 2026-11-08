@@ -1,72 +1,43 @@
 <!DOCTYPE HTML>
-<html>
-<!--
-https://bugzilla.mozilla.org/show_bug.cgi?id=629535
--->
-<head>
-  <title>Test for Bug 629535</title>
-  <script type="application/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
-  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
-</head>
-<body>
-<a target="_blank" href="https://bugzilla.mozilla.org/show_bug.cgi?id=629535">Mozilla Bug 629535</a>
-
-<script type="application/javascript">
-
-const dntPref = 'privacy.donottrackheader.enabled';
-
+<meta charset="utf-8">
+<title>Navigator privacy signal after the DNT-to-GPC migration</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script>
+// UXP c030a50228 replaced DNT with GPC without migrating this fixture.
+// Window/worker value checks follow current Firefox's WPT gpc tests.
 SimpleTest.waitForExplicitFinish();
-
-var currentTestIdx = -1;
-var tests = [];
-function nextTest() {
-  currentTestIdx++;
-  if (currentTestIdx >= tests.length) {
-    SimpleTest.finish();
-    return;
+(async function privacySignal() {
+  const pref = "privacy.GPCheader.enabled";
+  ok(!("doNotTrack" in navigator), "The retired DNT getter is not exposed");
+  is(typeof navigator.globalPrivacyControl, "boolean", "GPC is a boolean");
+  const defaultValue = navigator.globalPrivacyControl;
+  for (const enabled of [true, false]) {
+    await SpecialPowers.pushPrefEnv({set: [[pref, enabled]]});
+    is(navigator.globalPrivacyControl, enabled, "Window GPC reflects " + enabled);
+    const source = new Blob([
+      "onmessage = () => postMessage({value: navigator.globalPrivacyControl, " +
+      "type: typeof navigator.globalPrivacyControl});"
+    ], {type: "application/javascript"});
+    const url = URL.createObjectURL(source);
+    const worker = new Worker(url);
+    try {
+      const result = await new Promise((resolve, reject) => {
+        worker.onmessage = event => resolve(event.data);
+        worker.onerror = reject;
+        worker.postMessage(null);
+      });
+      is(result.type, "boolean", "Worker GPC is a boolean");
+      is(result.value, enabled, "Worker GPC reflects " + enabled);
+    } finally {
+      worker.terminate();
+      URL.revokeObjectURL(url);
+    }
+    await SpecialPowers.popPrefEnv();
+    is(navigator.globalPrivacyControl, defaultValue, "Privacy preference is restored");
   }
-
-  tests[currentTestIdx]();
-}
-
-tests.push(function testDefaultValues() {
-  // The default pref values depend on the OS it seems.
-  var isAndroid = !!navigator.userAgent.includes("Android");
-  var isB2G = !isAndroid && /Mobile|Tablet/.test(navigator.userAgent);
-
-  is(SpecialPowers.getBoolPref(dntPref), false,
-     'DNT should be disabled by default');
-  is(navigator.doNotTrack, 'unspecified',
-     'navigator.doNotTrack should initially be "unspecified".');
-
-  nextTest();
+})().then(() => SimpleTest.finish(), error => {
+  ok(false, "Privacy-signal test failed: " + error);
+  SimpleTest.finish();
 });
-
-tests.push(function clearedEnabled() {
-  SpecialPowers.pushPrefEnv({"clear": [[dntPref]]}, function() {
-    is(navigator.doNotTrack, "unspecified", 'after clearing pref');
-    nextTest();
-  });
-});
-
-tests.push(function setEnabled() {
-  SpecialPowers.pushPrefEnv({"set": [[dntPref, true]]}, function() {
-    is(navigator.doNotTrack, "1", 'after setting pref to true');
-    nextTest();
-  });
-});
-
-tests.push(function setDisabled() {
-  SpecialPowers.pushPrefEnv({"set": [[dntPref, false]]}, function() {
-    is(navigator.doNotTrack, "unspecified", 'after setting pref to false');
-    nextTest();
-  });
-});
-
-nextTest();
-
 </script>
-
-</body>
-</html>
-
