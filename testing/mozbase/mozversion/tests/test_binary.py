@@ -69,7 +69,13 @@ SourceRepository = PlatformSourceRepo
         try:
             browser_link = os.path.join(tempdir,
                                         os.path.basename(self.binary))
-            os.symlink(self.binary, browser_link)
+            try:
+                os.symlink(self.binary, browser_link)
+            except OSError as exc:
+                if (getattr(exc, 'winerror', None) == 1314 or
+                        (os.name == 'nt' and exc.args == ('symbolic link privilege not held',))):
+                    self.skipTest('Symbolic link creation privilege is unavailable')
+                raise
 
             self._check_version(get_version(browser_link))
         finally:

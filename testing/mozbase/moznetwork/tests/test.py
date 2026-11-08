@@ -9,6 +9,7 @@ import mozinfo
 import moznetwork
 import re
 import subprocess
+import sys
 import unittest
 
 
@@ -43,6 +44,9 @@ def verify_ip_in_list(ip):
 
     ps = subprocess.Popen(args, stdout=subprocess.PIPE)
     standardoutput, standarderror = ps.communicate()
+    # Only ASCII address digits matter; localized ipconfig text may use an OEM
+    # code page different from Python's configured text encoding.
+    standardoutput = standardoutput.decode('ascii', 'replace')
 
     # Generate a list of IPs by parsing the output of ip/ifconfig
     ip_list = [x.group() for x in re.finditer(regexip, standardoutput)]
@@ -55,6 +59,11 @@ def verify_ip_in_list(ip):
 
 
 class TestGetIP(unittest.TestCase):
+    def test_process_output_is_text(self):
+        from moznetwork.moznetwork import _proc_matches
+        self.assertEqual(_proc_matches(
+            [sys.executable, '-c', "print('interface: en0')"],
+            r'interface: (\w+)'), ['en0'])
 
     def test_get_ip(self):
         """ Attempt to test the IP address returned by

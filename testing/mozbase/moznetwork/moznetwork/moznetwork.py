@@ -58,9 +58,10 @@ def _get_interface_list():
 def _proc_matches(args, regex):
     """Helper returns the matches of regex in the output of a process created with
     the given arguments"""
-    output = subprocess.Popen(args=args,
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT).stdout.read()
+    with subprocess.Popen(args=args, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT,
+                          universal_newlines=True) as process:
+        output, _ = process.communicate()
     return re.findall(regex, output)
 
 

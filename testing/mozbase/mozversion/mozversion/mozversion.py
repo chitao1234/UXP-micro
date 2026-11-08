@@ -4,7 +4,7 @@
 
 import argparse
 import configparser
-from io import StringIO
+from io import StringIO, TextIOWrapper
 import os
 import re
 import sys
@@ -61,19 +61,19 @@ class LocalFennecVersion(Version):
         self.get_gecko_info(path)
 
     def get_gecko_info(self, path):
-        archive = zipfile.ZipFile(path, 'r')
-        archive_list = archive.namelist()
-        for type, section in INI_DATA_MAPPING:
-            filename = "%s.ini" % type
-            if filename in archive_list:
-                self._parse_ini_file(archive.open(filename), type,
-                                     section)
-            else:
-                self._logger.warning('Unable to find %s' % filename)
+        with zipfile.ZipFile(path, 'r') as archive:
+            archive_list = archive.namelist()
+            for type, section in INI_DATA_MAPPING:
+                filename = "%s.ini" % type
+                if filename in archive_list:
+                    with TextIOWrapper(archive.open(filename), encoding='utf-8') as fp:
+                        self._parse_ini_file(fp, type, section)
+                else:
+                    self._logger.warning('Unable to find %s' % filename)
 
-        if "package-name.txt" in archive_list:
-            self._info["package_name"] = \
-                archive.open("package-name.txt").readlines()[0].strip()
+            if "package-name.txt" in archive_list:
+                with TextIOWrapper(archive.open("package-name.txt"), encoding='utf-8') as fp:
+                    self._info["package_name"] = fp.readline().strip()
 
 
 class LocalVersion(Version):
@@ -133,9 +133,9 @@ class B2GVersion(Version):
         try:
             gaia_commit = os.path.join(tempdir, 'gaia_commit.txt')
             try:
-                zip_file = zipfile.ZipFile(app_zip.name)
-                with open(gaia_commit, 'w') as f:
-                    f.write(zip_file.read('resources/gaia_commit.txt'))
+                with zipfile.ZipFile(app_zip.name) as zip_file:
+                    with open(gaia_commit, 'wb') as f:
+                        f.write(zip_file.read('resources/gaia_commit.txt'))
             except zipfile.BadZipfile:
                 self._logger.info('Unable to unzip application.zip, falling '
                                   'back to system unzip')
@@ -272,8 +272,11 @@ def get_version(binary=None, sources=None, dm_type=None, host=None,
     :param adb_port: Port of ADB server
     """
     try:
-        if binary and zipfile.is_zipfile(binary) and 'AndroidManifest.xml' in \
-           zipfile.ZipFile(binary, 'r').namelist():
+        is_apk = False
+        if binary and zipfile.is_zipfile(binary):
+            with zipfile.ZipFile(binary, 'r') as archive:
+                is_apk = 'AndroidManifest.xml' in archive.namelist()
+        if is_apk:
             version = LocalFennecVersion(binary)
         else:
             version = LocalVersion(binary)
