@@ -32,7 +32,7 @@ ExecuteRegExpLegacy(JSContext* cx, RegExpStatics* res, Handle<RegExpObject*> reo
 
 /* Translation from MatchPairs to a JS array in regexp_exec()'s output format. */
 [[nodiscard]] bool
-CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
+CreateRegExpMatchResult(JSContext* cx, HandleRegExpShared re,
                         HandleString input, const MatchPairs& matches,
                         MutableHandleValue rval);
 

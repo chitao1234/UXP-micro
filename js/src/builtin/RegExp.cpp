@@ -62,7 +62,7 @@ static uint32_t GetNamedCaptureIndex(JSContext* cx, HandlePlainObject groupsTemp
  * https://tc39.es/ecma262/#sec-regexpbuiltinexec
  */
 bool
-js::CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
+js::CreateRegExpMatchResult(JSContext* cx, HandleRegExpShared re,
                             HandleString input, const MatchPairs& matches,
                             MutableHandleValue rval)
 {
@@ -80,13 +80,13 @@ js::CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
      *  indices:        capture indices for the match, if required
      */
 
-    bool hasIndices = re.hasIndices();
+    bool hasIndices = re->hasIndices();
     
     /* Get the templateObject that defines the shape and type of the output object */
     RegExpCompartment::ResultTemplateKind kind =
       hasIndices ? RegExpCompartment::ResultTemplateKind::WithIndices
                  : RegExpCompartment::ResultTemplateKind::Normal;
-    JSObject* templateObject = cx->compartment()->regExps.getOrCreateMatchResultTemplateObject(cx, kind);
+    RootedObject templateObject(cx, cx->compartment()->regExps.getOrCreateMatchResultTemplateObject(cx, kind));
     if (!templateObject)
         return false;
 
@@ -112,8 +112,8 @@ js::CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
       }
   
       // MakeIndicesArray: steps 10-12
-      if (re.numNamedCaptures() > 0) {
-        RootedPlainObject groupsTemplate(cx, re.getGroupsTemplate());
+      if (re->numNamedCaptures() > 0) {
+        RootedPlainObject groupsTemplate(cx, re->getGroupsTemplate());
         indicesGroups = CreateGroupsObject(cx, groupsTemplate);
         if (!indicesGroups) {
           return false;
@@ -167,9 +167,9 @@ js::CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
 
     // Steps 30-31 (reordered): Allocate the groups object (if needed).
     RootedPlainObject groups(cx);
-    if (re.numNamedCaptures() > 0) {
+    if (re->numNamedCaptures() > 0) {
         // construct a new object from the template saved on RegExpShared
-        RootedPlainObject groupsTemplate(cx, re.getGroupsTemplate());
+        RootedPlainObject groupsTemplate(cx, re->getGroupsTemplate());
         groups = CreateGroupsObject(cx, groupsTemplate);
 
         // Step 33 e-f
@@ -181,7 +181,7 @@ js::CreateRegExpMatchResult(JSContext* cx, RegExpShared& re,
         if (!GetPropertyKeys(cx, groupsTemplate, 0, &keys)) {
             return false;
         }
-        MOZ_ASSERT(keys.length() == re.numNamedCaptures());
+        MOZ_ASSERT(keys.length() == re->numNamedCaptures());
         RootedId key(cx);
         RootedValue val(cx);
         for (size_t i = 0; i < keys.length(); i++) {
@@ -305,7 +305,7 @@ js::ExecuteRegExpLegacy(JSContext* cx, RegExpStatics* res, Handle<RegExpObject*>
         return true;
     }
 
-    return CreateRegExpMatchResult(cx, *shared, input, matches, rval);
+    return CreateRegExpMatchResult(cx, shared, input, matches, rval);
 }
 
 static bool
@@ -1186,7 +1186,7 @@ RegExpMatcherImpl(JSContext* cx, HandleObject regexp, HandleString string, int32
     RootedRegExpShared shared(cx);
     if (!RegExpObject::getShared(cx, reobj, &shared))
         return false;
-    return CreateRegExpMatchResult(cx, *shared, string, matches, rval);
+    return CreateRegExpMatchResult(cx, shared, string, matches, rval);
 }
 
 /*
@@ -1232,7 +1232,7 @@ js::RegExpMatcherRaw(JSContext* cx, HandleObject regexp, HandleString input,
       RootedRegExpShared shared(cx);
       if (!RegExpObject::getShared(cx, reobj, &shared))
           return false;
-      return CreateRegExpMatchResult(cx, *shared, input, *maybeMatches, output);
+      return CreateRegExpMatchResult(cx, shared, input, *maybeMatches, output);
     }
     return RegExpMatcherImpl(cx, regexp, input, lastIndex, output);
 }
