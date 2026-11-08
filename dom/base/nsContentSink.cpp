@@ -820,7 +820,9 @@ nsContentSink::ProcessStyleLink(nsIContent* aElement,
   // If this is a fragment parser, we don't want to observe.
   // We don't support CORS for processing instructions
   bool isAlternate;
-  bool isExplicitlyEnabled;
+  // LoadStyleLink consumes this flag as input. Header and PI sheets have no
+  // link element whose disabled attribute could explicitly enable them.
+  bool isExplicitlyEnabled = false;
   rv = mCSSLoader->LoadStyleLink(aElement, url, nullptr /* triggeringPrincipal */, 
                                  aTitle, aMedia, aAlternate,
                                  CORS_NONE, referrerPolicy,
