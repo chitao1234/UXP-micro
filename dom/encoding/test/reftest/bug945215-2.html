@@ -6,7 +6,10 @@ function runTest() {
   var r = document.documentElement;
   var d = window[0].document;
   var i = d.createElement("iframe");
-  i.src = "data:text/html,PASS";
+  // Keep the missing charset: replacement must not propagate to this frame.
+  // Its fallback encoding can select a different font language than the UTF-8
+  // reference. Pin the language and generic font in both ASCII payloads.
+  i.src = "data:text/html,<body lang=en style=font-family:serif>PASS";
   i.onload = function() {
     r.removeAttribute("class");
   }
