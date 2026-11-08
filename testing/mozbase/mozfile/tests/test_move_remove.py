@@ -77,18 +77,16 @@ class MozfileRemoveTestCase(unittest.TestCase):
         """Test removing a directory with an open file"""
         # Open a file in the generated stub
         filepath = os.path.join(self.tempdir, *stubs.files[1])
-        f = file(filepath, 'w')
-        f.write('foo-bar')
+        with open(filepath, 'w') as f:
+            f.write('foo-bar')
 
-        # keep file open and then try removing the dir-tree
-        if mozinfo.isWin:
-            # On the Windows family WindowsError should be raised.
-            self.assertRaises(OSError, mozfile.remove, self.tempdir)
-            self.assertTrue(os.path.exists(self.tempdir))
-        else:
-            # Folder should be deleted on all other platforms
-            mozfile.remove(self.tempdir)
-            self.assertFalse(os.path.exists(self.tempdir))
+            # Keep the file open during the check, then close before tearDown.
+            if mozinfo.isWin:
+                self.assertRaises(OSError, mozfile.remove, self.tempdir)
+                self.assertTrue(os.path.exists(self.tempdir))
+            else:
+                mozfile.remove(self.tempdir)
+                self.assertFalse(os.path.exists(self.tempdir))
 
     def test_remove_closed_file(self):
         """Test removing a closed file"""

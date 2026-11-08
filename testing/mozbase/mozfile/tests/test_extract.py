@@ -24,7 +24,8 @@ class TestExtract(unittest.TestCase):
                 print("%s does not exist" % (os.path.join(f)))
             self.assertTrue(exists)
             if exists:
-                contents = file(path).read().strip()
+                with open(path) as fh:
+                    contents = fh.read().strip()
                 self.assertTrue(contents == f[-1])
 
     def test_extract_zipfile(self):
@@ -105,14 +106,14 @@ class TestExtract(unittest.TestCase):
 
         # test extracting some non-archive; this should fail
         fd, filename = tempfile.mkstemp()
-        os.write(fd, 'This is not a zipfile or tarball')
+        os.write(fd, b'This is not a zipfile or tarball')
         os.close(fd)
         exception = None
         try:
             dest = tempfile.mkdtemp()
             mozfile.extract(filename, dest)
-        except Exception as exception:
-            pass
+        except Exception as exc:
+            exception = exc
         finally:
             os.remove(filename)
             os.rmdir(dest)

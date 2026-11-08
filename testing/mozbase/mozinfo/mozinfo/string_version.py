@@ -18,7 +18,7 @@ class StringVersion(str):
 
     def __to_version(self, other):
         if not isinstance(other, StringVersion):
-            other = RichVersion(other)
+            other = StringVersion(other)
         return other.version
 
     # rich comparison methods

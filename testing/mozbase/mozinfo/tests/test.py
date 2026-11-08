@@ -5,7 +5,8 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import json
-import mock
+from unittest import mock
+from importlib import reload
 import os
 import shutil
 import sys

@@ -19,7 +19,7 @@ class TestLoad(unittest.TestCase):
 
         def example(request):
             """example request handler"""
-            body = 'example'
+            body = b'example'
             return (200, {'Content-type': 'text/plain',
                           'Content-length': len(body)
                           }, body)
@@ -32,7 +32,7 @@ class TestLoad(unittest.TestCase):
         try:
             httpd.start(block=False)
             content = load(httpd.get_url()).read()
-            self.assertEqual(content, 'example')
+            self.assertEqual(content, b'example')
         finally:
             httpd.stop()
 
@@ -41,11 +41,12 @@ class TestLoad(unittest.TestCase):
         try:
             # create a temporary file
             tmp = tempfile.NamedTemporaryFile(delete=False)
-            tmp.write('foo bar')
+            tmp.write(b'foo bar')
             tmp.close()
 
             # read the file
-            contents = file(tmp.name).read()
+            with open(tmp.name) as fh:
+                contents = fh.read()
             self.assertEqual(contents, 'foo bar')
 
             # read the file with load and a file path

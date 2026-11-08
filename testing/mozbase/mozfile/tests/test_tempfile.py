@@ -24,7 +24,7 @@ class TestNamedTemporaryFile(unittest.TestCase):
         """
 
         test_string = "A simple test"
-        with mozfile.NamedTemporaryFile() as temp:
+        with mozfile.NamedTemporaryFile(mode='w+t') as temp:
             # Test we can write to file
             temp.write(test_string)
             # Forced flush, so that we can read later
@@ -37,7 +37,7 @@ class TestNamedTemporaryFile(unittest.TestCase):
         """ensure the line iterator works"""
 
         # make a file and write to it
-        tf = mozfile.NamedTemporaryFile()
+        tf = mozfile.NamedTemporaryFile(mode='w+t')
         notes = ['doe', 'rae', 'mi']
         for note in notes:
             tf.write('%s\n' % note)
