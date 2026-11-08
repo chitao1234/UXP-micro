@@ -18,54 +18,40 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=804395
 <pre id="test">
 <script type="application/javascript">
 
-function test200() {
-  var xhr = new XMLHttpRequest({mozAnon: true, mozSystem: true});
-  xhr.open('GET', 'jar:http://example.org/tests/dom/base/test/file_bug804395.jar!/foo.bar', true);
-  xhr.onreadystatechange = function() {
-    if (xhr.readyState == 4) {
-      ok(xhr.status == 200, "Existing file must have Status 200!");
-      runTests();
-    }
-  }
-  xhr.send(null);
-}
-
-function test404() {
-  var xhr = new XMLHttpRequest({mozAnon: true, mozSystem: true});
-  xhr.open('GET', 'jar:http://example.org/tests/dom/base/test/file_bug804395.jar!/foo.do_not_exist', true);
-  xhr.onreadystatechange = function() {
-    if (xhr.readyState == 4) {
-      ok(xhr.status == 404, "Non existing file must have Status 404!");
-      runTests();
-    }
-  }
-  xhr.send(null);
-}
-
-function test0() {
-  var xhr = new XMLHttpRequest({mozAnon: true, mozSystem: true});
-  xhr.open('GET', 'jar:http://example.org/tests/dom/base/test/file_bug804395.jar!/foo.bar', true);
-  ok(xhr.status == 0, "Not Sent request must have status 0");
-  runTests();
-}
-
-var tests = [ test200, test404, test0 ];
-function runTests() {
-  if (!tests.length) {
-    SimpleTest.finish();
-    return;
-  }
-
-  var test = tests.shift();
-  test();
-}
-
-/** Test for Bug 804395 **/
+// UXP classifies jar: as a local resource. The status contract belongs to a
+// privileged archive caller, not a content principal granted systemXHR.
 SimpleTest.waitForExplicitFinish();
-
-addLoadEvent(function() {
-  SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false]]}, function() {
-    SpecialPowers.pushPermissions([{'type': 'systemXHR', 'allow': true, 'context': document}], runTests);
+SpecialPowers.pushPrefEnv({set: [["network.jar.block-remote-files", false]]}, () => {
+  const chrome = SpecialPowers.loadChromeScript(function() {
+    const {classes: Cc, interfaces: Ci} = Components;
+    function request(entry, send) {
+      return new Promise(resolve => {
+        const xhr = Cc["@mozilla.org/xmlextras/xmlhttprequest;1"].createInstance(Ci.nsIXMLHttpRequest);
+        xhr.open("GET", "jar:http://example.org/tests/dom/base/test/file_bug804395.jar!/" + entry, true);
+        if (!send) {
+          resolve(xhr.status);
+          return;
+        }
+        xhr.onloadend = () => resolve(xhr.status);
+        xhr.send();
+      });
+    }
+    Promise.all([request("foo.bar", true), request("foo.do_not_exist", true),
+                 request("foo.bar", false)])
+      .then(statuses => sendAsyncMessage("statuses", statuses),
+            error => sendAsyncMessage("error", String(error)));
+  });
+  chrome.addMessageListener("statuses", statuses => {
+    is(statuses[0], 200, "Existing archive member has status 200");
+    is(statuses[1], 404, "Missing archive member has status 404");
+    is(statuses[2], 0, "Unsent archive request has status 0");
+    chrome.destroy();
+    SimpleTest.finish();
+  });
+  chrome.addMessageListener("error", error => {
+    ok(false, "Archive status request failed: " + error);
+    chrome.destroy();
+    SimpleTest.finish();
   });
 });
 </script>

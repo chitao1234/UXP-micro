@@ -19,10 +19,29 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=403331
 
 SimpleTest.waitForExplicitFinish();
 
-function runTest() {
+function contentRequest(url, responseType) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    let failed = false;
+    xhr.onerror = () => { failed = true; };
+    xhr.onloadend = () => resolve({failed, status: xhr.status, response: xhr.response});
+    // Executor exceptions reject the promise; only an actual channel error
+    // may satisfy the denial assertions below.
+    xhr.open("GET", url, true);
+    xhr.responseType = responseType;
+    xhr.send();
+  });
+}
+
+async function runTest() {
   var testFrame = document.getElementById('testFrame');
 
-  // Try a redirected load from another domain to this one.
+  // The UXP JAR protocol policy rejects content loads before redirects.
+  // Keep the same-origin redirect access oracle on its supported HTTP path.
+  const uri = "jar:http://example.org/tests/modules/libjar/test/mochitest/openredirect.sjs?http://mochi.test:8888/tests/modules/libjar/test/mochitest/bug403331.zip!/test.html";
+  const result = await contentRequest(uri, "document");
+  ok(result.failed, "A redirect URL cannot bypass web JAR channel restrictions");
+  is(result.status, 0, "Blocked redirect JAR has no successful HTTP status");
 
   testFrame.onload = function() {
     // If properly redirected, we'll be able to access elements in the loaded
@@ -33,7 +52,7 @@ function runTest() {
     SimpleTest.finish();
   }
 
-  testFrame.src = "jar:http://example.org:80/tests/modules/libjar/test/mochitest/openredirect.sjs?http://mochi.test:8888/tests/modules/libjar/test/mochitest/bug403331.zip!/test.html";
+  testFrame.src = "http://example.org/tests/modules/libjar/test/mochitest/openredirect.sjs?http://mochi.test:8888/tests/modules/libjar/test/mochitest/file_jar_redirect_target.html";
 }
 
 addLoadEvent(function() {

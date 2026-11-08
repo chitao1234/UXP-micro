@@ -4,7 +4,7 @@
 https://bugzilla.mozilla.org/show_bug.cgi?id=430251
 -->
 <head>
-  <title>postMessage's interaction with pages at jar: URIs</title>
+  <title>postMessage origin checks and blocked web JAR URIs</title>
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>        
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
   <base href="http://mochi.test:8888/" />
@@ -33,16 +33,35 @@ function receiveMessage(evt)
 
 window.addEventListener("message", receiveMessage, false);
 
+function contentRequest(url, responseType) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    let failed = false;
+    xhr.onerror = () => { failed = true; };
+    xhr.onloadend = () => resolve({failed, status: xhr.status, response: xhr.response});
+    // Executor exceptions reject the promise; only an actual channel error
+    // may satisfy the denial assertions below.
+    xhr.open("GET", url, true);
+    xhr.responseType = responseType;
+    xhr.send();
+  });
+}
+
 addLoadEvent(function() {
-  SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false]]}, function() {
+  SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false]]}, async function() {
     var iframe = document.createElement('iframe');
-    iframe.setAttribute('src', 'jar:http://mochi.test:8888/tests/dom/tests/mochitest/whatwg/postMessage.jar!/postMessage_jar.html');
+    const jarURL = "jar:http://mochi.test:8888/tests/dom/tests/mochitest/whatwg/postMessage.jar!/postMessage_jar.html";
+    const result = await contentRequest(jarURL, "document");
+    ok(result.failed, "Web content cannot open a JAR channel despite the legacy pref");
+    is(result.status, 0, "Blocked JAR request has no successful HTTP status");
+    iframe.setAttribute('src', '/tests/dom/tests/mochitest/whatwg/postMessage_archive_helper.html');
     iframe.setAttribute('name', 'kid');
-    document.getElementById("content").appendChild(iframe);
+
 
     iframe.onload = function() {
       window.frames.kid.postMessage("start-test", "http://mochi.test:8888");
-    }
+    };
+    document.getElementById("content").appendChild(iframe);
   });
 });
 </script>

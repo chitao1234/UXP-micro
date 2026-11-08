@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>postMessage jar: test page</title>
+  <script type="application/javascript">
+function receiveMessage(evt)
+{
+  var response = "finish-test";
+
+  if (evt.origin !== "http://mochi.test:8888")
+    response += " wrong-origin(" + evt.origin + ")";
+  if (evt.data !== "start-test")
+    response += " wrong-data(" + evt.data + ")";
+  if (evt.source !== window.parent)
+    response += " wrong-source";
+  if (evt.lastEventId !== "")
+    response += " wrong-lastEventId(" + evt.lastEventId + ")";
+
+  window.parent.postMessage(response, "http://mochi.test:8888");
+}
+
+window.addEventListener("message", receiveMessage, false);
+
+function setup()
+{
+  var target = document.getElementById("target");
+  target.textContent = location.hostname + ":" + (location.port || 80);
+}
+
+window.addEventListener("load", setup, false);
+  </script>
+</head>
+<body>
+<h1 id="target">No location!</h1>
+</body>
+</html>

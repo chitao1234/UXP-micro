@@ -52,8 +52,15 @@ add_task(function* () {
   for (let shouldBlock of [false, true]) {
     yield pushPref("network.jar.block-remote-files", shouldBlock);
     let response = yield xhr("GET", jarURL, "document");
-    ok(shouldBlock === (response === null),
-       "Remote jars should be blocked if and only if the 'network.jar.block-remote-files' pref is active.");
+    is(response, null,
+       "Content JAR loads are denied by protocol policy with block-remote-files=" + shouldBlock);
+    let archive = yield xhr("GET", jarURL.slice(4).split("!/")[0], "arraybuffer");
+    ok(archive instanceof ArrayBuffer && archive.byteLength > 0,
+       "The backing HTTP archive is available; rejection is not a missing fixture");
+    if (archive) {
+      is(new Uint8Array(archive)[0], 0x50, "Backing archive has the ZIP signature");
+      is(new Uint8Array(archive)[1], 0x4b, "Backing archive has the ZIP signature");
+    }
   }
 });
 

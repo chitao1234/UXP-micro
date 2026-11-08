@@ -19,192 +19,48 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=369814
 
 /** Tests for Bug 369814 **/
 
-SimpleTest.waitForExplicitFinish();
-
-// Because child scripts won't be able to run to tell us they're done,
-// we need to just wait for them.  Wait this many event loop spins before
-// checking the results.
-const gLoadEventLoopCount = 100;
-
-var gCurrentTest;
-var gTargetWindow;
-var gNumPokes;
-var gTestFrame;
-
-/**
- * Called by documents loaded from jar files to indicate that they can access
- * this document.
- */
-function poke(description) {
-  ok(false, gCurrentTest['name'] + ": got unexpected poke: " + description);
-  gNumPokes++;
-}
-
-function loadEvent(window, callback)
-{
-  var fn = function() {
-    window.removeEventListener("load", fn, false);
-    callback();
-  };
-  window.addEventListener("load", fn, false);
-}
-
-function loadTestTarget(callback)
-{
-  gTargetWindow = window.open("http://mochi.test:8888", "bug369814target");
-  loadEvent(gTargetWindow, callback);
-}
-
-function closeTestTarget()
-{
-  gTargetWindow.close();
-  gTargetWindow = null;
-}
-
-function loadErrorTest(test)
-{
-  // Give the frame a chance to fail at loading.
-  // How do detect failure to load?  Error pages don't fire load
-  // events.  But we can load another page before the error page and
-  // then use its unload handler to know when the error page is just
-  // about loaded; at that point a single trip through the event loop
-  // should do the trick.
-  loadEvent(gTestFrame, function() {
-      gTestFrame.src = test['url'];
-    });
-  gTestFrame.unloading = function() {
-    gTestFrame.unloading = null;
-    // Go out to the event loop once so that unload processing finishes and
-    // the new document is set up.
-    setTimeout(function() {
-      // XXX: There doesn't seem to be a reliable check for "got an error,"
-      // but reaching in to an error document will throw an exception
-      var errorPage;
-      try {
-        var item = gTestFrame.contentDocument.getElementById(gCurrentTest['data-iframe']);
-        errorPage = false;
-      } catch (e) {
-        errorPage = true;
-      }
-      ok(errorPage, gCurrentTest["name"] + ": should block a suspicious JAR load.");
-
-      finishTest();
-    }, 0);
-  }
-  var unloadDetector = "data:text/html,<script>window.onunload = function() { frameElement.unloading(); }</" + "script>";
-  gTestFrame.src = unloadDetector;
-}
-
-function iframeTest(test) {
-  gTestFrame.src = test['url'];
-  loadEvent(gTestFrame, function() {
-      finishTest();
-    });
-}
-
-
-function hitEventLoop(func, times) {
-  if (times > 0) {
-    SimpleTest.executeSoon(function() { hitEventLoop(func, times-1); });
-  } else {
-    SimpleTest.executeSoon(func);
-  }
-}
-
-function refreshTest(test) {
-  gTestFrame.src = test['url'];
-  loadEvent(gTestFrame, function() {
-      // Wait for the frame to try and refresh
-      // XXX: a "blocked redirect" signal would be needed to get rid of
-      // this timeout.
-      hitEventLoop(function() {
-          finishTest();
-        }, gLoadEventLoopCount);
-    });
-}
-
-function anchorTest(test) {
-  loadTestTarget(function() {
-      gTestFrame.src = test['url'];
-      loadEvent(gTestFrame, function() {
-        sendMouseEvent({type:'click'}, 'target', gTestFrame.contentWindow);
-        sendMouseEvent({type:'click'}, 'notarget', gTestFrame.contentWindow);
-
-        // Give the clicks a chance to load
-        hitEventLoop(function() {
-            closeTestTarget();
-            finishTest();
-          }, gLoadEventLoopCount);
-        });
-    });
-}
-
-var gTests = [
-  { "name" : "iframes.html loaded from non-jar type, pref disabled",
-    "url" : "jar:http://mochi.test:8888/tests/docshell/test/bug369814.zip!/iframes.html",
-    "pref" : false,
-    "pokes" : { },
-    "func" : loadErrorTest,
-  },
-  { "name" : "refresh.html loaded from non-jar type, pref enabled",
-    "url" : "jar:http://mochi.test:8888/tests/docshell/test/bug369814.zip!/refresh.html",
-    "pref" : true,
-    "pokes" : { },
-    "func" : refreshTest,
-  },
-  { "name" : "iframes.html loaded from non-jar type, pref enabled",
-    "url" : "jar:http://mochi.test:8888/tests/docshell/test/bug369814.zip!/iframes.html",
-    "pref" : true,
-    "pokes" : { },
-    "func" : iframeTest,
-  },
-  { "name" : "anchors.html loaded from non-jar type, pref enabled",
-    "url" : "jar:http://mochi.test:8888/tests/docshell/test/bug369814.zip!/anchors.html",
-    "pref" : true,
-    "pokes" : { },
-    "func" : anchorTest,
-  },
-];
-
-var gNextTest = 0;
-
-function runNextTest()
-{
-  if (gNextTest < gTests.length) {
-    gCurrentTest = gTests[gNextTest++];
-    gNumPokes = 0;
-
-    SpecialPowers.pushPrefEnv({"set": [["network.jar.block-remote-files", false],
-                                       ["network.jar.open-unsafe-types", gCurrentTest['pref']]]}, function() {
-
-      // Create a new frame each time, so our restictions on loads in a
-      // jar:-loaded iframe don't interfere with the test.
-      if (gTestFrame) {
-        document.body.removeChild(gTestFrame);
-      }
-      gTestFrame = document.createElement("iframe");
-      document.body.insertBefore(gTestFrame, $("test"));
-
-      gCurrentTest['func'](gCurrentTest);
-    });
-  } else {
-    SimpleTest.finish();
-  }
-}
-
-function finishTest()
-{
-  SpecialPowers.pushPrefEnv({"set": [["network.jar.open-unsafe-types", false]]}, function() {
-    if (gNumPokes == 0) {
-      ok(true, gCurrentTest["name"] + ": no unexpected pokes");
-    }
-
-    runNextTest();
+// The former script/refresh/anchor cases require a web-loadable JAR URI.
+// UXP 1c261b24f1 makes these local resources. Verify each payload is rejected
+// before scripts/navigation can run, including when unsafe-type loading is on.
+function contentRequest(url, responseType) {
+  return new Promise(resolve => {
+    const xhr = new XMLHttpRequest();
+    let failed = false;
+    xhr.onerror = () => { failed = true; };
+    xhr.onloadend = () => resolve({failed, status: xhr.status, response: xhr.response});
+    // Executor exceptions reject the promise; only an actual channel error
+    // may satisfy the denial assertions below.
+    xhr.open("GET", url, true);
+    xhr.responseType = responseType;
+    xhr.send();
   });
 }
 
-addLoadEvent(runNextTest);
-
+SimpleTest.waitForExplicitFinish();
+(async function testJarNavigationPolicy() {
+  const archive = await contentRequest(
+    "http://mochi.test:8888/tests/docshell/test/bug369814.zip", "arraybuffer");
+  is(archive.status, 200, "The backing HTTP archive is available");
+  is(new Uint8Array(archive.response)[0], 0x50, "The backing resource is a ZIP archive");
+  const cases = [
+    ["iframes.html", false], ["refresh.html", true],
+    ["iframes.html", true], ["anchors.html", true]
+  ];
+  for (const [entry, unsafe] of cases) {
+    await SpecialPowers.pushPrefEnv({set: [
+      ["network.jar.block-remote-files", false], ["network.jar.open-unsafe-types", unsafe]
+    ]});
+    const url = "jar:http://mochi.test:8888/tests/docshell/test/bug369814.zip!/" + entry;
+    const result = await contentRequest(url, "document");
+    ok(result.failed, entry + " is rejected before parsing, unsafe-types=" + unsafe);
+    is(result.status, 0, "Blocked archive payload is not a successful document response");
+    is(result.response, null, "No archive document is exposed to content");
+    await SpecialPowers.popPrefEnv();
+  }
+})().then(() => SimpleTest.finish(), error => {
+  ok(false, "JAR navigation policy check failed: " + error);
+  SimpleTest.finish();
+});
 </script>
 </pre>
 </body>
