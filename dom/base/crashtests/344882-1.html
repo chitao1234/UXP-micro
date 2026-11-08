@@ -6,6 +6,14 @@ var obj;
 function boo()
 {
   obj = document.getElementById("obj");
+  // javascript: object loads are blocked by the scheme policy (as in current
+  // Firefox). Drive the second mutation from the load error instead of waiting
+  // for script execution that the policy intentionally prevents.
+  obj.addEventListener("error", function() {
+    if (obj.data == "javascript:setScriptSrc2();") {
+      setScriptSrc2();
+    }
+  });
   setScriptSrc();
 }
 
