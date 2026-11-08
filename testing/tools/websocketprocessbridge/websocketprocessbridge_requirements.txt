@@ -1,13 +1,19 @@
-twisted==10.2.0
+# Python 3 bridge stack, following Firefox's requirements_3.txt. Keep versions
+# usable by the Python 3.7 test host; do not downgrade the host's native psutil.
+six>=1.16.0
+vcversioner==2.16.0.0
+Twisted==21.2.0
+autobahn==21.2.1
+txaio==21.2.1
+psutil>=5.9.0
 
-# websocket adapter for twisted, might be built into twisted someday
-txws==0.9.1
+# Twisted's Windows process transport needs these native bindings.
+pywin32==306; sys_platform == 'win32' and python_version < '3.8'
+pywin32>=306; sys_platform == 'win32' and python_version >= '3.8'
 
-psutil==3.1.1
-
-# needed by txws, but pypi doesn't know about it
-six==1.10.0
-
-# Needed by iceserver
-ipaddr==2.1.11
-passlib==1.6.5
+# ICE server and its TLS listener. Later upstream TLS pins require Python 3.8+.
+ipaddr==2.2.0
+passlib==1.7.4
+pyOpenSSL==23.3.0
+cryptography==41.0.7
+service_identity==21.1.0

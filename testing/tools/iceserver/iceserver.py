@@ -12,7 +12,6 @@ import random
 import operator
 import os
 import platform
-import string
 import time
 from string import Template
 from twisted.internet import reactor, protocol
@@ -241,7 +240,7 @@ class StunMessage(object):
         error_code_fmt = [3, 1]
         error_code = pack((code // 100, code % 100), error_code_fmt)
         if phrase != None:
-            error_code.extend(bytearray(phrase))
+            error_code.extend(phrase.encode("utf-8"))
         self.attributes.append(StunAttribute(ERROR_CODE, error_code))
 
 #     0                   1                   2                   3
@@ -313,10 +312,10 @@ class StunMessage(object):
                          self.get_xport(xport))
 
     def add_nonce(self, nonce):
-        self.attributes.append(StunAttribute(NONCE, bytearray(nonce)))
+        self.attributes.append(StunAttribute(NONCE, bytearray(nonce, "utf-8")))
 
     def add_realm(self, realm):
-        self.attributes.append(StunAttribute(REALM, bytearray(realm)))
+        self.attributes.append(StunAttribute(REALM, bytearray(realm, "utf-8")))
 
     def calculate_message_digest(self, username, realm, password):
         digest_buf = self.build(MESSAGE_INTEGRITY)
@@ -325,7 +324,7 @@ class StunMessage(object):
         password = passlib.utils.saslprep(str(password))
         key_string = "{}:{}:{}".format(username, realm, password)
         md5 = hashlib.md5()
-        md5.update(key_string)
+        md5.update(key_string.encode("utf-8"))
         key = md5.digest()
         return bytearray(hmac.new(key, digest_buf, hashlib.sha1).digest())
 
@@ -342,7 +341,7 @@ class StunMessage(object):
         username = self.find(USERNAME)
         if not username:
             return None
-        return str(username.data)
+        return username.data.decode("utf-8")
 
     def add_message_integrity(self, username, realm, password):
         dummy_value = bytearray([0]*20)
@@ -401,7 +400,7 @@ class StunHandler(object):
 
     def __init__(self, transport_handler):
         self.client_address = None
-        self.data = str()
+        self.data = bytearray()
         self.transport_handler = transport_handler
 
     def data_received(self, data, address):
@@ -584,7 +583,7 @@ class StunHandler(object):
                   .format(peer_address.host, self.get_allocation_tuple())))
             return
 
-        allocation.transport.write(data_attr.data,
+        allocation.transport.write(bytes(data_attr.data),
                                    (peer_address.host, peer_address.port))
 
     def make_success_response(self, request):
@@ -624,7 +623,7 @@ class StunHandler(object):
                     400,
                     "Missing either USERNAME, NONCE, or REALM")
 
-        if str(username.data) != turn_user:
+        if username.data.decode("utf-8") != turn_user:
             return self.make_challenge_response(
                     request,
                     "Wrong user {}, exp {}".format(username.data, turn_user))
@@ -650,7 +649,7 @@ class UdpStunHandler(protocol.DatagramProtocol):
                                    IPv4Address('UDP', address[0], address[1]))
 
     def write(self, data, address):
-        self.transport.write(str(data), (address.host, address.port))
+        self.transport.write(bytes(data), (address.host, address.port))
 
 
 class TcpStunHandlerFactory(protocol.Factory):
@@ -688,7 +687,7 @@ class TcpStunHandler(protocol.Protocol):
                 allocation.close()
 
     def write(self, data, address):
-        self.transport.write(str(data))
+        self.transport.write(bytes(data))
 
 def get_default_route(family):
     dummy_socket = socket.socket(family, socket.SOCK_DGRAM)
@@ -729,7 +728,7 @@ def create_self_signed_cert(name):
 
     # create a key pair
     k = crypto.PKey()
-    k.generate_key(crypto.TYPE_RSA, 1024)
+    k.generate_key(crypto.TYPE_RSA, 2048)
 
     # create a self-signed cert
     cert = crypto.X509()
@@ -744,17 +743,17 @@ def create_self_signed_cert(name):
     cert.gmtime_adj_notAfter(10*365*24*60*60)
     cert.set_issuer(cert.get_subject())
     cert.set_pubkey(k)
-    cert.sign(k, 'sha1')
+    cert.sign(k, 'sha256')
 
-    open(CERT_FILE, "wt").write(
-        crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-    open(KEY_FILE, "wt").write(
-        crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
+    with open(CERT_FILE, "wb") as cert_file:
+        cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+    with open(KEY_FILE, "wb") as key_file:
+        key_file.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
 
 if __name__ == "__main__":
     random.seed()
 
-    if platform.system() is "Windows":
+    if platform.system() == "Windows":
       # Windows is finicky about allowing real interfaces to talk to loopback.
       interface_4 = v4_address
       interface_6 = v6_address
@@ -791,8 +790,7 @@ if __name__ == "__main__":
         lines = f.readlines();
         lines.pop(0); # Remove BEGIN CERTIFICATE
         lines.pop(); # Remove END CERTIFICATE
-        lines = list(map(string.strip, lines));
-        certbase64 = string.join(lines, '');
+        certbase64 = ''.join(line.strip() for line in lines)
 
         turns_url = ', "turns:' + hostname + '"'
         cert_prop = ', "cert":"' + certbase64 + '"'

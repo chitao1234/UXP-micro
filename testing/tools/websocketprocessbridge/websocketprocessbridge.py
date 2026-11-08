@@ -3,8 +3,9 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from twisted.internet import protocol, reactor
+from twisted.internet.error import ProcessExitedAlready
 from twisted.internet.task import LoopingCall
-import txws
+from autobahn.twisted.websocket import WebSocketServerFactory, WebSocketServerProtocol
 import psutil
 
 import argparse
@@ -23,46 +24,71 @@ class ProcessSide(protocol.ProcessProtocol):
 
     def __init__(self, socketSide):
         self.socketSide = socketSide
+        self.pending = b""
 
     def outReceived(self, data):
         if self.socketSide:
-            lines = data.splitlines()
-            for line in lines:
-                self.socketSide.transport.write(line)
+            # A pipe callback is not a line boundary. The client parses the
+            # first complete ICE configuration as one JSON websocket message.
+            self.pending += data
+            while b"\n" in self.pending:
+                line, self.pending = self.pending.split(b"\n", 1)
+                self.socketSide.sendMessage(line.rstrip(b"\r"), isBinary=False)
 
     def errReceived(self, data):
         self.outReceived(data)
 
     def processEnded(self, reason):
         if self.socketSide:
-            self.outReceived(str(reason))
+            if self.pending:
+                self.socketSide.sendMessage(self.pending, isBinary=False)
+                self.pending = b""
+            self.outReceived(reason.getTraceback().encode("utf-8") + b"\n")
             self.socketSide.processGone()
 
     def socketGone(self):
         self.socketSide = None
         self.transport.loseConnection()
-        self.transport.signalProcess("KILL")
+        try:
+            self.transport.signalProcess("KILL")
+        except ProcessExitedAlready:
+            pass
 
 
-class SocketSide(protocol.Protocol):
+class SocketSide(WebSocketServerProtocol):
     """
     Handles the websocket (I/O, closed connection), and spawning the process
     """
 
     def __init__(self):
+        super(SocketSide, self).__init__()
         self.processSide = None
 
-    def dataReceived(self, data):
+    def onMessage(self, payload, isBinary):
         if not self.processSide:
+            if isBinary:
+                self.sendClose(code=1003, reason="Expected a text process command")
+                return
+            try:
+                data = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                self.sendClose(code=1007, reason="Invalid UTF-8 process command")
+                return
+            if data not in commands:
+                self.sendClose(code=1008, reason="Unknown process command")
+                return
             self.processSide = ProcessSide(self)
-            # We deliberately crash if |data| isn't on the "menu",
-            # or there is some problem spawning.
-            reactor.spawnProcess(self.processSide,
-                                 commands[data][0],
-                                 commands[data],
-                                 env=os.environ)
+            try:
+                reactor.spawnProcess(self.processSide,
+                                     commands[data][0],
+                                     commands[data],
+                                     env=os.environ)
+            except Exception as error:
+                print("Unable to start {}: {}".format(data, error), flush=True)
+                self.sendMessage(str(error).encode("utf-8"), isBinary=False)
+                self.processGone()
 
-    def connectionLost(self, reason):
+    def onClose(self, wasClean, code, reason):
         if self.processSide:
             self.processSide.socketGone()
 
@@ -70,12 +96,6 @@ class SocketSide(protocol.Protocol):
         self.processSide = None
         self.transport.loseConnection()
 
-
-class ProcessSocketBridgeFactory(protocol.Factory):
-    """Builds sockets that can launch/bridge to a process"""
-
-    def buildProtocol(self, addr):
-        return SocketSide()
 
 # Parent process could have already exited, so this is slightly racy. Only
 # alternative is to set up a pipe between parent and child, but that requires
@@ -97,8 +117,9 @@ if __name__ == "__main__":
     parent_checker = LoopingCall(check_parent)
     parent_checker.start(1)
 
-    bridgeFactory = ProcessSocketBridgeFactory()
-    reactor.listenTCP(int(args.port), txws.WebSocketFactory(bridgeFactory))
+    bridgeFactory = WebSocketServerFactory()
+    bridgeFactory.protocol = SocketSide
+    reactor.listenTCP(int(args.port), bridgeFactory)
     print(("websocket/process bridge listening on port %s" % args.port))
     reactor.run()
 
