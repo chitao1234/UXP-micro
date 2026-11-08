@@ -6,6 +6,8 @@
 
 import mozfile
 import unittest
+from io import StringIO
+from unittest import mock
 from mozprofile.permissions import ServerLocations, \
     MissingPrimaryLocationError, MultiplePrimaryLocationsError, \
     DuplicateLocationError, BadPortLocationError, LocationsSyntaxError
@@ -45,10 +47,25 @@ http://example.org:80           privileged
         self.assertEqual(location.options, options)
 
     def create_temp_file(self, contents):
-        f = mozfile.NamedTemporaryFile()
+        f = mozfile.NamedTemporaryFile(mode='w+t')
         f.write(contents)
         f.flush()
         return f
+
+    def test_read_closes_input_on_success_and_error(self):
+        for contents, fails in ((self.locations, False),
+                                (self.locations_no_primary, True),
+                                (self.locations_bad_port, True)):
+            stream = StringIO(contents)
+            with mock.patch('mozprofile.permissions.codecs.open', return_value=stream):
+                if fails:
+                    # Retain the traceback: relying on GC would retain its file.
+                    with self.assertRaises(LocationsSyntaxError) as caught:
+                        ServerLocations('locations.txt')
+                    self.assertIsNotNone(caught.exception)
+                else:
+                    ServerLocations('locations.txt')
+            self.assertTrue(stream.closed)
 
     def test_server_locations(self):
         # write a permissions file

@@ -157,44 +157,44 @@ class ServerLocations(object):
         there any reason to have defaults at all?
         """
 
-        locationFile = codecs.open(filename, "r", "UTF-8")
         lineno = 0
         new_locations = []
 
-        for line in locationFile:
-            line = line.strip()
-            lineno += 1
+        with codecs.open(filename, "r", "UTF-8") as locationFile:
+            for line in locationFile:
+                line = line.strip()
+                lineno += 1
 
-            # check for comments and blank lines
-            if line.startswith("#") or not line:
-                continue
+                # check for comments and blank lines
+                if line.startswith("#") or not line:
+                    continue
 
-            # split the server from the options
-            try:
-                server, options = line.rsplit(None, 1)
-                options = options.split(',')
-            except ValueError:
-                server = line
-                options = []
+                # split the server from the options
+                try:
+                    server, options = line.rsplit(None, 1)
+                    options = options.split(',')
+                except ValueError:
+                    server = line
+                    options = []
 
-            # parse the server url
-            if '://' not in server:
-                server = 'http://' + server
-            scheme, netloc, path, query, fragment = urllib.parse.urlsplit(server)
-            # get the host and port
-            try:
-                host, port = netloc.rsplit(':', 1)
-            except ValueError:
-                host = netloc
-                port = DEFAULT_PORTS.get(scheme, '80')
+                # parse the server url
+                if '://' not in server:
+                    server = 'http://' + server
+                scheme, netloc, path, query, fragment = urllib.parse.urlsplit(server)
+                # get the host and port
+                try:
+                    host, port = netloc.rsplit(':', 1)
+                except ValueError:
+                    host = netloc
+                    port = DEFAULT_PORTS.get(scheme, '80')
 
-            try:
-                location = Location(scheme, host, port, options)
-                self.add(location, suppress_callback=True)
-            except LocationError as e:
-                raise LocationsSyntaxError(lineno, e)
+                try:
+                    location = Location(scheme, host, port, options)
+                    self.add(location, suppress_callback=True)
+                except LocationError as e:
+                    raise LocationsSyntaxError(lineno, e)
 
-            new_locations.append(location)
+                new_locations.append(location)
 
         # ensure that a primary is found
         if check_for_primary and not self.hasPrimary:

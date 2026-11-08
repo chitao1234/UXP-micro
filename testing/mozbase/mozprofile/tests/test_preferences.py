@@ -90,8 +90,8 @@ browser.startup.homepage = http://github.com/
 """
         try:
             fd, name = tempfile.mkstemp(suffix='.ini')
-            os.write(fd, _ini)
-            os.close(fd)
+            with os.fdopen(fd, 'w') as fh:
+                fh.write(_ini)
             commandline = ["--preferences", name]
 
             # test the [DEFAULT] section
@@ -118,8 +118,8 @@ general.warnOnAboutConfig = False
 """
         try:
             fd, name = tempfile.mkstemp(suffix='.ini')
-            os.write(fd, _ini)
-            os.close(fd)
+            with os.fdopen(fd, 'w') as fh:
+                fh.write(_ini)
             commandline = ["--preferences", name]
 
             # test the [DEFAULT] section
@@ -138,14 +138,14 @@ general.warnOnAboutConfig = False
         # we shouldn't have any initial preferences
         initial_prefs = Preferences.read_prefs(prefs_file)
         self.assertFalse(initial_prefs)
-        initial_prefs = file(prefs_file).read().strip()
+        initial_prefs = open(prefs_file).read().strip()
         self.assertFalse(initial_prefs)
 
         # add some preferences
         prefs1 = [("mr.t.quotes", "i aint getting on no plane!")]
         profile.set_preferences(prefs1)
         self.assertEqual(prefs1, Preferences.read_prefs(prefs_file))
-        lines = file(prefs_file).read().strip().splitlines()
+        lines = open(prefs_file).read().strip().splitlines()
         self.assertTrue(any(line.startswith('#MozRunner Prefs Start') for line in lines))
         self.assertTrue(any(line.startswith('#MozRunner Prefs End') for line in lines))
 
@@ -162,14 +162,14 @@ general.warnOnAboutConfig = False
         # we shouldn't have any initial preferences
         initial_prefs = Preferences.read_prefs(prefs_file)
         self.assertFalse(initial_prefs)
-        initial_prefs = file(prefs_file).read().strip()
+        initial_prefs = open(prefs_file).read().strip()
         self.assertFalse(initial_prefs)
 
         # add some preferences
         prefs1 = [("mr.t.quotes", "i aint getting on no plane!")]
         profile.set_persistent_preferences(prefs1)
         self.assertEqual(prefs1, Preferences.read_prefs(prefs_file))
-        lines = file(prefs_file).read().strip().splitlines()
+        lines = open(prefs_file).read().strip().splitlines()
         self.assertTrue(any(line.startswith('#MozRunner Prefs Start') for line in lines))
         self.assertTrue(any(line.startswith('#MozRunner Prefs End') for line in lines))
 
@@ -187,7 +187,7 @@ general.warnOnAboutConfig = False
         # we shouldn't have any initial preferences
         initial_prefs = Preferences.read_prefs(prefs_file)
         self.assertFalse(initial_prefs)
-        initial_prefs = file(prefs_file).read().strip()
+        initial_prefs = open(prefs_file).read().strip()
         self.assertFalse(initial_prefs)
 
         # add some preferences
@@ -195,7 +195,7 @@ general.warnOnAboutConfig = False
                   ("zoom.minPercent", 30)]
         profile.set_preferences(prefs1)
         self.assertEqual(prefs1, Preferences.read_prefs(prefs_file))
-        lines = file(prefs_file).read().strip().splitlines()
+        lines = open(prefs_file).read().strip().splitlines()
         self.assertTrue(bool([line for line in lines
                               if line.startswith('#MozRunner Prefs Start')]))
         self.assertTrue(bool([line for line in lines
@@ -206,7 +206,7 @@ general.warnOnAboutConfig = False
                   ("webgl.verbose", 'false')]
         profile.set_preferences(prefs2)
         self.assertEqual(prefs1 + prefs2, Preferences.read_prefs(prefs_file))
-        lines = file(prefs_file).read().strip().splitlines()
+        lines = open(prefs_file).read().strip().splitlines()
         self.assertTrue(len([line for line in lines
                              if line.startswith('#MozRunner Prefs Start')]) == 2)
         self.assertTrue(len([line for line in lines
@@ -216,7 +216,7 @@ general.warnOnAboutConfig = False
         profile.clean_preferences()
         final_prefs = Preferences.read_prefs(prefs_file)
         self.assertFalse(final_prefs)
-        lines = file(prefs_file).read().strip().splitlines()
+        lines = open(prefs_file).read().strip().splitlines()
         self.assertTrue('#MozRunner Prefs Start' not in lines)
         self.assertTrue('#MozRunner Prefs End' not in lines)
 
@@ -233,7 +233,7 @@ user_pref("webgl.enabled_for_all_sites", true);
 user_pref("webgl.force-enabled", true);
 """
             user_js = os.path.join(tempdir, 'user.js')
-            f = file(user_js, 'w')
+            f = open(user_js, 'w')
             f.write(contents)
             f.close()
 
@@ -265,7 +265,7 @@ user_pref("webgl.force-enabled", true);
         Ensure that multiple comments in the file header do not break reading
         the prefs (https://bugzilla.mozilla.org/show_bug.cgi?id=1233534).
         """
-        user_js = tempfile.NamedTemporaryFile(suffix='.js', delete=False)
+        user_js = tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False)
         self.addCleanup(mozfile.remove, user_js.name)
         with user_js:
             user_js.write("""
@@ -293,7 +293,7 @@ user_pref("webgl.force-enabled", true);
         json = '{"browser.startup.homepage": "http://planet.mozilla.org/"}'
 
         # just repr it...could use the json module but we don't need it here
-        with mozfile.NamedTemporaryFile(suffix='.json') as f:
+        with mozfile.NamedTemporaryFile(mode='w+', suffix='.json') as f:
             f.write(json)
             f.flush()
 
@@ -314,7 +314,7 @@ user_pref("webgl.force-enabled", true);
         path = None
         read_prefs = None
         try:
-            with mozfile.NamedTemporaryFile(suffix='.js', delete=False) as f:
+            with mozfile.NamedTemporaryFile(mode='w+', suffix='.js', delete=False) as f:
                 path = f.name
                 preferences.write(f, _prefs)
 

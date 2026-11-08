@@ -25,7 +25,7 @@ http://127.0.0.1:8888           privileged
 
     def setUp(self):
         self.profile_dir = tempfile.mkdtemp()
-        self.locations_file = mozfile.NamedTemporaryFile()
+        self.locations_file = mozfile.NamedTemporaryFile(mode='w+t')
         self.locations_file.write(self.locations)
         self.locations_file.flush()
 
