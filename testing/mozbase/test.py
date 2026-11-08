@@ -9,7 +9,7 @@ run mozbase tests from a manifest,
 by default https://github.com/mozilla/mozbase/blob/master/test-manifest.ini
 """
 
-import imp
+import importlib.util
 import manifestparser
 import mozinfo
 import optparse
@@ -33,8 +33,15 @@ def unittests(path):
     directory = os.path.dirname(path)
     sys.path.insert(0, directory)  # insert directory into path for top-level imports
     modname = os.path.splitext(os.path.basename(path))[0]
-    module = imp.load_source(modname, path)
-    sys.path.pop(0)  # remove directory from global path
+    # imp.load_source reuses an existing module's dictionary. Several suites
+    # contain test.py; reusing it leaks classes and replaces prior tests' globals.
+    spec = importlib.util.spec_from_file_location(modname, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[modname] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)  # remove directory from global path
     loader = unittest.TestLoader()
     suite = loader.loadTestsFromModule(module)
     for test in suite:

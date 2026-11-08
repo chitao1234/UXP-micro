@@ -49,6 +49,7 @@ class StructuredTestResult(TextTestResult):
         self.test_list = kwargs.pop("test_list", [])
         self.result_callbacks = kwargs.pop('result_callbacks', [])
         self.passed = 0
+        self.tests_passed = []
         self.testsRun = 0
         TextTestResult.__init__(self, *args, **kwargs)
 
@@ -68,10 +69,26 @@ class StructuredTestResult(TextTestResult):
 
     def startTest(self, test):
         self.testsRun += 1
+        self._test_results = []
         self.logger.test_start(test.id())
 
     def stopTest(self, test):
-        pass
+        if not self._test_results:
+            return
+        # unittest can report both a method failure and a teardown/cleanup error.
+        # Retain every diagnostic, but the structured protocol permits one end.
+        priority = {'PASS': 0, 'SKIP': 1, 'FAIL': 2, 'ERROR': 3}
+        status, data = max(self._test_results, key=lambda item: priority[item[0]])
+        data = dict(data)
+        for field in ('message', 'stack'):
+            values = [result[field] for _, result in self._test_results
+                      if result.get(field)]
+            if values:
+                data[field] = '\n'.join(values)
+        self.logger.test_end(test.id(), status, **data)
+
+    def _record_test_end(self, test, status, **data):
+        self._test_results.append((status, data))
 
     def stopTestRun(self):
         # This would be an opportunity to call the logger's suite_end action,
@@ -123,10 +140,10 @@ class StructuredTestResult(TextTestResult):
         }
 
     def addError(self, test, err):
-        self.errors.append((test, self._exc_info_to_string(err, test)))
+        unittest.TestResult.addError(self, test, err)
         extra = self.call_callbacks(test, "ERROR")
         extra.update(self._get_class_method_name(test))
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "ERROR",
                              message=self._extract_err_message(err),
                              expected="PASS",
@@ -134,9 +151,10 @@ class StructuredTestResult(TextTestResult):
                              extra=extra)
 
     def addFailure(self, test, err):
+        unittest.TestResult.addFailure(self, test, err)
         extra = self.call_callbacks(test, "FAIL")
         extra.update(self._get_class_method_name(test))
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "FAIL",
                              message=self._extract_err_message(err),
                              expected="PASS",
@@ -144,16 +162,19 @@ class StructuredTestResult(TextTestResult):
                              extra=extra)
 
     def addSuccess(self, test):
+        self.passed += 1
+        self.tests_passed.append(test)
         extra = self._get_class_method_name(test)
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "PASS",
                              expected="PASS",
                              extra=extra)
 
     def addExpectedFailure(self, test, err):
+        unittest.TestResult.addExpectedFailure(self, test, err)
         extra = self.call_callbacks(test, "FAIL")
         extra.update(self._get_class_method_name(test))
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "FAIL",
                              message=self._extract_err_message(err),
                              expected="FAIL",
@@ -161,17 +182,19 @@ class StructuredTestResult(TextTestResult):
                              extra=extra)
 
     def addUnexpectedSuccess(self, test):
+        unittest.TestResult.addUnexpectedSuccess(self, test)
         extra = self.call_callbacks(test, "PASS")
         extra.update(self._get_class_method_name(test))
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "PASS",
                              expected="FAIL",
                              extra=extra)
 
     def addSkip(self, test, reason):
+        unittest.TestResult.addSkip(self, test, reason)
         extra = self.call_callbacks(test, "SKIP")
         extra.update(self._get_class_method_name(test))
-        self.logger.test_end(test.id(),
+        self._record_test_end(test,
                              "SKIP",
                              message=reason,
                              expected="PASS",
