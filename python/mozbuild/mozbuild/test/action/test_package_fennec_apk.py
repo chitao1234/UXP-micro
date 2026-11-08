@@ -7,12 +7,13 @@ from __future__ import unicode_literals
 
 import os
 import unittest
+from importlib.util import find_spec
 
 import mozunit
 
-from mozbuild.action.package_fennec_apk import (
-    package_fennec_apk as package,
-)
+package_spec = find_spec('mozbuild.action.package_fennec_apk')
+if package_spec is not None:
+    from mozbuild.action.package_fennec_apk import package_fennec_apk as package
 from mozpack.mozjar import JarReader
 import mozpack.path as mozpath
 
@@ -25,6 +26,8 @@ def data(name):
     return os.path.join(test_data_path, name)
 
 
+@unittest.skipUnless(package_spec is not None,
+                     'Fennec packaging was removed by UXP ce0cefe053')
 class TestPackageFennecAPK(unittest.TestCase):
     """
     Unit tests for package_fennec_apk.py.

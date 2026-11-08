@@ -34,6 +34,8 @@ class TestCompareMozconfigs(unittest.TestCase):
         """ A wrapper script that calls compare-mozconfig.py
         based on the platform that the machine is building for"""
         platform = determine_platform()
+        if platform is None:
+            self.skipTest('No Firefox release mozconfig mapping for this target')
 
         if platform is not None:
             python_exe = substs['PYTHON']
@@ -41,6 +43,8 @@ class TestCompareMozconfigs(unittest.TestCase):
 
             # construct paths and args for compare-mozconfig
             browser_dir = path.join(topsrcdir, 'browser')
+            if not path.isdir(browser_dir):
+                self.skipTest('Firefox release application/configs are not in this tree')
             script_path = path.join(topsrcdir, 'build/compare-mozconfig/compare-mozconfigs.py')
             whitelist_path = path.join(browser_dir, 'config/mozconfigs/whitelist')
             beta_mozconfig_path = path.join(browser_dir, 'config/mozconfigs', platform, 'beta')

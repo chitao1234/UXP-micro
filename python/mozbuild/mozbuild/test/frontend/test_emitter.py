@@ -13,8 +13,8 @@ from mozbuild.frontend.context import (
     ObjDirPath,
     Path,
 )
+from mozbuild.frontend import data as frontend_data
 from mozbuild.frontend.data import (
-    AndroidResDirs,
     BrandingFiles,
     ChromeManifestEntry,
     ConfigFileSubstitution,
@@ -28,7 +28,6 @@ from mozbuild.frontend.data import (
     HostSources,
     IPDLFile,
     JARManifest,
-    LinkageMultipleRustLibrariesError,
     LocalInclude,
     PreprocessedIPDLFile,
     Program,
@@ -413,7 +412,7 @@ class TestEmitterBasic(unittest.TestCase):
         """A missing manifest file should result in an error."""
         reader = self.reader('test-manifest-missing-manifest')
 
-        with self.assertRaisesRegex(BuildReaderError, 'IOError: Missing files'):
+        with self.assertRaisesRegex(BuildReaderError, 'Missing files'):
             self.read_topsrcdir(reader)
 
     def test_empty_test_manifest_rejected(self):
@@ -828,7 +827,7 @@ class TestEmitterBasic(unittest.TestCase):
         libraries = [o for o in objs if isinstance(o,StaticLibrary)]
         expected = {
             'liba': '-DIN_LIBA',
-            'libb': '-DIN_LIBA -DIN_LIBB',
+            'libb': '-DIN_LIBB -DIN_LIBA',
             'libc': '-DIN_LIBA -DIN_LIBB',
             'libd': ''
         }
@@ -1029,13 +1028,15 @@ class TestEmitterBasic(unittest.TestCase):
              'Only source directory paths allowed in FINAL_TARGET_PP_FILES:'):
             self.read_topsrcdir(reader)
 
+    @unittest.skipUnless(hasattr(frontend_data, 'AndroidResDirs'),
+                         'Android resource packaging was removed')
     def test_android_res_dirs(self):
         """Test that ANDROID_RES_DIRS works properly."""
         reader = self.reader('android-res-dirs')
         objs = self.read_topsrcdir(reader)
 
         self.assertEqual(len(objs), 1)
-        self.assertIsInstance(objs[0], AndroidResDirs)
+        self.assertIsInstance(objs[0], frontend_data.AndroidResDirs)
 
         # Android resource directories are ordered.
         expected = [

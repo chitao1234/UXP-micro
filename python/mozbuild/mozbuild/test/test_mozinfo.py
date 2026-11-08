@@ -200,6 +200,7 @@ class TestBuildDict(unittest.TestCase, Base):
         )))
         self.assertEqual(True, d['debug'])
 
+    @unittest.skip('Crash reporting was removed by UXP 4e368f8199')
     def test_crashreporter(self):
         """
         Test that crashreporter values are properly detected.
@@ -241,7 +242,8 @@ class TestWriteMozinfo(unittest.TestCase, Base):
         ))
         tempdir = tempfile.tempdir
         c.topsrcdir = tempdir
-        with NamedTemporaryFile(dir=os.path.normpath(c.topsrcdir)) as mozconfig:
+        with NamedTemporaryFile(dir=os.path.normpath(c.topsrcdir),
+                                mode='wt') as mozconfig:
             mozconfig.write('unused contents')
             mozconfig.flush()
             c.mozconfig = mozconfig.name

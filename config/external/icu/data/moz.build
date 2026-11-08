@@ -17,9 +17,10 @@ data_file = {
     'little': 'icudt%sl.dat' % CONFIG['MOZ_ICU_VERSION'],
     'big': 'icudt%sb.dat' % CONFIG['MOZ_ICU_VERSION'],
 }
+endianness = CONFIG['TARGET_ENDIANNESS'] or 'little'
 
 ASFLAGS += [
-    '-DICU_DATA_FILE="%s"' % data_file[CONFIG['TARGET_ENDIANNESS']],
+    '-DICU_DATA_FILE="%s"' % data_file[endianness],
     '-DICU_DATA_SYMBOL=icudt%s_dat' % CONFIG['MOZ_ICU_VERSION'],
 ]
 LOCAL_INCLUDES += ['.']
@@ -35,5 +36,5 @@ elif CONFIG['GNU_AS']:
 
 if CONFIG['MOZ_ICU_DATA_ARCHIVE']:
     # Copy the pre-built ICU data file to dist/bin.
-    FINAL_TARGET_FILES += [data_file[CONFIG['TARGET_ENDIANNESS']]]
+    FINAL_TARGET_FILES += [data_file[endianness]]
 

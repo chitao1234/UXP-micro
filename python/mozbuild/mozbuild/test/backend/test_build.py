@@ -5,6 +5,7 @@
 from __future__ import unicode_literals, print_function
 
 import buildconfig
+import io
 import os
 import shutil
 import sys
@@ -12,7 +13,7 @@ import unittest
 import mozpack.path as mozpath
 from contextlib import contextmanager
 from mozunit import main
-from mozbuild.backend import get_backend_class
+from mozbuild.backend import backends, get_backend_class
 from mozbuild.backend.configenvironment import ConfigEnvironment
 from mozbuild.backend.recursivemake import RecursiveMakeBackend
 from mozbuild.backend.fastermake import FasterMakeBackend
@@ -93,6 +94,8 @@ class TestBuild(unittest.TestCase):
 
             self.validate(config)
 
+    @unittest.skipUnless('FasterMake+RecursiveMake' in backends,
+                         'The hybrid backend was removed')
     def test_faster_recursive_make(self):
         substs = list(BASE_SUBSTS) + [
             ('BUILD_BACKENDS', 'FasterMake+RecursiveMake'),
@@ -144,14 +147,14 @@ class TestBuild(unittest.TestCase):
 
     def validate(self, config):
         self.maxDiff = None
-        test_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                 'data', 'build') + os.sep
+        test_path = os.path.normpath(mozpath.join(
+            mozpath.dirname(mozpath.abspath(__file__)), 'data', 'build')) + os.sep
 
         # We want unicode instances out of the files, because having plain str
         # makes assertEqual diff output in case of error extra verbose because
         # of the difference in type.
         result = {
-            p: f.open().read().decode('utf-8')
+            p: io.TextIOWrapper(f.open(), encoding='utf-8').read()
             for p, f in FileFinder(mozpath.join(config.topobjdir, 'dist'))
         }
         self.assertTrue(len(result))
