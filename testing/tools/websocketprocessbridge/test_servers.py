@@ -151,6 +151,17 @@ class IceServerTests(unittest.TestCase):
                     key = crypto.load_privatekey(crypto.FILETYPE_PEM, stream.read())
                 self.assertEqual(key.bits(), 2048)
                 self.assertEqual(cert.get_signature_algorithm(), b'sha256WithRSAEncryption')
+                self.assertEqual(cert.get_subject().CN, 'localhost')
+                self.assertTrue(any(str(cert.get_extension(index)) == 'DNS:localhost'
+                                    for index in range(cert.get_extension_count())))
+                # A different advertised interface must not reuse a certificate
+                # whose identity only covers the previous hostname.
+                ice.create_self_signed_cert('127.0.0.1')
+                with open(cert_file, 'rb') as stream:
+                    cert = crypto.load_certificate(crypto.FILETYPE_PEM, stream.read())
+                self.assertEqual(cert.get_subject().CN, '127.0.0.1')
+                self.assertTrue(any(str(cert.get_extension(index)) == 'IP Address:127.0.0.1'
+                                    for index in range(cert.get_extension_count())))
 
 
 if __name__ == '__main__':

@@ -722,33 +722,52 @@ CERT_FILE = "selfsigned.crt"
 KEY_FILE = "private.key"
 
 def create_self_signed_cert(name):
-    from OpenSSL import crypto
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    from ipaddress import ip_address
+    try:
+        certificate_name = x509.IPAddress(ip_address(name))
+    except ValueError:
+        certificate_name = x509.DNSName(name)
     if os.path.isfile(CERT_FILE) and os.path.isfile(KEY_FILE):
-        return
+        with open(CERT_FILE, "rb") as cert_file:
+            previous = x509.load_pem_x509_certificate(cert_file.read())
+        try:
+            previous_names = previous.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName).value
+        except x509.ExtensionNotFound:
+            previous_names = []
+        if certificate_name in previous_names:
+            return
 
-    # create a key pair
-    k = crypto.PKey()
-    k.generate_key(crypto.TYPE_RSA, 2048)
-
-    # create a self-signed cert
-    cert = crypto.X509()
-    cert.get_subject().C = "US"
-    cert.get_subject().ST = "TX"
-    cert.get_subject().L = "Dallas"
-    cert.get_subject().O = "Mozilla test iceserver"
-    cert.get_subject().OU = "Mozilla test iceserver"
-    cert.get_subject().CN = name
-    cert.set_serial_number(1000)
-    cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(10*365*24*60*60)
-    cert.set_issuer(cert.get_subject())
-    cert.set_pubkey(k)
-    cert.sign(k, 'sha256')
+    key = rsa.generate_private_key(key_size=2048, public_exponent=65537)
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "TX"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, "Dallas"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Mozilla test iceserver"),
+        x509.NameAttribute(NameOID.COMMON_NAME, name),
+    ])
+    # Numeric listener addresses need an IP subjectAltName. The browser grants
+    # a self-signed trust override, not a hostname-mismatch override.
+    cert = (x509.CertificateBuilder()
+            .subject_name(subject).issuer_name(subject).serial_number(1000)
+            .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+            .not_valid_after(datetime.datetime.now(datetime.timezone.utc) +
+                             datetime.timedelta(days=365))
+            .public_key(key.public_key())
+            .add_extension(x509.SubjectAlternativeName([certificate_name]), critical=False)
+            .sign(key, hashes.SHA256()))
 
     with open(CERT_FILE, "wb") as cert_file:
-        cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        cert_file.write(cert.public_bytes(serialization.Encoding.PEM))
     with open(KEY_FILE, "wb") as key_file:
-        key_file.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, k))
+        key_file.write(key.private_bytes(serialization.Encoding.PEM,
+                                       serialization.PrivateFormat.PKCS8,
+                                       serialization.NoEncryption()))
 
 if __name__ == "__main__":
     random.seed()
@@ -757,7 +776,10 @@ if __name__ == "__main__":
       # Windows is finicky about allowing real interfaces to talk to loopback.
       interface_4 = v4_address
       interface_6 = v6_address
-      hostname = socket.gethostname()
+      # Advertise the interface we actually bind. On a multihomed Windows
+      # host its computer name can resolve to unrelated adapters or link-local
+      # IPv6 addresses whose scope is lost in a STUN/TURN URL.
+      hostname = interface_4
     else:
       # Our linux builders do not have a hostname that resolves to the real
       # interface.

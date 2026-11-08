@@ -14,6 +14,12 @@
 
   var test;
   runNetworkTest(options => {
+    // Match current Firefox: this fixture verifies UDP srflx. TCP and TLS
+    // are exercised by separate transport-specific NAT fixtures.
+    iceServersArray.forEach(server => {
+      server.urls = server.urls.filter(url =>
+        !url.startsWith("turns:") && !url.includes("transport=tcp"));
+    });
     SpecialPowers.pushPrefEnv(
       {
         'set': [
