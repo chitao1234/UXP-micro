@@ -238,7 +238,7 @@ class InvalidSerialNumber(Error):
 def getASN1Tag(asn1Type):
     """Helper function for returning the base tag value of a given
     type from the pyasn1 package"""
-    return asn1Type.baseTagSet.getBaseTag().asTuple()[2]
+    return asn1Type.tagSet.getBaseTag()[2]
 
 def stringToAccessDescription(string):
     """Helper function that takes a string representing a URI
