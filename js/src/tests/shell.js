@@ -31,7 +31,11 @@
   if (runningInBrowser) {
     // Certain cached functionality only exists (and is only needed) when
     // running in the browser.  Segregate that caching here.
-
+    var SpecialPowersSetGCZeal;
+    if (global.SpecialPowers &&
+        typeof global.SpecialPowers.Cu.getJSTestingFunctions().gczeal === "function") {
+      SpecialPowersSetGCZeal = global.SpecialPowers.setGCZeal;
+    }
   }
 
   var runningInShell = typeof window === "undefined";
@@ -201,6 +205,15 @@
     //     as an integral part of tests in favor of something else.
     quit = function quit() {};
     global.quit = quit;
+  }
+
+  // Expose only a real browser implementation. Leaving the name absent in
+  // unsupported builds lets capability annotations skip stress-dependent tests.
+  if (typeof global.gczeal !== "function" &&
+      typeof SpecialPowersSetGCZeal === "function") {
+    global.gczeal = function gczeal(level) {
+      SpecialPowersSetGCZeal(level);
+    };
   }
 
   /******************************************************

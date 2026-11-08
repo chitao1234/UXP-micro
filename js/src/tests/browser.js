@@ -549,7 +549,8 @@ function registerDialogCloser()
 
 function unregisterDialogCloser()
 {
-  gczeal(0);
+  if (typeof gczeal === "function")
+    gczeal(0);
 
   if (!gDialogCloserObserver || !gDialogCloser)
   {
