@@ -43,10 +43,12 @@ class TestLogging(unittest.TestCase):
         self.assertEqual(len(list_logger.handlers), 1)
         self.assertTrue(isinstance(list_logger.handlers[0],
                                    mozlog.FileHandler))
-        f.close()
-
-        self.assertRaises(ValueError, mozlog.getLogger,
-                          'file.logger', handler=ListHandler())
+        try:
+            self.assertRaises(ValueError, mozlog.getLogger,
+                              'file.logger', handler=ListHandler())
+        finally:
+            list_logger.handlers[0].close()
+            f.close()
 
     def test_timestamps(self):
         """Verifies that timestamps are included when asked for."""
@@ -195,6 +197,7 @@ class TestStructuredLogging(unittest.TestCase):
         message_string = message_string_one + '\n' + \
             message_string_two + '\n' + \
             message_string_three + '\n'
+        message_string = message_string.encode('utf-8')
 
         server_thread = threading.Thread(target=self.log_server.handle_request)
         server_thread.start()
@@ -202,6 +205,8 @@ class TestStructuredLogging(unittest.TestCase):
         host, port = self.log_server.server_address
 
         sock = socket.socket()
+        self.addCleanup(sock.close)
+        self.addCleanup(self.log_server.server_close)
         sock.connect((host, port))
 
         # Sleeps prevent listener from receiving entire message in a single call

@@ -159,7 +159,7 @@ class HTMLFormatter(base.BaseFormatter):
                     # treats '#' as the start of another link if it is contained in the data URL.
                     # Use 'charset=utf-8' to show special characters like Chinese.
                     utf_encoded = str(content).encode('utf-8', 'xmlcharrefreplace')
-                    href = 'data:text/html;charset=utf-8;base64,%s' % base64.b64encode(utf_encoded)
+                    href = 'data:text/html;charset=utf-8;base64,%s' % base64.b64encode(utf_encoded).decode('ascii')
 
                 links_html.append(html.a(
                     name.title(),

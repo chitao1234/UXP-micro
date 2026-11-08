@@ -406,7 +406,7 @@ class TestTypeConversions(BaseStructuredTest):
 
     def test_tuple(self):
         self.logger.suite_start([])
-        self.logger.test_start(("\xf0\x90\x8d\x84\xf0\x90\x8c\xb4\xf0\x90\x8d\x83\xf0\x90\x8d\x84",
+        self.logger.test_start((b"\xf0\x90\x8d\x84\xf0\x90\x8c\xb4\xf0\x90\x8d\x83\xf0\x90\x8d\x84",
                                 42, "\u16a4"))
         self.assert_log_equals({"action": "test_start",
                                 "test": ('\U00010344\U00010334\U00010343\U00010344',
@@ -421,7 +421,7 @@ class TestTypeConversions(BaseStructuredTest):
                                 "level": "INFO"})
         self.logger.info([1, (2, '3'), "s", "s" + chr(255)])
         self.assert_log_equals({"action": "log",
-                                "message": "[1, (2, '3'), 's', 's\\xff']",
+                                "message": "[1, (2, '3'), 's', 's\xff']",
                                 "level": "INFO"})
         self.logger.suite_end()
 
@@ -434,7 +434,7 @@ class TestTypeConversions(BaseStructuredTest):
             self.logger.info("☺")
             logfile.seek(0)
             data = logfile.readlines()[-1].strip()
-            self.assertEqual(data, "☺")
+            self.assertEqual(data.decode("utf-8"), "☺")
             self.logger.suite_end()
 
     def test_arguments(self):
@@ -819,10 +819,21 @@ class TestCommandline(unittest.TestCase):
     def setUp(self):
         self.logfile = mozfile.NamedTemporaryFile()
 
+    def tearDown(self):
+        # setup_logging opens a second handle. The logger state owns it until
+        # explicitly detached, so release it before deleting the fixture file.
+        logger = structuredlog.StructuredLogger('test_fmtopts')
+        for handler in list(logger.handlers):
+            stream = getattr(handler, 'stream', None)
+            if stream is not None and getattr(stream, 'name', None) == self.logfile.name:
+                logger.remove_handler(handler)
+                stream.close()
+        self.logfile.close()
+
     @property
     def loglines(self):
         self.logfile.seek(0)
-        return [line.rstrip() for line in self.logfile.readlines()]
+        return [line.decode("utf-8").rstrip() for line in self.logfile.readlines()]
 
     def test_setup_logging(self):
         parser = argparse.ArgumentParser()

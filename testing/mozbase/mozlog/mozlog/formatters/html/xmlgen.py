@@ -23,6 +23,7 @@ by holger krekel, holger at merlinux eu. 2009
 """
 import sys
 import re
+import builtins
 
 if sys.version_info >= (3, 0):
     def u(s):
@@ -31,7 +32,7 @@ if sys.version_info >= (3, 0):
     def str(x):
         if hasattr(x, '__unicode__'):
             return x.__unicode__()
-        return str(x)
+        return builtins.str(x)
 else:
     def u(s):
         return str(s)
