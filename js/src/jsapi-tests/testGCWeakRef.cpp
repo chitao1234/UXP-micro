@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "gc/Barrier.h"
+#include "builtin/WeakRefObject.h"
 #include "js/RootingAPI.h"
 
 #include "jsapi-tests/tests.h"
@@ -80,6 +81,24 @@ BEGIN_TEST(testGCWeakRef)
     JS_GC(cx);
     EVAL("keptRef.deref()", &v);
     CHECK(v.isUndefined());
+
+#ifdef JS_GC_ZEAL
+    {
+        // Keep this separate from the MyHeap fixture below: its trace hook
+        // assumes a non-null weak pointer and must not outlive its subtest.
+        // Clearing a weak edge requires no pre-barrier, so neither verifier
+        // tracer may treat it as a strong edge.
+        EVAL("new WeakRef({ verifierTarget: true })", &v);
+        JS::Rooted<js::WeakRefObject*> ref(cx, &v.toObject().as<js::WeakRefObject>());
+        JS_GC(cx);
+        JS::ClearWeakRefKeptObjects(cx);
+        cx->gc.startVerifyPreBarriers();
+        CHECK(cx->gc.isVerifyPreBarriersEnabled());
+        ref->target() = nullptr;
+        cx->gc.endVerifyPreBarriers();
+        CHECK(!cx->gc.isVerifyPreBarriersEnabled());
+    }
+#endif
 
     // Create an object and add a property to it so that we can read the
     // property back later to verify that object internals are not garbage.

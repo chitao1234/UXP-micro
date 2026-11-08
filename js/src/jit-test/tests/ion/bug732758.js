@@ -38,4 +38,5 @@ tryItOut("{t:g}");
 tryItOut("r");
 tryItOut("p");
 tryItOut("gc()");
+tryItOut("verifybarriers()");
 tryItOut("/**/yield");

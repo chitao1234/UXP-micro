@@ -1,5 +1,4 @@
-// |jit-test| skip-if: !this.gczeal || !!this.jitTestMissingCapabilities.gczeal
-// |jit-test| allow-oom
+// |jit-test| allow-oom; skip-if: !this.gczeal || !!this.jitTestMissingCapabilities.gczeal
 if (!('oomAfterAllocations' in this))
     quit();
 s = newGlobal();

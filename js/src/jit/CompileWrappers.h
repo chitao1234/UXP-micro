@@ -50,6 +50,10 @@ class CompileRuntime
     // &runtime()->activation_
     const void* addressOfActivation();
 
+#ifdef JS_GC_ZEAL
+    const void* addressOfGCZealModeBits();
+#endif
+
     const void* addressOfInterruptUint32();
 
     // We have to bake JSContext* into JIT code, but this pointer shouldn't be

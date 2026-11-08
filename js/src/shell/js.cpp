@@ -323,6 +323,10 @@ static bool enableSharedMemory = SHARED_MEMORY_DEFAULT;
 static bool enableWasmAlwaysBaseline = false;
 static bool enableArrayProtoValues = true;
 static bool enableStreams = false;
+#ifdef JS_GC_ZEAL
+static uint32_t gZealBits = 0;
+static uint32_t gZealFrequency = 0;
+#endif
 static bool printTiming = false;
 static const char* jsCacheDir = nullptr;
 static const char* jsCacheAsmJSPath = nullptr;
@@ -7856,6 +7860,16 @@ SetContextOptions(JSContext* cx, const OptionParser& op)
     dumpEntrainedVariables = op.getBoolOption("dump-entrained-variables");
 #endif
 
+#ifdef JS_GC_ZEAL
+    const char* zealStr = op.getStringOption("gc-zeal");
+    if (zealStr) {
+        if (!cx->gc.parseAndSetZeal(zealStr))
+            return false;
+        uint32_t nextScheduled;
+        cx->gc.getZealBits(&gZealBits, &gZealFrequency, &nextScheduled);
+    }
+#endif
+
     return true;
 }
 
@@ -7874,6 +7888,16 @@ SetWorkerContextOptions(JSContext* cx)
                              .setStreams(enableStreams);
     cx->setOffthreadIonCompilationEnabled(offthreadCompilation);
     cx->profilingScripts = enableCodeCoverage || enableDisassemblyDumps;
+
+#ifdef JS_GC_ZEAL
+    if (gZealBits && gZealFrequency) {
+#define ZEAL_MODE(_, value)                        \
+        if (gZealBits & (1 << value))              \
+            cx->gc.setZeal(value, gZealFrequency);
+        JS_FOR_EACH_ZEAL_MODE(ZEAL_MODE)
+#undef ZEAL_MODE
+    }
+#endif
 
     JS_SetNativeStackQuota(cx, gMaxStackSize);
 }
@@ -8165,6 +8189,9 @@ main(int argc, char** argv, char** envp)
                             "NUMBER of instructions.", -1)
 #endif
         || !op.addIntOption('\0', "nursery-size", "SIZE-MB", "Set the maximum nursery size in MB", 16)
+#ifdef JS_GC_ZEAL
+        || !op.addStringOption('z', "gc-zeal", "LEVEL(;LEVEL)*[,N]", gc::ZealModeHelpText)
+#endif
         || !op.addStringOption('\0', "module-load-path", "DIR", "Set directory to load modules from")
     )
     {

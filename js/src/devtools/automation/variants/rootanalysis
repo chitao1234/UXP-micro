@@ -3,6 +3,7 @@
     "optimize": true,
     "debug": true,
     "env": {
+        "JS_GC_ZEAL": "GenerationalGC",
         "JSTESTS_EXTRA_ARGS": "--jitflags=debug"
     }
 }

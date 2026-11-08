@@ -59,6 +59,7 @@ class JS_PUBLIC_API(JSTracer)
 
     // Return the weak map tracing behavior currently set on this tracer.
     WeakMapTraceKind weakMapAction() const { return weakMapAction_; }
+    bool traceWeakEdges() const { return traceWeakEdges_; }
 
     enum class TracerKindTag {
         // Marking path: a tracer used only for marking liveness of cells, not
@@ -94,11 +95,14 @@ class JS_PUBLIC_API(JSTracer)
              WeakMapTraceKind weakTraceKind = TraceWeakMapValues)
       : runtime_(rt)
       , weakMapAction_(weakTraceKind)
+      , traceWeakEdges_(true)
 #ifdef DEBUG
       , checkEdges_(true)
 #endif
       , tag_(tag)
     {}
+
+    void setTraceWeakEdges(bool value) { traceWeakEdges_ = value; }
 
 #ifdef DEBUG
     // Set whether to check edges are valid in debug builds.
@@ -110,6 +114,7 @@ class JS_PUBLIC_API(JSTracer)
   private:
     JSRuntime* runtime_;
     WeakMapTraceKind weakMapAction_;
+    bool traceWeakEdges_;
 #ifdef DEBUG
     bool checkEdges_;
 #endif

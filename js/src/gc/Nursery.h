@@ -57,6 +57,8 @@ class NativeObject;
 class Nursery;
 class HeapSlot;
 
+void SetGCZeal(JSRuntime*, uint8_t, uint32_t);
+
 namespace gc {
 class AutoMaybeStartBackgroundAllocation;
 struct Cell;
@@ -293,6 +295,11 @@ class Nursery
                (numChunks() - currentChunk_ - 1) * NurseryChunkUsableSize;
     }
 
+#ifdef JS_GC_ZEAL
+    void enterZealMode();
+    void leaveZealMode();
+#endif
+
     /* Print total profile times on shutdown. */
     void printTotalProfileTimes();
 
@@ -430,6 +437,11 @@ class Nursery
     uint8_t lowDemandCollections_;
 
     friend struct NurseryBackingTest;
+
+#ifdef JS_GC_ZEAL
+    struct Canary;
+    Canary* lastCanary_;
+#endif
 
     NurseryChunk* allocChunk();
 

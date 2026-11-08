@@ -46,6 +46,10 @@ JSString* CreateGCThing(JSContext* cx)
 
 BEGIN_TEST(testGCHeapPostBarriers)
 {
+#ifdef JS_GC_ZEAL
+    AutoLeaveZeal nozeal(cx);
+#endif /* JS_GC_ZEAL */
+
     /* Sanity check - objects start in the nursery and then become tenured. */
     JS_GC(cx);
     JS::RootedObject obj(cx, CreateGCThing<JSObject>(cx));
@@ -60,6 +64,28 @@ BEGIN_TEST(testGCHeapPostBarriers)
     JS_SetNurseryStringsEnabled(cx, true, false);
     CHECK(TestHeapPostBarriersForType<JSString>());
     JS_SetNurseryStringsEnabled(cx, false, false);
+
+#ifdef JS_GC_ZEAL
+    // Restored zeal must collect on allocation, rather than just expose the
+    // testing functions. Also verify the pre-barrier snapshot's lifetime.
+    uint64_t before = cx->gc.gcNumber();
+    JS_SetGCZeal(cx, 2, 1);
+    obj = JS_NewPlainObject(cx);
+    CHECK(obj);
+    CHECK(cx->gc.gcNumber() > before);
+    JS_SetGCZeal(cx, 0, 0);
+
+    JS::RootedValue childValue(cx, JS::ObjectValue(*tenuredObject));
+    CHECK(JS_DefineProperty(cx, obj, "child", childValue, 0));
+    cx->gc.startVerifyPreBarriers();
+    CHECK(cx->gc.isVerifyPreBarriersEnabled());
+    CHECK(!JS::IsGenerationalGCEnabled(cx));
+    childValue.setUndefined();
+    CHECK(JS_SetProperty(cx, obj, "child", childValue));
+    cx->gc.endVerifyPreBarriers();
+    CHECK(!cx->gc.isVerifyPreBarriersEnabled());
+    CHECK(JS::IsGenerationalGCEnabled(cx));
+#endif
 
     return true;
 }

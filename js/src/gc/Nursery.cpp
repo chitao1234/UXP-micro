@@ -73,6 +73,14 @@ struct js::Nursery::SweepAction
 #endif
 };
 
+#ifdef JS_GC_ZEAL
+struct js::Nursery::Canary
+{
+    uintptr_t magicValue;
+    Canary* next;
+};
+#endif
+
 inline void
 js::Nursery::NurseryChunk::poisonAndInit(JSRuntime* rt, uint8_t poison)
 {
@@ -162,6 +170,9 @@ js::Nursery::Nursery(JSRuntime* rt)
   , sweepActions_(nullptr)
   , backingAllocationFailed_(false)
   , lowDemandCollections_(0)
+#ifdef JS_GC_ZEAL
+  , lastCanary_(nullptr)
+#endif
 {}
 
 bool
@@ -234,6 +245,7 @@ void
 js::Nursery::enable()
 {
     MOZ_ASSERT(isEmpty());
+    MOZ_ASSERT(!runtime()->gc.isVerifyPreBarriersEnabled());
     if (isEnabled())
         return;
 
@@ -243,6 +255,10 @@ js::Nursery::enable()
 
     MOZ_ALWAYS_TRUE(setCurrentChunk(0));
     setStartPosition();
+#ifdef JS_GC_ZEAL
+    if (runtime()->hasZealMode(ZealMode::GenerationalGC))
+        enterZealMode();
+#endif
 
     MOZ_ALWAYS_TRUE(runtime()->gc.storeBuffer.enable());
     return;
@@ -266,10 +282,30 @@ js::Nursery::isEmpty() const
     MOZ_ASSERT(runtime_);
     if (!isEnabled())
         return true;
-    MOZ_ASSERT(currentStartChunk_ == 0);
-    MOZ_ASSERT(currentStartPosition_ == chunk(0).start());
+
+    if (!runtime_->hasZealMode(ZealMode::GenerationalGC)) {
+        MOZ_ASSERT(currentStartChunk_ == 0);
+        MOZ_ASSERT(currentStartPosition_ == chunk(0).start());
+    }
     return position() == currentStartPosition_;
 }
+
+#ifdef JS_GC_ZEAL
+void
+js::Nursery::enterZealMode() {
+    if (isEnabled())
+        updateNumChunks(maxNurseryChunks_);
+}
+
+void
+js::Nursery::leaveZealMode() {
+    if (isEnabled()) {
+        MOZ_ASSERT(isEmpty());
+        MOZ_ALWAYS_TRUE(setCurrentChunk(0));
+        setStartPosition();
+    }
+}
+#endif // JS_GC_ZEAL
 
 JSObject*
 js::Nursery::allocateObject(JSContext* cx, size_t size, size_t numDynamic, const js::Class* clasp)
@@ -339,6 +375,12 @@ js::Nursery::allocate(size_t size)
     MOZ_ASSERT(position() % gc::CellSize == 0);
     MOZ_ASSERT(size % gc::CellSize == 0);
 
+#ifdef JS_GC_ZEAL
+    static const size_t CanarySize = (sizeof(Nursery::Canary) + CellSize - 1) & ~CellMask;
+    if (runtime()->gc.hasZealMode(ZealMode::CheckNursery))
+        size += CanarySize;
+#endif
+
     if (currentEnd() < position() + size) {
         if (currentChunk_ + 1 == numChunks())
             return nullptr;
@@ -352,6 +394,19 @@ js::Nursery::allocate(size_t size)
     position_ = position() + size;
 
     JS_EXTRA_POISON(thing, JS_ALLOCATED_NURSERY_PATTERN, size);
+
+#ifdef JS_GC_ZEAL
+    if (runtime()->gc.hasZealMode(ZealMode::CheckNursery)) {
+        auto canary = reinterpret_cast<Canary*>(position() - CanarySize);
+        canary->magicValue = CanaryMagicValue;
+        canary->next = nullptr;
+        if (lastCanary_) {
+            MOZ_ASSERT(!lastCanary_->next);
+            lastCanary_->next = canary;
+        }
+        lastCanary_ = canary;
+    }
+#endif
 
     MemProfiler::SampleNursery(reinterpret_cast<void*>(thing), size);
     return thing;
@@ -594,6 +649,14 @@ js::Nursery::collect(JSRuntime* rt, JS::gcreason::Reason reason)
     rt->gc.incMinorGcNumber();
 #endif
 
+#ifdef JS_GC_ZEAL
+    if (rt->gc.hasZealMode(ZealMode::CheckNursery)) {
+        for (auto canary = lastCanary_; canary; canary = canary->next)
+            MOZ_ASSERT(canary->magicValue == CanaryMagicValue);
+    }
+    lastCanary_ = nullptr;
+#endif
+
     rt->gc.stats.beginNurseryCollection(reason);
     TraceMinorGCStart();
 
@@ -682,6 +745,7 @@ js::Nursery::doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
 {
     AutoTraceSession session(rt, JS::HeapState::MinorCollecting);
     AutoSetThreadIsPerformingGC performingGC;
+    AutoStopVerifyingBarriers av(rt, false);
     AutoDisableProxyCheck disableStrictProxyChecking(rt);
     mozilla::DebugOnly<AutoEnterOOMUnsafeRegion> oomUnsafeRegion;
 
@@ -784,6 +848,10 @@ js::Nursery::doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
 
     // Make sure hashtables have been updated after the collection.
     maybeStartProfile(ProfileKey::CheckHashTables);
+#ifdef JS_GC_ZEAL
+    if (rt->hasZealMode(ZealMode::CheckHashTablesOnMinorGC))
+        CheckHashTablesAfterMovingGC(rt);
+#endif
     maybeEndProfile(ProfileKey::CheckHashTables);
 
     // Calculate and return the promotion rate.
@@ -858,12 +926,23 @@ js::Nursery::sweep()
     runSweepActions();
     sweepDictionaryModeObjects();
 
-    {
-#ifdef JS_CRASH_DIAGNOSTICS
-        for (unsigned i = 0; i < numChunks(); ++i)
-            if (!chunk(i).isDecommitted())
-                chunk(i).poisonAndInit(runtime(), JS_SWEPT_NURSERY_PATTERN);
+#if defined(JS_GC_ZEAL) || defined(JS_CRASH_DIAGNOSTICS)
+    /* Poison the nursery contents so touching a freed object will crash. */
+    for (unsigned i = 0; i < numChunks(); i++) {
+        // Lazy nursery capacity can include inaccessible payload pages.
+        if (!chunk(i).isDecommitted())
+            chunk(i).poisonAndInit(runtime(), JS_SWEPT_NURSERY_PATTERN);
+    }
 #endif
+
+#ifdef JS_GC_ZEAL
+    if (runtime()->hasZealMode(ZealMode::GenerationalGC)) {
+        /* Only reset the alloc point when we are close to the end. */
+        if (currentChunk_ + 1 == numChunks())
+            MOZ_ALWAYS_TRUE(setCurrentChunk(0));
+    } else
+#endif
+    {
         MOZ_ALWAYS_TRUE(setCurrentChunk(0));
     }
 
@@ -905,6 +984,10 @@ js::Nursery::setCurrentChunk(unsigned chunkno)
 void
 js::Nursery::releaseInactiveChunks(unsigned usedChunks)
 {
+    // Generational zeal advances through the whole nursery across collections.
+    // Its empty start position need not be in the first chunk.
+    if (runtime()->hasZealMode(ZealMode::GenerationalGC))
+        return;
     if (!NurseryLazyCommitEnabled() || !isEnabled() || usedChunks > numChunks() / 4) {
         lowDemandCollections_ = 0;
         return;
@@ -957,12 +1040,20 @@ js::Nursery::growAllocableSpace()
 void
 js::Nursery::shrinkAllocableSpace()
 {
+#ifdef JS_GC_ZEAL
+    if (runtime()->hasZealMode(ZealMode::GenerationalGC))
+        return;
+#endif
     updateNumChunks(Max(numChunks() - 1, 1u));
 }
 
 void
 js::Nursery::minimizeAllocableSpace()
 {
+#ifdef JS_GC_ZEAL
+    if (runtime()->hasZealMode(ZealMode::GenerationalGC))
+        return;
+#endif
     updateNumChunks(1);
 }
 

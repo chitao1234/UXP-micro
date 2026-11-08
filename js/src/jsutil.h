@@ -367,7 +367,7 @@ Poison(void* ptr, uint8_t value, size_t num)
 #endif
 
 /* Enable poisoning in crash-diagnostics and zeal builds. */
-#if defined(JS_CRASH_DIAGNOSTICS)
+#if defined(JS_CRASH_DIAGNOSTICS) || defined(JS_GC_ZEAL)
 # define JS_POISON(p, val, size) Poison(p, val, size)
 #else
 # define JS_POISON(p, val, size) ((void) 0)
