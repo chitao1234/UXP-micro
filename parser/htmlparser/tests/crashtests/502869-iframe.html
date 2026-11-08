@@ -5,5 +5,10 @@ x[1].parentNode.removeChild(x[1]);
 x[2].parentNode.removeChild(x[2]);
 </script>
 <div>
-<script>document.write('<'+'script>document.removeChild(document.documentElement);<'+'/script>');</script>
+<script>
+document.write('<'+'script>document.removeChild(document.documentElement);<'+'/script>');
+// This write can create a new script-created document after parsing ends.
+// Close its stream so the parent is not left waiting for that document's load.
+document.close();
+</script>
 </a></body></html>
