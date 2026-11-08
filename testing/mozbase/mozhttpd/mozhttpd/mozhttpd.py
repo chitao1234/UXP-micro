@@ -131,7 +131,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-                self.wfile.write('')
+                self.wfile.write(b'')
 
     def do_POST(self):
         # if we don't have a match, we always fall through to 404 (this may
@@ -140,7 +140,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if not self._try_handler('POST'):
             self.send_response(404)
             self.end_headers()
-            self.wfile.write('')
+            self.wfile.write(b'')
 
     def do_DEL(self):
         # if we don't have a match, we always fall through to 404 (this may
@@ -149,7 +149,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if not self._try_handler('DEL'):
             self.send_response(404)
             self.end_headers()
-            self.wfile.write('')
+            self.wfile.write(b'')
 
     def translate_path(self, path):
         # this is taken from SimpleHTTPRequestHandler.translate_path(),
@@ -277,6 +277,7 @@ class MozHttpd(object):
                 self.httpd.shutdown()
             except AttributeError:
                 pass
+            self.httpd.server_close()
         self.httpd = None
 
     def get_url(self, path="/"):

@@ -20,9 +20,11 @@ class FileListingTest(unittest.TestCase):
 
         httpd = mozhttpd.MozHttpd(port=0, docroot=here)
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
         f = urllib.request.urlopen("http://%s:%s/%s" % ('127.0.0.1', httpd.httpd.server_port, path))
         for line in f.readlines():
-            webline = re.sub('\<[a-zA-Z0-9\-\_\.\=\"\'\/\\\%\!\@\#\$\^\&\*\(\) ]*\>',
+            line = line.decode('utf-8')
+            webline = re.sub('\<[a-zA-Z0-9\-\_\.\=\"\'\/\\\%\!\@\#\$\^\&\*\(\) :;]*\>',
                              '', line.strip('\n')).strip('/').strip().strip('@')
 
             if webline and not webline.startswith("Directory listing for"):

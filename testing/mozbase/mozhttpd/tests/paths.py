@@ -15,7 +15,7 @@ class PathTest(unittest.TestCase):
     def try_get(self, url, expected_contents):
         f = urllib.request.urlopen(url)
         self.assertEqual(f.getcode(), 200)
-        self.assertEqual(f.read(), expected_contents)
+        self.assertEqual(f.read().decode('utf-8'), expected_contents)
 
     def try_get_expect_404(self, url):
         with self.assertRaises(urllib.error.HTTPError) as cm:

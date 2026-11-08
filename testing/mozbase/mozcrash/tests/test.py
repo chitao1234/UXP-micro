@@ -179,7 +179,7 @@ class TestCrash(unittest.TestCase):
         self.stdouts.append(["this is some output"])
 
         def make_zipfile():
-            data = io.StringIO()
+            data = io.BytesIO()
             z = zipfile.ZipFile(data, 'w')
             z.writestr("symbols.txt", "abc/xyz")
             z.close()

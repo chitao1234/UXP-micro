@@ -64,7 +64,7 @@ class ApiTest(unittest.TestCase):
         postdata = {'hamburgers': '1234'}
         try:
             f = urllib.request.urlopen(self.get_url('/api/resource/', server_port, querystr),
-                                data=json.dumps(postdata))
+                                data=json.dumps(postdata).encode('utf-8'))
         except urllib.error.HTTPError as e:
             # python 2.4
             self.assertEqual(e.code, 201)
@@ -105,6 +105,7 @@ class ApiTest(unittest.TestCase):
                                                 'function': self.resource_del}
                                                ])
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
 
         server_port = httpd.httpd.server_port
 
@@ -134,6 +135,7 @@ class ApiTest(unittest.TestCase):
         # to serving local files
         httpd = mozhttpd.MozHttpd(port=0)
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
         server_port = httpd.httpd.server_port
 
         # GET: Return 404 for non-existent endpoint
@@ -149,7 +151,7 @@ class ApiTest(unittest.TestCase):
         exception_thrown = False
         try:
             urllib.request.urlopen(self.get_url('/api/resource/', server_port, None),
-                            data=json.dumps({}))
+                            data=json.dumps({}).encode('utf-8'))
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 404)
             exception_thrown = True
@@ -163,7 +165,7 @@ class ApiTest(unittest.TestCase):
                                                    None))
             request.get_method = lambda: 'DEL'
             opener.open(request)
-        except urllib.error.HTTPError:
+        except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 404)
             exception_thrown = True
         self.assertTrue(exception_thrown)
@@ -174,6 +176,7 @@ class ApiTest(unittest.TestCase):
                                                 'path': '/api/resource/([^/]+)/?',
                                                 'function': self.resource_get}])
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
         server_port = httpd.httpd.server_port
 
         # We defined a docroot, so we expect a directory listing
@@ -182,7 +185,7 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(f.getcode(), 200)
         except AttributeError:
             pass  # python 2.4
-        self.assertTrue('Directory listing for' in f.read())
+        self.assertTrue(b'Directory listing for' in f.read())
 
         # Make sure API methods still work
         self.try_get(server_port, '')
@@ -207,12 +210,13 @@ class ProxyTest(unittest.TestCase):
 
         def index_contents(host): return '%s index' % host
 
-        index = file(os.path.join(docroot, index_filename), 'w')
+        index = open(os.path.join(docroot, index_filename), 'w')
         index.write(index_contents('*'))
         index.close()
 
         httpd = mozhttpd.MozHttpd(port=0, docroot=docroot)
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
         server_port = httpd.httpd.server_port
 
         proxy_support = urllib.request.ProxyHandler({'http': 'http://127.0.0.1:%d' %
@@ -225,7 +229,7 @@ class ProxyTest(unittest.TestCase):
                 self.assertEqual(f.getcode(), 200)
             except AttributeError:
                 pass  # python 2.4
-            self.assertEqual(f.read(), index_contents('*'))
+            self.assertEqual(f.read().decode('utf-8'), index_contents('*'))
 
         httpd.stop()
 
@@ -233,6 +237,7 @@ class ProxyTest(unittest.TestCase):
 
         httpd = mozhttpd.MozHttpd(port=0, docroot=docroot, proxy_host_dirs=True)
         httpd.start(block=False)
+        self.addCleanup(httpd.stop)
         server_port = httpd.httpd.server_port
 
         proxy_support = urllib.request.ProxyHandler({'http': 'http://127.0.0.1:%d' %
@@ -242,7 +247,7 @@ class ProxyTest(unittest.TestCase):
         # set up dirs
         for host in hosts:
             os.mkdir(os.path.join(docroot, host))
-            file(os.path.join(docroot, host, index_filename), 'w') \
+            open(os.path.join(docroot, host, index_filename), 'w') \
                 .write(index_contents(host))
 
         for host in hosts:
@@ -251,7 +256,7 @@ class ProxyTest(unittest.TestCase):
                 self.assertEqual(f.getcode(), 200)
             except AttributeError:
                 pass  # python 2.4
-            self.assertEqual(f.read(), index_contents(host))
+            self.assertEqual(f.read().decode('utf-8'), index_contents(host))
 
         exc = None
         try:
