@@ -1745,7 +1745,10 @@ toolbar#nav-bar {
 
     def getGMPPluginPath(self, options):
         if options.gmp_path:
-            return options.gmp_path
+            # Mozbuild paths use '/', but MOZ_GMP_PATH reaches nsIFile's
+            # native-path API, which rejects forward slashes on Windows.
+            return os.pathsep.join(os.path.normpath(path)
+                                   for path in options.gmp_path.split(os.pathsep))
 
         gmp_parentdirs = [
             # For local builds, GMP plugins will be under dist/bin.
@@ -1770,7 +1773,7 @@ toolbar#nav-bar {
             # This is fatal for desktop environments.
             raise EnvironmentError('Could not find test gmp plugins')
 
-        return os.pathsep.join(gmp_paths)
+        return os.pathsep.join(os.path.normpath(path) for path in gmp_paths)
 
     def cleanup(self, options):
         """ remove temporary files and profile """
