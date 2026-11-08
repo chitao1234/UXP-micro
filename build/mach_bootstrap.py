@@ -393,8 +393,8 @@ class ImportHook(object):
             return module
         self._modules.add(resolved_name)
 
-        # Builtin modules don't have a __file__ attribute.
-        if not hasattr(module, '__file__'):
+        # Builtins lack __file__; Python 3 namespace packages set it to None.
+        if not getattr(module, '__file__', None):
             return module
 
         # Note: module.__file__ is not always absolute.
