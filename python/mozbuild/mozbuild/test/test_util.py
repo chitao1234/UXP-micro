@@ -892,6 +892,18 @@ class TestEnumString(unittest.TestCase):
 
 
 class TestIndentedRepr(unittest.TestCase):
+    def test_configure_enums_roundtrip_without_dynamic_class_definitions(self):
+        CompilerType = EnumString.subclass('gcc', 'clang')
+        value = CompilerType('gcc')
+        obj = {value: {'CC_TYPE': value, 'list': [value], 'tuple': (value,),
+                       'bytes': b'\xff', 'unicode': '\u00e9\n'}}
+        result = eval(indented_repr(obj), {'__builtins__': {}})
+        self.assertEqual(result, obj)
+        self.assertIs(type(next(iter(result))), str)
+        self.assertIs(type(result['gcc']['CC_TYPE']), str)
+        self.assertIs(type(result['gcc']['list'][0]), str)
+        self.assertIs(type(result['gcc']['tuple'][0]), str)
+
     def test_indented_repr(self):
         data = textwrap.dedent(r'''
         {   b'c': 'xyz',

@@ -1240,4 +1240,17 @@ class EnumString(str):
 
 def indented_repr(o, indent=4):
     """Return an indented, evaluable representation of a Python object."""
-    return pprint.pformat(o, indent=indent)
+    # Configure's EnumString values have diagnostic reprs naming dynamically
+    # generated classes. config.status is executed in a fresh namespace, so
+    # serialize them as ordinary strings, as the old recursive writer did.
+    def normalize(value):
+        if isinstance(value, str):
+            return str(value)
+        if isinstance(value, dict):
+            return {normalize(k): normalize(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [normalize(v) for v in value]
+        if isinstance(value, tuple):
+            return tuple(normalize(v) for v in value)
+        return value
+    return pprint.pformat(normalize(o), indent=indent)
