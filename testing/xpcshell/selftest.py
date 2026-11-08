@@ -25,7 +25,7 @@ from runxpcshelltests import XPCShellTests
 
 mozinfo.find_and_update_from_json()
 
-objdir = build_obj.topobjdir.encode("utf-8")
+objdir = build_obj.topobjdir
 
 if mozinfo.isMac:
   xpcshellBin = os.path.join(objdir, "dist", substs['MOZ_MACBUNDLE_NAME'], "Contents", "MacOS", "xpcshell")
@@ -1043,7 +1043,7 @@ add_test({
             self.assertTestResult(True)
         except Exception as ex:
             raised = True
-            self.assertEqual(ex.message[0:9], "head file")
+            self.assertEqual(str(ex)[0:9], "head file")
 
         self.assertTrue(raised)
 
@@ -1060,7 +1060,7 @@ add_test({
             self.assertTestResult(True)
         except Exception as ex:
             raised = True
-            self.assertEqual(ex.message[0:9], "tail file")
+            self.assertEqual(str(ex)[0:9], "tail file")
 
         self.assertTrue(raised)
 
