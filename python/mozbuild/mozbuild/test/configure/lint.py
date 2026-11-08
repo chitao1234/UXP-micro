@@ -51,6 +51,8 @@ class Lint(unittest.TestCase, metaclass=LintMeta):
         os.chdir(self._curdir)
 
     def lint(self, project):
+        if not os.path.isfile(os.path.join(topsrcdir, project, 'moz.configure')):
+            self.skipTest('This platform checkout no longer contains project %s' % project)
         sandbox = LintSandbox({
             'OLD_CONFIGURE': os.path.join(topsrcdir, 'old-configure'),
             'MOZCONFIG': os.path.join(os.path.dirname(test_path), 'data',

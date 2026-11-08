@@ -11,6 +11,11 @@ from common import BaseConfigureTest
 
 
 class TestMozConfigure(BaseConfigureTest):
+    def test_help_resolves_target(self):
+        sandbox = self.get_sandbox({}, {}, ['--help'])
+        target = sandbox._value_for(sandbox['target'])
+        self.assertEqual(target.alias, self.HOST)
+
     def test_moz_configure_options(self):
         def get_value_for(args=[], environ={}, mozconfig=''):
             sandbox = self.get_sandbox({}, {}, args, environ, mozconfig)
@@ -23,12 +28,12 @@ class TestMozConfigure(BaseConfigureTest):
             shell = mozpath.abspath('/bin/sh')
             return result.replace('CONFIG_SHELL=%s ' % shell, '')
 
-        self.assertEqual('--enable-application=browser',
-                          get_value_for(['--enable-application=browser']))
+        self.assertEqual('--enable-project=js',
+                          get_value_for(['--enable-project=js']))
 
-        self.assertEqual('--enable-application=browser '
+        self.assertEqual('--enable-project=js '
                           'MOZ_PROFILING=1',
-                          get_value_for(['--enable-application=browser',
+                          get_value_for(['--enable-project=js',
                                          'MOZ_PROFILING=1']))
 
         value = get_value_for(
@@ -38,23 +43,26 @@ class TestMozConfigure(BaseConfigureTest):
         self.assertEqual('--enable-project=js MOZ_PROFILING=1',
                           value)
 
-        # --disable-js-shell is the default, so it's filtered out.
-        self.assertEqual('--enable-application=browser',
-                          get_value_for(['--enable-application=browser',
-                                         '--disable-js-shell']))
+        # The standalone JS project builds its shell by default.
+        self.assertEqual('--enable-project=js',
+                          get_value_for(['--enable-project=js',
+                                         '--enable-js-shell']))
+        self.assertEqual('--enable-application=js --disable-js-shell',
+                         get_value_for(['--enable-application=js',
+                                        '--disable-js-shell']))
 
         # Normally, --without-foo would be filtered out because that's the
         # default, but since it is a (fake) old-configure option, it always
         # appears.
-        self.assertEqual('--enable-application=browser --without-foo',
-                          get_value_for(['--enable-application=browser',
+        self.assertEqual('--enable-project=js --without-foo',
+                          get_value_for(['--enable-project=js',
                                          '--without-foo']))
-        self.assertEqual('--enable-application=browser --with-foo',
-                          get_value_for(['--enable-application=browser',
+        self.assertEqual('--enable-project=js --with-foo',
+                          get_value_for(['--enable-project=js',
                                          '--with-foo']))
 
-        self.assertEqual("--enable-application=browser '--with-foo=foo bar'",
-                          get_value_for(['--enable-application=browser',
+        self.assertEqual("--enable-project=js '--with-foo=foo bar'",
+                          get_value_for(['--enable-project=js',
                                          '--with-foo=foo bar']))
 
     def test_nsis_version(self):

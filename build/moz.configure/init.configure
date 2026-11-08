@@ -267,10 +267,12 @@ option(env='CONFIG_SHELL', nargs=1, help='Path to a POSIX shell')
 
 # It feels dirty replicating this from python/mozbuild/mozbuild/mozconfig.py,
 # but the end goal being that the configure script would go away...
-@depends('CONFIG_SHELL', 'MOZILLABUILD')
+# Toolkit option defaults need the target platform during --help as well.
+# Keep its shell/host/target dependency chain available in that mode.
+@depends('CONFIG_SHELL', 'MOZILLABUILD', '--help')
 @checking('for a shell')
 @imports('sys')
-def shell(value, mozillabuild):
+def shell(value, mozillabuild, _):
     if value:
         return find_program(value[0])
     shell = 'sh'
@@ -409,10 +411,10 @@ def config_sub(shell, triplet):
                                    universal_newlines=True).strip()
 
 
-@depends('--host', shell)
+@depends('--host', shell, '--help')
 @checking('for host system type', lambda h: h.alias)
 @imports('subprocess')
-def host(value, shell):
+def host(value, shell, _):
     if not value:
         config_guess = os.path.join(os.path.dirname(__file__), '..',
                                     'autoconf', 'config.guess')
@@ -424,9 +426,9 @@ def host(value, shell):
     return split_triplet(config_sub(shell, host))
 
 
-@depends('--target', host, shell)
+@depends('--target', host, shell, '--help')
 @checking('for target system type', lambda t: t.alias)
-def target(value, host, shell):
+def target(value, host, shell, _):
     if not value:
         return host
     return split_triplet(config_sub(shell, value[0]))

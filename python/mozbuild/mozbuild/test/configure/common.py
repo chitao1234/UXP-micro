@@ -258,7 +258,7 @@ class BaseConfigureTest(unittest.TestCase):
 
         if mozconfig:
             fh, mozconfig_path = tempfile.mkstemp()
-            os.write(fh, mozconfig)
+            os.write(fh, mozconfig.encode('utf-8'))
             os.close(fh)
         else:
             mozconfig_path = os.path.join(os.path.dirname(__file__), 'data',
