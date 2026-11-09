@@ -251,7 +251,11 @@ typedef enum
      * or a destination image
      */
     ITER_SRC =			(1 << 5),
-    ITER_DEST =			(1 << 6)
+    ITER_DEST =			(1 << 6),
+
+    /* Round a floating-point result to nearest byte values when storing to
+     * a narrow destination. Not used for dithered or wide-format output. */
+    ITER_ROUND_NEAREST =         (1 << 7)
 } iter_flags_t;
 
 struct pixman_iter_t

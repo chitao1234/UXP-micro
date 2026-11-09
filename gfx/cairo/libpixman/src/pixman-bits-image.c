@@ -1051,6 +1051,39 @@ dest_write_back_narrow (pixman_iter_t *iter)
     iter->y++;
 }
 
+static force_inline uint32_t
+round_to_byte (float value)
+{
+    if (value > 1.0f)
+	value = 1.0f;
+    if (value < 0.0f)
+	value = 0.0f;
+    return (uint32_t) (value * 255.0f + 0.5f);
+}
+
+static void
+dest_write_back_wide_nearest (pixman_iter_t *iter)
+{
+    argb_t *buffer = (argb_t *) iter->buffer;
+    int i;
+
+    /* These blend modes need floating-point intermediates, but their byte
+     * output should use the same nearest rounding as the integer combiners.
+     * Contract in place: each output pixel is smaller than its input, and
+     * the float scanline is fetched again before its next use. Use memcpy
+     * for the store to avoid strict-aliasing assumptions about the views. */
+    for (i = 0; i < iter->width; ++i)
+    {
+	uint32_t pixel = round_to_byte (buffer[i].a) << 24 |
+	                 round_to_byte (buffer[i].r) << 16 |
+	                 round_to_byte (buffer[i].g) << 8 |
+	                 round_to_byte (buffer[i].b);
+	memcpy (iter->buffer + i, &pixel, sizeof (pixel));
+    }
+
+    dest_write_back_narrow (iter);
+}
+
 static const float
 dither_factor_blue_noise_64 (int x, int y)
 {
@@ -1224,7 +1257,8 @@ _pixman_bits_image_dest_iter_init (pixman_image_t *image, pixman_iter_t *iter)
     else
     {
 	iter->get_scanline = dest_get_scanline_wide;
-	iter->write_back = dest_write_back_wide;
+	iter->write_back = (iter->iter_flags & ITER_ROUND_NEAREST) ?
+	    dest_write_back_wide_nearest : dest_write_back_wide;
     }
 }
 

@@ -140,6 +140,7 @@ general_composite_rect  (pixman_implementation_t *imp,
     pixman_combine_32_func_t compose;
     pixman_bool_t component_alpha;
     iter_flags_t width_flag, src_iter_flags;
+    iter_flags_t dest_iter_flags;
     int Bpp;
     int i;
 
@@ -217,9 +218,29 @@ general_composite_rect  (pixman_implementation_t *imp,
 	info->mask_flags);
 
     /* dest iter */
+
+    dest_iter_flags = ITER_DEST | width_flag | op_flags[op].dst;
+    if (width_flag == ITER_WIDE && !mask_image &&
+	(src_image->common.flags & FAST_PATH_NARROW_FORMAT) &&
+	(dest_image->common.flags & FAST_PATH_NARROW_FORMAT) &&
+	(dest_image->bits.dither == PIXMAN_DITHER_NONE))
+    {
+	switch (op)
+	{
+	case PIXMAN_OP_COLOR_BURN:
+	case PIXMAN_OP_SOFT_LIGHT:
+	case PIXMAN_OP_HSL_SATURATION:
+	case PIXMAN_OP_HSL_LUMINOSITY:
+	    dest_iter_flags |= ITER_ROUND_NEAREST;
+	    break;
+	default:
+	    break;
+	}
+    }
+
     _pixman_implementation_iter_init (
 	imp->toplevel, &dest_iter, dest_image, dest_x, dest_y, width, height,
-	dest_buffer, ITER_DEST | width_flag | op_flags[op].dst, info->dest_flags);
+	dest_buffer, dest_iter_flags, info->dest_flags);
 
     compose = _pixman_implementation_lookup_combiner (
 	imp->toplevel, op, component_alpha, width_flag != ITER_WIDE);
