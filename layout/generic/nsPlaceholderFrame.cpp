@@ -205,10 +205,15 @@ nsPlaceholderFrame::GetParentStyleContext(nsIFrame** aProviderFrame) const
     }
   }
 
-  // Lie about our pseudo so we can step out of all anon boxes and
-  // pseudo-elements.  The other option would be to reimplement the
-  // {ib} split gunk here.
-  *aProviderFrame = CorrectStyleParentFrame(GetParent(), nsGkAtoms::placeholderFrame);
+  // Ordinary out-of-flow elements must skip ::first-line when inheriting.
+  // A floated ::first-letter is the exception (issue #2063 / bug 13610):
+  // preserve its real pseudo so it inherits from the first line normally.
+  // Keep the placeholder sentinel for all other out-of-flow frames.
+  nsIAtom* childPseudo = mOutOfFlowFrame &&
+                        mOutOfFlowFrame->GetType() == nsGkAtoms::letterFrame
+    ? mOutOfFlowFrame->StyleContext()->GetPseudo()
+    : nsGkAtoms::placeholderFrame;
+  *aProviderFrame = CorrectStyleParentFrame(GetParent(), childPseudo);
   return *aProviderFrame ? (*aProviderFrame)->StyleContext() : nullptr;
 }
 

@@ -9,9 +9,15 @@
   <style>
   div { color: black; }
   div:first-letter { color: green; }
+  /* Retain issue #2063 / bug 13610: a floated first letter inherits the
+     first-line color, unlike an ordinary float in first-line/out-of-flow-1*. */
+  p { margin: 0; color: red; }
+  p::first-line { color: green; }
+  p::first-letter { float: left; }
   </style>
 </head>
 <body>
   <div>This is text</div>
+  <p>This is text</p>
 </body>
 </html>
