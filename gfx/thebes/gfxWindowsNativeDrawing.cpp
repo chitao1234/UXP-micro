@@ -272,14 +272,12 @@ gfxWindowsNativeDrawing::PaintToContext()
                                                      SurfaceFormat::B8G8R8A8);
         {
             DrawTarget* dt = mContext->GetDrawTarget();
-            AutoRestoreTransform autoRestoreTransform(dt);
-
-            Matrix newTransform = dt->GetTransform();
-            newTransform.PreTranslate(ToPoint(mNativeRect.TopLeft()));
-            dt->SetTransform(newTransform);
-
-            Rect rect(Point(0.0, 0.0), ToSize(mNativeRect.Size()));
+            // Keep the bitmap origin in the pattern. Combining it with the
+            // draw target's transform can lose its fractional sampling phase
+            // when a large translation cancels a scaled native coordinate.
+            Rect rect(ToPoint(mNativeRect.TopLeft()), ToSize(mNativeRect.Size()));
             Matrix m = Matrix::Scaling(1.0 / mScale.width, 1.0 / mScale.height);
+            m.PostTranslate(ToPoint(mNativeRect.TopLeft()));
             SamplingFilter filter = (mNativeDrawFlags & DO_NEAREST_NEIGHBOR_FILTERING)
                                   ? SamplingFilter::LINEAR
                                   : SamplingFilter::GOOD;
