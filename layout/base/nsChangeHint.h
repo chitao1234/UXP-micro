@@ -338,6 +338,7 @@ inline nsChangeHint NS_HintsNotHandledForDescendantsIn(nsChangeHint aChangeHint)
     nsChangeHint_UpdatePostTransformOverflow |
     nsChangeHint_UpdateParentOverflow |
     nsChangeHint_ChildrenOnlyTransform |
+    nsChangeHint_ScrollbarChange |
     nsChangeHint_RecomputePosition |
     nsChangeHint_UpdateContainingBlock |
     nsChangeHint_AddOrRemoveTransform |
