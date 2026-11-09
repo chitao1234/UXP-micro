@@ -41,6 +41,31 @@ is(document.getElementById("clamp-half").getBoundingClientRect().width, 100,
 is(document.getElementById("nested").getBoundingClientRect().width, 180,
    "math functions can participate in calc() expressions");
 
+// An optional angle probe must not consume a length calc() before the gradient
+// position parser gets it. Keep both axes, including signed and nested values.
+for (var value of [
+  "-moz-radial-gradient(calc(50px + 50%) calc(100% - 30px), circle farthest-side, red, green)",
+  "-moz-radial-gradient(calc(50px + 50%) 20px, circle farthest-side, red, green)",
+  "-moz-linear-gradient(calc(-12.5% + 3px) calc(-10px - 50%) -45deg, blue, yellow)",
+  "-moz-radial-gradient(calc(min(50px, 80px) + 50%) 20px, circle farthest-side, red, green)"
+]) {
+  probe.style.backgroundImage = "";
+  probe.style.backgroundImage = value;
+  ok(probe.style.backgroundImage.length > 0, "gradient accepts " + value);
+  ok(!probe.style.backgroundImage.includes(" 50% "),
+     "failed angle probe preserves the explicit Y position: " + value);
+}
+probe.style.backgroundImage = "-moz-linear-gradient(calc(45deg + 45deg), red, blue)";
+ok(probe.style.backgroundImage.length > 0,
+   "successful optional calc() angle remains supported");
+for (var value of [
+  "-moz-radial-gradient(calc(1s + 2px) 20px, circle, red, green)",
+  "-moz-linear-gradient(calc(1deg + 2px), red, blue)"
+]) {
+  ok(!CSS.supports("background-image", value),
+     "backtracking still rejects incompatible calc() dimensions: " + value);
+}
+
 </script>
 </pre>
 </body>

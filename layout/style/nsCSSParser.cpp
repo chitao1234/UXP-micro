@@ -1628,17 +1628,23 @@ protected:
                                          int32_t aVariantMask,
                                          const KTableEntry aKeywordTable[]);
 
-  // Variant parsing methods that are guaranteed to UngetToken any token
-  // consumed on failure
+  // Optional variant probes must restore input and output on failure. calc()
+  // can now consume several tokens even without VARIANT_MULTIPLE_TOKENS.
   bool ParseSingleTokenVariant(nsCSSValue& aValue,
                                int32_t aVariantMask,
                                const KTableEntry aKeywordTable[])
   {
     MOZ_ASSERT(!(aVariantMask & VARIANT_MULTIPLE_TOKENS),
                "use ParseVariant for variants in VARIANT_MULTIPLE_TOKENS");
-    CSSParseResult result = ParseVariant(aValue, aVariantMask, aKeywordTable);
-    MOZ_ASSERT(result != CSSParseResult::Error);
-    return result == CSSParseResult::Ok;
+    nsAutoCSSParserInputStateRestorer inputState(this);
+    nsCSSValue parsed;
+    CSSParseResult result = ParseVariant(parsed, aVariantMask, aKeywordTable);
+    if (result != CSSParseResult::Ok) {
+      return false;
+    }
+    inputState.DoNotRestore();
+    aValue = parsed;
+    return true;
   }
   bool ParseSingleTokenVariantWithRestrictions(
       nsCSSValue& aValue,
@@ -1649,11 +1655,17 @@ protected:
     MOZ_ASSERT(!(aVariantMask & VARIANT_MULTIPLE_TOKENS),
                "use ParseVariantWithRestrictions for variants in "
                "VARIANT_MULTIPLE_TOKENS");
+    nsAutoCSSParserInputStateRestorer inputState(this);
+    nsCSSValue parsed;
     CSSParseResult result =
-      ParseVariantWithRestrictions(aValue, aVariantMask, aKeywordTable,
+      ParseVariantWithRestrictions(parsed, aVariantMask, aKeywordTable,
                                    aRestrictions);
-    MOZ_ASSERT(result != CSSParseResult::Error);
-    return result == CSSParseResult::Ok;
+    if (result != CSSParseResult::Ok) {
+      return false;
+    }
+    inputState.DoNotRestore();
+    aValue = parsed;
+    return true;
   }
   bool ParseSingleTokenNonNegativeVariant(nsCSSValue& aValue,
                                           int32_t aVariantMask,
@@ -1662,10 +1674,16 @@ protected:
     MOZ_ASSERT(!(aVariantMask & VARIANT_MULTIPLE_TOKENS),
                "use ParseNonNegativeVariant for variants in "
                "VARIANT_MULTIPLE_TOKENS");
+    nsAutoCSSParserInputStateRestorer inputState(this);
+    nsCSSValue parsed;
     CSSParseResult result =
-      ParseNonNegativeVariant(aValue, aVariantMask, aKeywordTable);
-    MOZ_ASSERT(result != CSSParseResult::Error);
-    return result == CSSParseResult::Ok;
+      ParseNonNegativeVariant(parsed, aVariantMask, aKeywordTable);
+    if (result != CSSParseResult::Ok) {
+      return false;
+    }
+    inputState.DoNotRestore();
+    aValue = parsed;
+    return true;
   }
   bool ParseSingleTokenOneOrLargerVariant(nsCSSValue& aValue,
                                           int32_t aVariantMask,
@@ -1674,10 +1692,16 @@ protected:
     MOZ_ASSERT(!(aVariantMask & VARIANT_MULTIPLE_TOKENS),
                "use ParseOneOrLargerVariant for variants in "
                "VARIANT_MULTIPLE_TOKENS");
+    nsAutoCSSParserInputStateRestorer inputState(this);
+    nsCSSValue parsed;
     CSSParseResult result =
-      ParseOneOrLargerVariant(aValue, aVariantMask, aKeywordTable);
-    MOZ_ASSERT(result != CSSParseResult::Error);
-    return result == CSSParseResult::Ok;
+      ParseOneOrLargerVariant(parsed, aVariantMask, aKeywordTable);
+    if (result != CSSParseResult::Ok) {
+      return false;
+    }
+    inputState.DoNotRestore();
+    aValue = parsed;
+    return true;
   }
 
   // Helpers for some common ParseSingleTokenNonNegativeVariant calls.
