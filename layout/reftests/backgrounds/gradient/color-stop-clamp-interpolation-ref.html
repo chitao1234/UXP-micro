@@ -3,16 +3,20 @@
   <head>
     <title>Bug 1274624: Clamped colour stop interpolation</title>
     <style type="text/css">
-      div {
+      #clamped {
         background-image: linear-gradient(90deg, rgba(0, 0, 255, 0.6), rgba(0, 0, 255, 0.4));
         background-size: 100px 100px;
         width: 400px;
         height: 400px;
       }
+      .premul { width: 120px; height: 120px; display: inline-block; }
+      .linear { background: linear-gradient(to right, rgba(255, 0, 0, .9) 0%, rgba(255, 0, 0, 0) 50%, rgba(0, 0, 255, 0) 50%, rgba(0, 0, 255, 1) 100%); }
+      .radial { background: radial-gradient(rgba(255, 0, 0, .9) 0%, rgba(255, 0, 0, 0) 50%, rgba(0, 0, 255, 0) 50%, rgba(0, 0, 255, 1) 100%); }
     </style>
   </head>
   <body>
-    <div>
+    <div id="clamped">
     </div>
+    <div class="premul linear"></div><div class="premul radial"></div>
   </body>
 </html>

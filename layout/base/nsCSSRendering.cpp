@@ -2368,7 +2368,7 @@ ComputeRadialGradientLine(nsPresContext* aPresContext,
 }
 
 // Returns aFrac*aC2 + (1 - aFrac)*C1. The interpolation is done
-// in RGBA color space, which is what SVG gradients and cairo
+// in unpremultiplied space, which is what SVG gradients and cairo
 // gradients expect.
 static Color
 InterpolateColor(const Color& aC1, const Color& aC2, float aFrac)
@@ -2450,6 +2450,78 @@ RectIsBeyondLinearGradientEdge(const gfxRect& aRect,
   return false;
 }
 
+static Color Premultiply(const Color& aColor) {
+  gfx::Float a = aColor.a;
+  return Color(aColor.r * a, aColor.g * a, aColor.b * a, a);
+}
+
+static Color Unpremultiply(const Color& aColor) {
+  gfx::Float a = aColor.a;
+  return (a > 0.f) ? Color(aColor.r / a, aColor.g / a, aColor.b / a, a)
+                   : aColor;
+}
+
+static Color TransparentColor(Color aColor) {
+  aColor.a = 0;
+  return aColor;
+}
+
+// Adjusts and adds color stops in such a way that drawing the gradient with
+// unpremultiplied interpolation looks nearly the same as if it were drawn with
+// premultiplied interpolation.
+static const float kAlphaIncrementPerGradientStep = 0.1f;
+static void ResolvePremultipliedAlpha(nsTArray<ColorStop>& aStops) {
+  for (size_t x = 1; x < aStops.Length(); x++) {
+    const ColorStop leftStop = aStops[x - 1];
+    const ColorStop rightStop = aStops[x];
+
+    // if the left and right stop have the same alpha value, we don't need
+    // to do anything. Hardstops should be instant, and also should never
+    // require dealing with interpolation.
+    if (leftStop.mColor.a == rightStop.mColor.a ||
+        leftStop.mPosition == rightStop.mPosition) {
+      continue;
+    }
+
+    // Is the stop on the left 100% transparent? If so, have it adopt the color
+    // of the right stop
+    if (leftStop.mColor.a == 0) {
+      aStops[x - 1].mColor = TransparentColor(rightStop.mColor);
+      continue;
+    }
+
+    // Is the stop on the right completely transparent?
+    // If so, duplicate it and assign it the color on the left.
+    if (rightStop.mColor.a == 0) {
+      ColorStop newStop = rightStop;
+      newStop.mColor = TransparentColor(leftStop.mColor);
+      aStops.InsertElementAt(x, newStop);
+      x++;
+      continue;
+    }
+
+    // Now handle cases where one or both of the stops are partially
+    // transparent.
+    if (leftStop.mColor.a != 1.0f || rightStop.mColor.a != 1.0f) {
+      Color premulLeftColor = Premultiply(leftStop.mColor);
+      Color premulRightColor = Premultiply(rightStop.mColor);
+      // Calculate how many extra steps. We do a step per 10% transparency.
+      size_t stepCount =
+          NSToIntFloor(fabsf(leftStop.mColor.a - rightStop.mColor.a) /
+                       kAlphaIncrementPerGradientStep);
+      for (size_t y = 1; y < stepCount; y++) {
+        float frac = static_cast<float>(y) / stepCount;
+        ColorStop newStop(
+            leftStop.mPosition + frac * (rightStop.mPosition - leftStop.mPosition), false,
+            Unpremultiply(
+                InterpolateColor(premulLeftColor, premulRightColor, frac)));
+        aStops.InsertElementAt(x, newStop);
+        x++;
+      }
+    }
+  }
+}
+
 static void ResolveMidpoints(nsTArray<ColorStop>& stops)
 {
   for (size_t x = 1; x < stops.Length() - 1;) {
@@ -2458,8 +2530,8 @@ static void ResolveMidpoints(nsTArray<ColorStop>& stops)
       continue;
     }
 
-    Color color1 = stops[x-1].mColor;
-    Color color2 = stops[x+1].mColor;
+    Color color1 = Premultiply(stops[x-1].mColor);
+    Color color2 = Premultiply(stops[x+1].mColor);
     float offset1 = stops[x-1].mPosition;
     float offset2 = stops[x+1].mPosition;
     float offset = stops[x].mPosition;
@@ -2473,7 +2545,7 @@ static void ResolveMidpoints(nsTArray<ColorStop>& stops)
     if (offset1 == offset) {
       // Morph the midpoint to a regular stop with the color of the next
       // color stop.
-      stops[x].mColor = color2;
+      stops[x].mColor = Unpremultiply(color2);
       stops[x].mIsMidpoint = false;
       continue;
     }
@@ -2482,7 +2554,7 @@ static void ResolveMidpoints(nsTArray<ColorStop>& stops)
     if (offset2 == offset) {
       // Morph the midpoint to a regular stop with the color of the previous
       // color stop.
-      stops[x].mColor = color1;
+      stops[x].mColor = Unpremultiply(color1);
       stops[x].mIsMidpoint = false;
       continue;
     }
@@ -2520,7 +2592,7 @@ static void ResolveMidpoints(nsTArray<ColorStop>& stops)
       gfx::Float blue = color1.b + multiplier * (color2.b - color1.b);
       gfx::Float alpha = color1.a + multiplier * (color2.a - color1.a);
 
-      newStops[y].mColor = Color(red, green, blue, alpha);
+      newStops[y].mColor = Unpremultiply(Color(red, green, blue, alpha));
     }
 
     stops.ReplaceElementsAt(x, 1, newStops, 9);
@@ -2542,9 +2614,9 @@ InterpolateColorStop(const ColorStop& aFirst, const ColorStop& aSecond,
   }
 
   return ColorStop(aPosition, false,
-                   InterpolateColor(aFirst.mColor,
-                                    aSecond.mColor,
-                                    (aPosition - aFirst.mPosition) / delta));
+                   Unpremultiply(InterpolateColor(
+                     Premultiply(aFirst.mColor), Premultiply(aSecond.mColor),
+                     (aPosition - aFirst.mPosition) / delta)));
 }
 
 // Clamp and extend the given ColorStop array in-place to fit exactly into the
@@ -2714,6 +2786,9 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
     }
   }
 
+  // Resolve interpolation hints before clamping can discard their neighbours.
+  ResolveMidpoints(stops);
+
   // If a non-repeating linear gradient is axis-aligned and there are no gaps
   // between tiles, we can optimise away most of the work by converting to a
   // repeating linear gradient and filling the whole destination rect at once.
@@ -2768,44 +2843,6 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
     lineLength = rectLen;
   }
 
-  // Special case for 'transparent'
-  for (uint32_t i = 0; i < stops.Length(); ++i) {
-    Color color = stops[i].mColor;
-    if (color.r == 0 && color.g == 0 && color.b == 0 && color.a == 0) {
-      // We have (0,0,0,0) as a color stop - this means 'transparent'.
-      // In this case for the usually intended effect, we change the color
-      // of the transparent stop to the color of the adjacent stop with
-      // 0 opacity. If we are not on either edge, we add a stop on both
-      // sides of the transparent point with the adjacent color value.
-      // i.e.: c1 -> c1 (alpha 0) | c2 (alpha 0) -> c2
-      // XXX: We should probably track the use of the transparent keyword
-      // down from the CSS parsing level to here with a flag in mStops, if
-      // rgba(0,0,0,0) ever is an intended thing (very much a corner case).
-      if (i > 0) {
-        // Change stop color to adjacent-previous (color->T)
-        color = stops[i - 1].mColor;
-        color.a = 0;
-        stops[i].mColor = color;
-        if (i < stops.Length() - 1) {
-          // We're in the middle somewhere: insert stop adjacent-next (T->color)
-          Color color2 = stops[i + 1].mColor;
-          color2.a = 0;
-          if (color != color2) {
-            // Only insert an extra stop if c1 is different than c2 in c1->T->c2
-            // Note: A transparent stop is never considered an interpolation hint
-            stops.InsertElementAt(i + 1, ColorStop(stops[i].mPosition, false, color2));
-            i++;
-          }
-        }
-      } else if (i < stops.Length() - 1) {
-        // Change stop color to adjacent-next (T->color)
-        color = stops[i + 1].mColor;
-        color.a = 0;
-        stops[i].mColor = color;
-      }
-    }
-  }
-
   // Eliminate negative-position stops if the gradient is radial.
   double firstStop = stops[0].mPosition;
   if (aGradient->mShape != NS_STYLE_GRADIENT_SHAPE_LINEAR && firstStop < 0.0) {
@@ -2852,7 +2889,8 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
               // CSS 'color-interpolation' property!
               float frac = float((0.0 - pos)/(nextPos - pos));
               stops[i].mColor =
-                InterpolateColor(stops[i].mColor, stops[i + 1].mColor, frac);
+                Unpremultiply(InterpolateColor(Premultiply(stops[i].mColor),
+                                              Premultiply(stops[i + 1].mColor), frac));
             }
           }
         }
@@ -2980,7 +3018,7 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
     stops.AppendElement(ColorStop(firstStop, false, lastColor));
   }
 
-  ResolveMidpoints(stops);
+  ResolvePremultipliedAlpha(stops);
 
   bool isRepeat = aGradient->mRepeating || forceRepeatToCoverTiles;
 
