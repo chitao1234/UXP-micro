@@ -1142,14 +1142,17 @@ _pixman_image_for_gradient (const cairo_gradient_pattern_t *pattern,
 	cairo_radial_pattern_t *radial = (cairo_radial_pattern_t *) pattern;
 	pixman_point_fixed_t c1, c2;
 	pixman_fixed_t r1, r2;
+	cairo_circle_double_t circles[2];
 
-	c1.x = _cairo_fixed_to_16_16 (radial->c1.x);
-	c1.y = _cairo_fixed_to_16_16 (radial->c1.y);
-	r1   = _cairo_fixed_to_16_16 (radial->r1);
+	_cairo_radial_pattern_normalize_concentric (radial, &matrix, circles);
 
-	c2.x = _cairo_fixed_to_16_16 (radial->c2.x);
-	c2.y = _cairo_fixed_to_16_16 (radial->c2.y);
-	r2   = _cairo_fixed_to_16_16 (radial->r2);
+	c1.x = _cairo_fixed_16_16_from_double_clamped (circles[0].center.x);
+	c1.y = _cairo_fixed_16_16_from_double_clamped (circles[0].center.y);
+	r1   = _cairo_fixed_16_16_from_double_clamped (circles[0].radius);
+
+	c2.x = _cairo_fixed_16_16_from_double_clamped (circles[1].center.x);
+	c2.y = _cairo_fixed_16_16_from_double_clamped (circles[1].center.y);
+	r2   = _cairo_fixed_16_16_from_double_clamped (circles[1].radius);
 
 	pixman_image = pixman_image_create_radial_gradient (&c1, &c2, r1, r2,
 							    pixman_stops,

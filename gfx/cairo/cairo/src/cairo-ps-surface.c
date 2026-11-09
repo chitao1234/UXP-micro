@@ -1687,12 +1687,12 @@ _gradient_pattern_supported (cairo_ps_surface_t    *surface,
 	    return FALSE;
 	}
 
-        x1 = _cairo_fixed_to_double (radial->c1.x);
-        y1 = _cairo_fixed_to_double (radial->c1.y);
-        r1 = _cairo_fixed_to_double (radial->r1);
-        x2 = _cairo_fixed_to_double (radial->c2.x);
-        y2 = _cairo_fixed_to_double (radial->c2.y);
-        r2 = _cairo_fixed_to_double (radial->r2);
+        x1 = radial->c1.x;
+        y1 = radial->c1.y;
+        r1 = radial->r1;
+        x2 = radial->c2.x;
+        y2 = radial->c2.y;
+        r2 = radial->r2;
 
         d = sqrt((x2 - x1)*(x2 - x1) + (y2 - y1)*(y2 - y1));
         if (d > fabs(r2 - r1)) {
@@ -3304,12 +3304,12 @@ _cairo_ps_surface_emit_radial_pattern (cairo_ps_surface_t     *surface,
     assert (status == CAIRO_STATUS_SUCCESS);
 
     cairo_matrix_multiply (&pat_to_ps, &pat_to_ps, &surface->cairo_to_ps);
-    x1 = _cairo_fixed_to_double (pattern->c1.x);
-    y1 = _cairo_fixed_to_double (pattern->c1.y);
-    r1 = _cairo_fixed_to_double (pattern->r1);
-    x2 = _cairo_fixed_to_double (pattern->c2.x);
-    y2 = _cairo_fixed_to_double (pattern->c2.y);
-    r2 = _cairo_fixed_to_double (pattern->r2);
+    x1 = pattern->c1.x;
+    y1 = pattern->c1.y;
+    r1 = pattern->r1;
+    x2 = pattern->c2.x;
+    y2 = pattern->c2.y;
+    r2 = pattern->r2;
 
    status = _cairo_ps_surface_emit_pattern_stops (surface, &pattern->base);
    if (unlikely (status))

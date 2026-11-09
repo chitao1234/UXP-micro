@@ -443,12 +443,73 @@ _cairo_pattern_init_radial (cairo_radial_pattern_t *pattern,
 {
     _cairo_pattern_init_gradient (&pattern->base, CAIRO_PATTERN_TYPE_RADIAL);
 
-    pattern->c1.x = _cairo_fixed_from_double (cx0);
-    pattern->c1.y = _cairo_fixed_from_double (cy0);
-    pattern->r1   = _cairo_fixed_from_double (fabs (radius0));
-    pattern->c2.x = _cairo_fixed_from_double (cx1);
-    pattern->c2.y = _cairo_fixed_from_double (cy1);
-    pattern->r2   = _cairo_fixed_from_double (fabs (radius1));
+    pattern->c1.x = cx0 == 0.0 ? 0.0 : cx0;
+    pattern->c1.y = cy0 == 0.0 ? 0.0 : cy0;
+    pattern->r1   = fabs (radius0);
+    pattern->c2.x = cx1 == 0.0 ? 0.0 : cx1;
+    pattern->c2.y = cy1 == 0.0 ? 0.0 : cy1;
+    pattern->r2   = fabs (radius1);
+}
+
+void
+_cairo_radial_pattern_normalize_concentric (const cairo_radial_pattern_t *pattern,
+				   cairo_matrix_t *matrix,
+				   cairo_circle_double_t circles[2])
+{
+    double dim, scale;
+    int exponent;
+
+    circles[0].center = pattern->c1;
+    circles[0].radius = pattern->r1;
+    circles[1].center = pattern->c2;
+    circles[1].radius = pattern->r2;
+
+    /* For concentric circles starting at a point, Pixman's quadratic reduces
+     * to a distance calculation. Offset circles can instead have an almost
+     * zero quadratic coefficient; changing their scale exposes cancellation
+     * in Pixman's root solver. Preserve that path's coordinate scale. */
+    if (pattern->r1 != 0.0 || pattern->r2 <= 0.0 ||
+	pattern->c1.x != pattern->c2.x || pattern->c1.y != pattern->c2.y)
+	return;
+
+    dim = MAX (fabs (pattern->c1.x), fabs (pattern->c1.y));
+    dim = MAX (dim, pattern->r1);
+    dim = MAX (dim, fabs (pattern->c2.x));
+    dim = MAX (dim, fabs (pattern->c2.y));
+    dim = MAX (dim, pattern->r2);
+    dim = MAX (dim, fabs (pattern->c1.x - pattern->c2.x));
+    dim = MAX (dim, fabs (pattern->c1.y - pattern->c2.y));
+    dim = MAX (dim, fabs (pattern->r1 - pattern->r2));
+    dim = MAX (dim, fabs (matrix->xx));
+    dim = MAX (dim, fabs (matrix->xy));
+    dim = MAX (dim, fabs (matrix->x0));
+    dim = MAX (dim, fabs (matrix->yx));
+    dim = MAX (dim, fabs (matrix->yy));
+    dim = MAX (dim, fabs (matrix->y0));
+
+    if (!(dim > 0.0 && dim < HUGE_VAL))
+	return;
+
+    /* Fill the useful 16.16 range, retaining headroom for intermediate
+     * differences. Power-of-two scaling is exact in double precision and
+     * gives scaled copies the same coordinate quantization. */
+    frexp (dim, &exponent);
+    scale = ldexp (1.0, 13 - exponent);
+    if (!(scale > 0.0 && scale < HUGE_VAL))
+	return;
+
+    circles[0].center.x *= scale;
+    circles[0].center.y *= scale;
+    circles[0].radius *= scale;
+    circles[1].center.x *= scale;
+    circles[1].center.y *= scale;
+    circles[1].radius *= scale;
+    matrix->xx *= scale;
+    matrix->xy *= scale;
+    matrix->x0 *= scale;
+    matrix->yx *= scale;
+    matrix->yy *= scale;
+    matrix->y0 *= scale;
 }
 
 cairo_pattern_t *
@@ -1394,14 +1455,17 @@ _cairo_pattern_acquire_surface_for_gradient (const cairo_gradient_pattern_t *pat
 	cairo_radial_pattern_t *radial = (cairo_radial_pattern_t *) pattern;
 	pixman_point_fixed_t c1, c2;
 	pixman_fixed_t r1, r2;
+	cairo_circle_double_t circles[2];
 
-	c1.x = _cairo_fixed_to_16_16 (radial->c1.x);
-	c1.y = _cairo_fixed_to_16_16 (radial->c1.y);
-	r1   = _cairo_fixed_to_16_16 (radial->r1);
+	_cairo_radial_pattern_normalize_concentric (radial, &matrix, circles);
 
-	c2.x = _cairo_fixed_to_16_16 (radial->c2.x);
-	c2.y = _cairo_fixed_to_16_16 (radial->c2.y);
-	r2   = _cairo_fixed_to_16_16 (radial->r2);
+	c1.x = _cairo_fixed_16_16_from_double_clamped (circles[0].center.x);
+	c1.y = _cairo_fixed_16_16_from_double_clamped (circles[0].center.y);
+	r1   = _cairo_fixed_16_16_from_double_clamped (circles[0].radius);
+
+	c2.x = _cairo_fixed_16_16_from_double_clamped (circles[1].center.x);
+	c2.y = _cairo_fixed_16_16_from_double_clamped (circles[1].center.y);
+	r2   = _cairo_fixed_16_16_from_double_clamped (circles[1].radius);
 
 	pixman_image = pixman_image_create_radial_gradient (&c1, &c2,
 							    r1, r2,
@@ -2560,15 +2624,15 @@ _cairo_pattern_get_extents (const cairo_pattern_t         *pattern,
 	    if (radial->r1 == 0 && radial->r2 == 0)
 		goto EMPTY;
 
-	    cx1 = _cairo_fixed_to_double (radial->c1.x);
-	    cy1 = _cairo_fixed_to_double (radial->c1.y);
-	    r = _cairo_fixed_to_double (radial->r1);
+	    cx1 = radial->c1.x;
+	    cy1 = radial->c1.y;
+	    r = radial->r1;
 	    x1 = cx1 - r; x2 = cx1 + r;
 	    y1 = cy1 - r; y2 = cy1 + r;
 
-	    cx2 = _cairo_fixed_to_double (radial->c2.x);
-	    cy2 = _cairo_fixed_to_double (radial->c2.y);
-	    r = fabs (_cairo_fixed_to_double (radial->r2));
+	    cx2 = radial->c2.x;
+	    cy2 = radial->c2.y;
+	    r = fabs (radial->r2);
 
 	    if (pattern->extend != CAIRO_EXTEND_NONE)
 		goto UNBOUNDED;
@@ -3173,17 +3237,17 @@ cairo_pattern_get_radial_circles (cairo_pattern_t *pattern,
 	return _cairo_error (CAIRO_STATUS_PATTERN_TYPE_MISMATCH);
 
     if (x0)
-	*x0 = _cairo_fixed_to_double (radial->c1.x);
+	*x0 = radial->c1.x;
     if (y0)
-	*y0 = _cairo_fixed_to_double (radial->c1.y);
+	*y0 = radial->c1.y;
     if (r0)
-	*r0 = _cairo_fixed_to_double (radial->r1);
+	*r0 = radial->r1;
     if (x1)
-	*x1 = _cairo_fixed_to_double (radial->c2.x);
+	*x1 = radial->c2.x;
     if (y1)
-	*y1 = _cairo_fixed_to_double (radial->c2.y);
+	*y1 = radial->c2.y;
     if (r1)
-	*r1 = _cairo_fixed_to_double (radial->r2);
+	*r1 = radial->r2;
 
     return CAIRO_STATUS_SUCCESS;
 }

@@ -915,12 +915,12 @@ _emit_radial_pattern (cairo_script_surface_t *surface,
 
     _cairo_output_stream_printf (ctx->stream,
 				 "%f %f %f %f %f %f radial",
-				 _cairo_fixed_to_double (radial->c1.x),
-				 _cairo_fixed_to_double (radial->c1.y),
-				 _cairo_fixed_to_double (radial->r1),
-				 _cairo_fixed_to_double (radial->c2.x),
-				 _cairo_fixed_to_double (radial->c2.y),
-				 _cairo_fixed_to_double (radial->r2));
+				 radial->c1.x,
+				 radial->c1.y,
+				 radial->r1,
+				 radial->c2.x,
+				 radial->c2.y,
+				 radial->r2);
     return _emit_gradient_color_stops (&radial->base, ctx->stream);
 }
 

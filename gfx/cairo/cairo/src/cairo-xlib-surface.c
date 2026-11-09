@@ -2148,13 +2148,13 @@ _cairo_xlib_surface_acquire_pattern_surface (cairo_xlib_display_t *display,
 		cairo_radial_pattern_t *radial = (cairo_radial_pattern_t *) pattern;
 		XRadialGradient grad;
 
-		grad.inner.x = _cairo_fixed_to_16_16 (radial->c1.x);
-		grad.inner.y = _cairo_fixed_to_16_16 (radial->c1.y);
-		grad.inner.radius = _cairo_fixed_to_16_16 (radial->r1);
+		grad.inner.x = _cairo_fixed_16_16_from_double_clamped (radial->c1.x);
+		grad.inner.y = _cairo_fixed_16_16_from_double_clamped (radial->c1.y);
+		grad.inner.radius = _cairo_fixed_16_16_from_double_clamped (radial->r1);
 
-		grad.outer.x = _cairo_fixed_to_16_16 (radial->c2.x);
-		grad.outer.y = _cairo_fixed_to_16_16 (radial->c2.y);
-		grad.outer.radius = _cairo_fixed_to_16_16 (radial->r2);
+		grad.outer.x = _cairo_fixed_16_16_from_double_clamped (radial->c2.x);
+		grad.outer.y = _cairo_fixed_16_16_from_double_clamped (radial->c2.y);
+		grad.outer.radius = _cairo_fixed_16_16_from_double_clamped (radial->r2);
 
 		picture = XRenderCreateRadialGradient (display->display, &grad,
 						       stops, colors,

@@ -238,6 +238,18 @@ _cairo_fixed_16_16_from_double (double d)
 #endif
 }
 
+/* Preserve the saturation of _cairo_fixed_to_16_16 when the input geometry
+ * has been retained as a double instead of path fixed-point. */
+static inline cairo_fixed_16_16_t
+_cairo_fixed_16_16_from_double_clamped (double d)
+{
+    if (d >= (double) INT32_MAX / 65536.0)
+	return INT32_MAX;
+    if (d <= (double) INT32_MIN / 65536.0)
+	return INT32_MIN;
+    return _cairo_fixed_16_16_from_double (d);
+}
+
 static inline int
 _cairo_fixed_16_16_floor (cairo_fixed_16_16_t f)
 {

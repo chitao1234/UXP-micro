@@ -1803,8 +1803,8 @@ _cairo_svg_surface_emit_radial_pattern (cairo_svg_surface_t    *surface,
     double fx, fy;
     cairo_bool_t reverse_stops;
     cairo_status_t status;
-    cairo_point_t *c0, *c1;
-    cairo_fixed_t radius0, radius1;
+    cairo_point_double_t *c0, *c1;
+    double radius0, radius1;
 
     extend = pattern->base.base.extend;
 
@@ -1822,12 +1822,12 @@ _cairo_svg_surface_emit_radial_pattern (cairo_svg_surface_t    *surface,
 	reverse_stops = TRUE;
     }
 
-    x0 = _cairo_fixed_to_double (c0->x);
-    y0 = _cairo_fixed_to_double (c0->y);
-    r0 = _cairo_fixed_to_double (radius0);
-    x1 = _cairo_fixed_to_double (c1->x);
-    y1 = _cairo_fixed_to_double (c1->y);
-    r1 = _cairo_fixed_to_double (radius1);
+    x0 = c0->x;
+    y0 = c0->y;
+    r0 = radius0;
+    x1 = c1->x;
+    y1 = c1->y;
+    r1 = radius1;
 
     p2u = pattern->base.base.matrix;
     status = cairo_matrix_invert (&p2u);

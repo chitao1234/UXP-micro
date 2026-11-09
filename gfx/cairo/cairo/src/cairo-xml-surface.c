@@ -540,12 +540,12 @@ _cairo_xml_emit_radial (cairo_xml_t *xml,
 {
     _cairo_xml_printf (xml,
 		       "<radial x1='%f' y1='%f' r1='%f' x2='%f' y2='%f' r2='%f'>",
-		       _cairo_fixed_to_double (radial->c1.x),
-		       _cairo_fixed_to_double (radial->c1.y),
-		       _cairo_fixed_to_double (radial->r1),
-		       _cairo_fixed_to_double (radial->c2.x),
-		       _cairo_fixed_to_double (radial->c2.y),
-		       _cairo_fixed_to_double (radial->r2));
+		       radial->c1.x,
+		       radial->c1.y,
+		       radial->r1,
+		       radial->c2.x,
+		       radial->c2.y,
+		       radial->r2);
     _cairo_xml_indent (xml, 2);
     _cairo_xml_emit_gradient (xml, &radial->base);
     _cairo_xml_indent (xml, -2);

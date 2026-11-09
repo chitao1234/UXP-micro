@@ -1527,12 +1527,12 @@ _cairo_quartz_setup_radial_source (cairo_quartz_surface_t *surface,
     CGFunctionRef gradFunc;
     CGColorSpaceRef rgb;
     bool extend = abspat->extend == CAIRO_EXTEND_PAD;
-    double c1x = _cairo_fixed_to_double (rpat->c1.x);
-    double c1y = _cairo_fixed_to_double (rpat->c1.y);
-    double c2x = _cairo_fixed_to_double (rpat->c2.x);
-    double c2y = _cairo_fixed_to_double (rpat->c2.y);
-    double r1 = _cairo_fixed_to_double (rpat->r1);
-    double r2 = _cairo_fixed_to_double (rpat->r2);
+    double c1x = rpat->c1.x;
+    double c1y = rpat->c1.y;
+    double c2x = rpat->c2.x;
+    double c2y = rpat->c2.y;
+    double r1 = rpat->r1;
+    double r2 = rpat->r2;
     double dx = c1x - c2x;
     double dy = c1y - c2y;
     double centerDistance = sqrt (dx*dx + dy*dy);

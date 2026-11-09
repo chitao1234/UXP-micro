@@ -768,11 +768,11 @@ _vg_setup_radial_source (cairo_vg_context_t *context,
 {
     VGfloat radial[5];
 
-    radial[0] = _cairo_fixed_to_double (rpat->c1.x);
-    radial[1] = _cairo_fixed_to_double (rpat->c1.y);
-    radial[2] = _cairo_fixed_to_double (rpat->c2.x);
-    radial[3] = _cairo_fixed_to_double (rpat->c2.y);
-    radial[4] = _cairo_fixed_to_double (rpat->r2);
+    radial[0] = rpat->c1.x;
+    radial[1] = rpat->c1.y;
+    radial[2] = rpat->c2.x;
+    radial[3] = rpat->c2.y;
+    radial[4] = rpat->r2;
 
     vgSetParameteri (context->paint,
 		     VG_PAINT_COLOR_RAMP_SPREAD_MODE, VG_COLOR_RAMP_SPREAD_PAD);

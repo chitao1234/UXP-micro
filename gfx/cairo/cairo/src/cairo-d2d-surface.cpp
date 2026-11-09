@@ -1371,14 +1371,16 @@ _cairo_d2d_create_radial_gradient_brush(cairo_d2d_surface_t *d2dsurf,
     }
 
     D2D_POINT_2F center =
-	_d2d_point_from_cairo_point(&source_pattern->c2);
+	D2D1::Point2F((float) source_pattern->c2.x,
+	              (float) source_pattern->c2.y);
     D2D_POINT_2F origin =
-	_d2d_point_from_cairo_point(&source_pattern->c1);
+	D2D1::Point2F((float) source_pattern->c1.x,
+	              (float) source_pattern->c1.y);
     origin.x -= center.x;
     origin.y -= center.y;
 
-    float outer_radius = _cairo_fixed_to_float(source_pattern->r2);
-    float inner_radius = _cairo_fixed_to_float(source_pattern->r1);
+    float outer_radius = (float) source_pattern->r2;
+    float inner_radius = (float) source_pattern->r1;
     int num_stops = source_pattern->base.n_stops;
     int repeat_count = 1;
     D2D1_GRADIENT_STOP *stops;
@@ -1399,8 +1401,7 @@ _cairo_d2d_create_radial_gradient_brush(cairo_d2d_surface_t *d2dsurf,
 	top_right.x = bottom_right.x = desc.Width;
 	bottom_right.y = bottom_left.y = desc.Height;
 
-	gradient_center.x = _cairo_fixed_to_float(source_pattern->c1.x);
-	gradient_center.y = _cairo_fixed_to_float(source_pattern->c1.y);
+	gradient_center = source_pattern->c1;
 
 	// Transform surface corners into pattern coordinates.
 	cairo_matrix_transform_point(&source_pattern->base.base.matrix, &top_left.x, &top_left.y);

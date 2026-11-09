@@ -220,6 +220,11 @@ typedef struct _cairo_point_double {
     double y;
 } cairo_point_double_t;
 
+typedef struct _cairo_circle_double {
+    cairo_point_double_t center;
+    double radius;
+} cairo_circle_double_t;
+
 typedef struct _cairo_distance_double {
     double dx;
     double dy;
@@ -399,10 +404,12 @@ typedef struct _cairo_linear_pattern {
 typedef struct _cairo_radial_pattern {
     cairo_gradient_pattern_t base;
 
-    cairo_point_t c1;
-    cairo_fixed_t r1;
-    cairo_point_t c2;
-    cairo_fixed_t r2;
+    /* Keep gradient geometry in double precision until backend conversion.
+     * Quantizing it to path fixed-point here makes scaled copies disagree. */
+    cairo_point_double_t c1;
+    double r1;
+    cairo_point_double_t c2;
+    double r2;
 } cairo_radial_pattern_t;
 
 typedef union {

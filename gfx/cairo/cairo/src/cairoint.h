@@ -2225,6 +2225,11 @@ _cairo_pattern_init_radial (cairo_radial_pattern_t *pattern,
 			    double cx1, double cy1, double radius1);
 
 cairo_private void
+_cairo_radial_pattern_normalize_concentric (const cairo_radial_pattern_t *pattern,
+				   cairo_matrix_t *matrix,
+				   cairo_circle_double_t circles[2]);
+
+cairo_private void
 _cairo_pattern_fini (cairo_pattern_t *pattern);
 
 cairo_private cairo_pattern_t *
