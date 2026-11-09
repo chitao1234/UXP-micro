@@ -787,17 +787,22 @@ static inline nscoord CalcLength(const nsCSSValue& aValue,
 }
 
 static inline nscoord
-CalcLengthTowardZero(const nsCSSValue& aValue,
+CalcBorderLength(const nsCSSValue& aValue,
                      nsStyleContext* aStyleContext,
                      nsPresContext* aPresContext,
                      RuleNodeCacheConditions& aConditions)
 {
   NS_ASSERTION(aStyleContext, "Must have style data");
 
-  return CalcLengthWith(aValue, -1, nullptr,
+  nscoord length = CalcLengthWith(aValue, -1, nullptr,
                         aStyleContext, aPresContext,
                         false, true, aConditions,
                         AppUnitRounding::TowardZero);
+  // Truncation keeps lengths just below a device-pixel boundary below it.
+  // It must not erase lengths which round to one app unit, though: border
+  // snapping then promotes that nonzero length to one device pixel.
+  return length ? length : CalcLength(aValue, aStyleContext, aPresContext,
+                                     aConditions);
 }
 
 already_AddRefed<nsStyleCoord::CalcNode>
@@ -8589,7 +8594,7 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
       } else if (value.IsLengthUnit() || value.IsCalcUnit()) {
         // clamp negative calc() to 0.
         border->SetBorderWidth(side,
-          std::max(CalcLengthTowardZero(value, aContext, mPresContext,
+          std::max(CalcBorderLength(value, aContext, mPresContext,
                                         conditions), 0));
       } else if (eCSSUnit_Inherit == value.GetUnit()) {
         conditions.SetUncacheable();
@@ -8870,7 +8875,7 @@ nsRuleNode::ComputeOutlineData(void* aStartStruct,
   } else if (outlineWidthValue->IsLengthUnit() ||
              outlineWidthValue->IsCalcUnit()) {
     outline->mOutlineWidth.SetCoordValue(
-      CalcLengthTowardZero(*outlineWidthValue, aContext, mPresContext,
+      CalcBorderLength(*outlineWidthValue, aContext, mPresContext,
                            conditions));
   } else {
     SetCoord(*outlineWidthValue, outline->mOutlineWidth,
@@ -8885,7 +8890,7 @@ nsRuleNode::ComputeOutlineData(void* aStartStruct,
   if (outlineOffsetValue->IsLengthUnit() || outlineOffsetValue->IsCalcUnit()) {
     outline->mOutlineOffset =
       NS_ROUND_OFFSET_TO_PIXELS(
-        CalcLengthTowardZero(*outlineOffsetValue, aContext, mPresContext,
+        CalcBorderLength(*outlineOffsetValue, aContext, mPresContext,
                              conditions),
         mPresContext->AppUnitsPerDevPixel());
   } else if (SetCoord(*outlineOffsetValue, tempCoord,

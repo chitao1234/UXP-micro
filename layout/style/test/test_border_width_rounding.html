@@ -14,6 +14,11 @@ var display = document.getElementById("display");
 
 var tests = [
   ["0px", "0px"],
+  ["0.001px", "0px"],
+  ["0.008px", "0px"],
+  ["0.009px", "1px"],
+  ["0.01px", "1px"],
+  ["0.016px", "1px"],
   ["0.1px", "1px"],
   ["0.25px", "1px"],
   ["0.5px", "1px"],
@@ -60,7 +65,7 @@ function checkOffset(property) {
 
   tests.forEach(function(test) {
     var specified = test[0];
-    var expected = test[0] == "0px" ? "0px" : "-" + test[1];
+    var expected = test[1] == "0px" ? "0px" : "-" + test[1];
     var div = document.createElement("div");
     div.style[property] = "-" + specified;
     display.appendChild(div);
