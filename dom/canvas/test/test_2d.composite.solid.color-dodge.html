@@ -32,6 +32,43 @@ ctx.fillStyle = 'rgba(255, 255, 0, 1.0)';
 ctx.fillRect(0, 0, 100, 50);
 isPixel(ctx, 50,25, 0,255,255,255, "50,25", "0,255,255,255", 5);
 
+// Exercise the division and endpoint cases against the color-dodge formula.
+var levels = [0, 1, 2, 15, 63, 126, 127, 128, 129, 191, 253, 254, 255];
+var width = levels.length;
+var destination = document.createElement('canvas');
+var source = document.createElement('canvas');
+destination.width = source.width = width;
+destination.height = source.height = width;
+var dst = destination.getContext('2d');
+var src = source.getContext('2d');
+var dstData = dst.createImageData(width, width);
+var srcData = src.createImageData(width, width);
+for (var y = 0; y < width; ++y) {
+  for (var x = 0; x < width; ++x) {
+    var index = (y * width + x) * 4;
+    for (var channel = 0; channel < 3; ++channel) {
+      dstData.data[index + channel] = levels[x];
+      srcData.data[index + channel] = levels[y];
+    }
+    dstData.data[index + 3] = srcData.data[index + 3] = 255;
+  }
+}
+dst.putImageData(dstData, 0, 0);
+src.putImageData(srcData, 0, 0);
+dst.globalCompositeOperation = 'color-dodge';
+dst.drawImage(source, 0, 0);
+for (var y = 0; y < width; ++y) {
+  for (var x = 0; x < width; ++x) {
+    var d = levels[x], s = levels[y];
+    var expected = d == 0 ? 0 : s == 255 ? 255 :
+      Math.min(255, Math.floor(d * 255 / (255 - s) + 0.5));
+    isPixel(dst, x, y, expected, expected, expected, 255,
+            x + ',' + y, expected + ',' + expected + ',' + expected + ',255', 1);
+  }
+}
+isPixel(dst, levels.indexOf(127), levels.indexOf(127), 253, 253, 253, 255,
+        '127 over 127', '253,253,253,255', 0);
+
 SimpleTest.finish();
 
 });

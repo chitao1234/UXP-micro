@@ -729,6 +729,58 @@ blend_lighten (int32_t d, int32_t ad, int32_t s, int32_t as)
 
 PDF_SEPARABLE_BLEND_MODE (lighten)
 
+static inline uint32_t
+color_dodge_channel (uint32_t d, uint32_t da, uint32_t s, uint32_t sa)
+{
+    uint32_t result = (255 - sa) * d + (255 - da) * s;
+
+    if (d != 0)
+    {
+	if (s >= sa || d * sa >= da * (sa - s))
+	{
+	    result += sa * da;
+	}
+	else
+	{
+	    /* Keep both compositing terms over a common denominator, so the
+	     * division in color-dodge is rounded only once, to the final byte.
+	     * The largest numerator is less than 3 * 255 * 255 * 255. */
+	    uint32_t denominator = sa - s;
+	    uint32_t numerator = result * denominator + sa * sa * d;
+	    uint32_t divisor = 255 * denominator;
+	    return MIN ((numerator + divisor / 2) / divisor, 255);
+	}
+    }
+
+    return DIV_ONE_UN8 (MIN (result, 255 * 255));
+}
+
+static void
+combine_color_dodge_u (pixman_implementation_t *imp,
+                      pixman_op_t              op,
+                      uint32_t *               dest,
+                      const uint32_t *         src,
+                      const uint32_t *         mask,
+                      int                      width)
+{
+    int i;
+
+    assert (!mask);
+    for (i = 0; i < width; ++i)
+    {
+	uint32_t s = src[i];
+	uint32_t d = dest[i];
+	uint32_t sa = ALPHA_8 (s);
+	uint32_t da = ALPHA_8 (d);
+	uint32_t a = DIV_ONE_UN8 (da * 255 + sa * 255 - sa * da);
+	uint32_t r = color_dodge_channel (RED_8 (d), da, RED_8 (s), sa);
+	uint32_t g = color_dodge_channel (GREEN_8 (d), da, GREEN_8 (s), sa);
+	uint32_t b = color_dodge_channel (BLUE_8 (d), da, BLUE_8 (s), sa);
+
+	dest[i] = a << 24 | r << 16 | g << 8 | b;
+    }
+}
+
 /*
  * Hard light
  *
@@ -1159,6 +1211,7 @@ _pixman_setup_combiner_functions_32 (pixman_implementation_t *imp)
     imp->combine_32[PIXMAN_OP_OVERLAY] = combine_overlay_u;
     imp->combine_32[PIXMAN_OP_DARKEN] = combine_darken_u;
     imp->combine_32[PIXMAN_OP_LIGHTEN] = combine_lighten_u;
+    imp->combine_32[PIXMAN_OP_COLOR_DODGE] = combine_color_dodge_u;
     imp->combine_32[PIXMAN_OP_HARD_LIGHT] = combine_hard_light_u;
     imp->combine_32[PIXMAN_OP_DIFFERENCE] = combine_difference_u;
     imp->combine_32[PIXMAN_OP_EXCLUSION] = combine_exclusion_u;

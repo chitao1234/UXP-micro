@@ -110,7 +110,7 @@ static const op_info_t op_flags[PIXMAN_N_OPERATORS] =
 #define SCANLINE_BUFFER_LENGTH 8192
 
 static pixman_bool_t
-operator_needs_division (pixman_op_t op)
+operator_needs_wide (pixman_op_t op, pixman_bool_t has_mask)
 {
     static const uint8_t needs_division[] =
     {
@@ -119,6 +119,11 @@ operator_needs_division (pixman_op_t op)
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, /* CONJOINT */
 	0, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, /* blend ops */
     };
+
+    /* A mask can round a tiny alpha to zero before division.  The unmasked
+     * color-dodge combiner keeps its rational result until final rounding. */
+    if (op == PIXMAN_OP_COLOR_DODGE && !has_mask)
+	return FALSE;
 
     return needs_division[op];
 }
@@ -141,7 +146,7 @@ general_composite_rect  (pixman_implementation_t *imp,
     if ((src_image->common.flags & FAST_PATH_NARROW_FORMAT)		     &&
 	(!mask_image || mask_image->common.flags & FAST_PATH_NARROW_FORMAT)  &&
 	(dest_image->common.flags & FAST_PATH_NARROW_FORMAT)		     &&
-	!(operator_needs_division (op))                                      &&
+	!operator_needs_wide (op, mask_image != NULL)                         &&
 	(dest_image->bits.dither == PIXMAN_DITHER_NONE))
     {
 	width_flag = ITER_NARROW;
