@@ -3722,6 +3722,7 @@ _cairo_win32_surface_fallback_stroke (cairo_surface_t		*surface,
 				cairo_antialias_t	 antialias,
 				cairo_clip_t		*clip)
 {
+    cairo_win32_surface_t *win32 = (cairo_win32_surface_t *) surface;
     cairo_polygon_t polygon;
     cairo_traps_t traps;
     cairo_box_t boxes_stack[32], *clip_boxes = boxes_stack;
@@ -3729,6 +3730,24 @@ _cairo_win32_surface_fallback_stroke (cairo_surface_t		*surface,
     cairo_composite_rectangles_t extents;
     cairo_rectangle_int_t rect;
     cairo_status_t status;
+
+    /* Solid rectilinear strokes on an owned DIB can use the image compositor's
+     * exact box coverage. The trap fallback quantizes fractional coverage
+     * on Pixman's asymmetric sampling grid instead. Only delegate when the
+     * image represents the full surface and has no native clip to preserve. */
+    if (path->is_rectilinear && source->type == CAIRO_PATTERN_TYPE_SOLID &&
+	win32->image &&
+	!win32->initial_clip_rgn && !win32->had_simple_clip &&
+	win32->extents.x == 0 && win32->extents.y == 0 &&
+	win32->extents.width == cairo_image_surface_get_width (win32->image) &&
+	win32->extents.height == cairo_image_surface_get_height (win32->image))
+    {
+	/* Complete any queued GDI writes before touching the same DIB memory. */
+	GdiFlush ();
+	return _cairo_win32_surface_stroke (win32, op, source, path,
+					  stroke_style, ctm, ctm_inverse,
+					  tolerance, antialias, clip);
+    }
 
     if (!_cairo_surface_get_extents (surface, &rect))
         ASSERT_NOT_REACHED;
