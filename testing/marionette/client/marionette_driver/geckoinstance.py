@@ -379,6 +379,12 @@ class DesktopInstance(GeckoInstance):
         # Enable output of dump()
         "browser.dom.window.dump.enabled": True,
 
+        # Window tests distinguish target=_blank tabs from scripted windows.
+        # Do not let application diversion/UI-feature policy turn the latter
+        # into tabs (even when it forces all browser chrome to remain visible).
+        "browser.link.open_newwindow": 3,
+        "browser.link.open_newwindow.restriction": 1,
+
         # Indicate that the download panel has been shown once so that whichever
         # download test runs first doesn"t show the popup inconsistently
         "browser.download.panel.shown": True,

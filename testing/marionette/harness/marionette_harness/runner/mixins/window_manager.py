@@ -92,7 +92,7 @@ class WindowManagerMixin(object):
 
             return new_tab
 
-    def open_window(self, trigger=None):
+    def open_window(self, trigger=None, focus=False):
         current_windows = self.marionette.chrome_window_handles
 
         def loaded(handle):
@@ -125,5 +125,21 @@ class WindowManagerMixin(object):
             Wait(self.marionette).until(
                 lambda _: loaded(new_window),
                 message="Window with handle '{}'' did not finish loading".format(new_window))
+
+            if focus:
+                # Like newer Firefox's open_window(focus=True), finish the
+                # foreground setup without changing the driver's context.
+                with self.marionette.using_context("chrome"):
+                    self.marionette.execute_script("""
+                      Components.utils.import("resource://gre/modules/Services.jsm");
+                      Services.wm.getOuterWindowWithId(Number(arguments[0])).focus();
+                    """, script_args=[new_window])
+                    Wait(self.marionette).until(
+                        lambda mn: mn.execute_script("""
+                          Components.utils.import("resource://gre/modules/Services.jsm");
+                          return Services.focus.activeWindow ==
+                            Services.wm.getOuterWindowWithId(Number(arguments[0]));
+                        """, script_args=[new_window]),
+                        message="New foreground window did not receive focus")
 
             return new_window

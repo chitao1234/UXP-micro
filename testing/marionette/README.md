@@ -24,3 +24,10 @@ record counts each case once, retaining its worst outcome if both the method
 and teardown fail. Raw case-end events preserve diagnostics. A missing parent
 result, a zero-case file, or skipped cases cannot establish a clean file pass.
 B2G-only manifests must not be selected as desktop tests.
+
+The desktop test profile keeps target=_blank links as tabs and scripted
+window.open calls as windows, independently of application diversion defaults.
+Tests that compare native recent-window order must temporarily disable
+`focusmanager.testmode`, as the chrome window-switch tests do. The driver keeps
+the real product name in its capabilities while using desktop browser window
+and modal handling for all builds with `MOZ_BUILD_APP == "browser"`.

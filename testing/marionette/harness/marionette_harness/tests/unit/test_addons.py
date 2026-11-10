@@ -44,8 +44,14 @@ class TestAddons(MarionetteTestCase):
     def test_install_unsigned_addon(self):
         addon_path = os.path.join(here, 'mn-restartless-unsigned.xpi')
 
-        with self.assertRaises(AddonInstallException):
-            self.addons.install(addon_path)
+        # Basilisk's addon provider supports unsigned extensions. Exercise
+        # installation and removal instead of assuming Firefox signing policy.
+        addon_id = self.addons.install(addon_path)
+        try:
+            self.assertIn(addon_id, self.all_addon_ids)
+        finally:
+            self.addons.uninstall(addon_id)
+        self.assertNotIn(addon_id, self.all_addon_ids)
 
     @skip("Need to get the test extension signed")
     def test_install_and_remove_signed_addon(self):

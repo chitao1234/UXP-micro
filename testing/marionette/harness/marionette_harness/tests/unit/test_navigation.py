@@ -173,11 +173,11 @@ class TestBackForwardNavigation(WindowManagerMixin, MarionetteTestCase):
         # TODO: Verify that a remoteness change happened
         # like: self.assertNotEqual(self.marionette.current_window_handle, self.new_tab)
 
-        # about:robots is always a non-remote page for now
+        # about:rights is a supported non-remote page in Basilisk.
         test_pages = [
-            {"url": "about:robots"},
+            {"url": "about:rights"},
             {"url": self.test_page},
-            {"url": "about:robots"},
+            {"url": "about:rights"},
         ]
         self.run_test(test_pages)
 
@@ -185,7 +185,9 @@ class TestBackForwardNavigation(WindowManagerMixin, MarionetteTestCase):
         test_pages = [
             {"url": "about:neterror"},
             {"url": self.marionette.absolute_url("test.html")},
-            {"url": "about:blocked"},
+            # about:blocked belongs to Safe Browsing, which Basilisk removed.
+            # Keep testing error-page -> ordinary page -> built-in page history.
+            {"url": "about:rights"},
         ]
         self.run_test(test_pages)
 
