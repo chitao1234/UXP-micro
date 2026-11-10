@@ -10,6 +10,7 @@ var loader = Cc["@mozilla.org/moz/jssubscript-loader;1"]
     .getService(Ci.mozIJSSubScriptLoader);
 
 Cu.import("resource://gre/modules/Log.jsm");
+Cu.import("resource://gre/modules/AppConstants.jsm");
 Cu.import("resource://gre/modules/Preferences.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -102,7 +103,9 @@ this.Context.fromString = function (s) {
  *     The instance of Marionette server.
  */
 this.GeckoDriver = function (appName, server) {
-  this.appName = appName;
+  // appName selects the backend, not the public browserName capability.
+  // Desktop browser forks use the same tab/window integration as Firefox.
+  this.appName = AppConstants.MOZ_BUILD_APP == "browser" ? "Firefox" : appName;
   this._server = server;
 
   this.sessionId = null;
@@ -144,14 +147,13 @@ this.GeckoDriver = function (appName, server) {
 
   // always keep weak reference to current dialogue
   this.dialog = null;
-  let handleDialog = (subject, topic) => {
+  this.handleDialog = (subject, topic) => {
     let winr;
     if (topic == modal.COMMON_DIALOG_LOADED) {
       winr = Cu.getWeakReference(subject);
     }
     this.dialog = new modal.Dialog(() => this.curBrowser, winr);
   };
-  modal.addHandler(handleDialog);
 };
 
 Object.defineProperty(GeckoDriver.prototype, "a11yChecks", {
@@ -643,6 +645,10 @@ GeckoDriver.prototype.newSession = function* (cmd, resp) {
   if (this.curBrowser.tab) {
     browser.getBrowserForTab(this.curBrowser.tab).focus();
   }
+
+  // Match newer Firefox's session-scoped dialog observer. Transport discovery
+  // and closed sessions must not keep a driver alive through global observers.
+  modal.addHandler(this.handleDialog);
 
   return {
     sessionId: this.sessionId,
@@ -1319,10 +1325,15 @@ GeckoDriver.prototype.switchToWindow = function* (cmd, resp) {
       // Otherwise switch to the known chrome window, and activate the tab
       // if it's a content browser.
       this.curBrowser = this.browsers[found.outerId];
+      this.mainFrame = this.curBrowser.window;
+      this.curFrame = null;
 
       if ("tabIndex" in found) {
         this.curBrowser.switchToTab(found.tabIndex, found.win, focus);
       }
+    }
+    if (focus) {
+      yield this.curBrowser.focusWindow();
     }
   } else {
     throw new NoSuchWindowError(`Unable to locate window: ${switchTo}`);
@@ -2235,6 +2246,9 @@ GeckoDriver.prototype.closeChromeWindow = function (cmd, resp) {
 
 /** Delete Marionette session. */
 GeckoDriver.prototype.deleteSession = function (cmd, resp) {
+  modal.removeHandler(this.handleDialog);
+  this.dialog = null;
+
   if (this.curBrowser !== null) {
     // frame scripts can be safely reused
     Preferences.set(CONTENT_LISTENER_PREF, false);

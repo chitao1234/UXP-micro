@@ -7,10 +7,11 @@
 const {utils: Cu} = Components;
 
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/AppConstants.jsm");
 
 this.EXPORTED_SYMBOLS = ["modal"];
 
-const isFirefox = () => Services.appinfo.name == "Firefox";
+const isFirefox = () => AppConstants.MOZ_BUILD_APP == "browser";
 
 this.modal = {};
 modal = {
@@ -29,7 +30,7 @@ modal = {
  * This is achieved by installing observers for common-
  * and tab modal loaded events.
  *
- * This function is a no-op if called on any other product than Firefox.
+ * This function is a no-op outside desktop browser builds.
  *
  * @param {function(Object, string)} handler
  *     The handler to be called, which is passed the
@@ -51,7 +52,7 @@ modal.addHandler = function (handler) {
 /**
  * Remove modal dialogue handler by function reference.
  *
- * This function is a no-op if called on any other product than Firefox.
+ * This function is a no-op outside desktop browser builds.
  *
  * @param {function} toRemove
  *     The handler previously passed to modal.addHandler which will now

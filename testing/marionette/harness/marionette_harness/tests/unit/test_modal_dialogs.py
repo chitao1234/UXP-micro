@@ -44,6 +44,23 @@ class TestTabModals(MarionetteTestCase):
         alert = self.marionette.switch_to_alert()
         alert.accept()
 
+    def test_dialog_observers_do_not_accumulate(self):
+        # Like Firefox's DialogObserver cleanup tests, verify registration is
+        # bounded. Exercise real session teardown/recreation as well.
+        def observer_counts():
+            with self.marionette.using_context("chrome"):
+                return self.marionette.execute_script("""
+                  let {modal} = Components.utils.import(
+                    "chrome://marionette/content/modal.js", {});
+                  return Object.keys(modal.handlers).map(
+                    topic => modal.handlers[topic].size);
+                """)
+
+        self.assertEqual(observer_counts(), [1, 1])
+        self.marionette.delete_session()
+        self.marionette.start_session()
+        self.assertEqual(observer_counts(), [1, 1])
+
     def test_alert_dismiss(self):
         self.marionette.find_element(By.ID, 'modal-alert').click()
         self.wait_for_alert()

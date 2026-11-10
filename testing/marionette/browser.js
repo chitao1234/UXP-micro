@@ -4,17 +4,20 @@
 
 "use strict";
 
-const {utils: Cu} = Components;
+const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
 Cu.import("chrome://marionette/content/element.js");
 Cu.import("chrome://marionette/content/error.js");
 Cu.import("chrome://marionette/content/frame.js");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/Log.jsm");
 
 this.EXPORTED_SYMBOLS = ["browser"];
 
 this.browser = {};
 
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+const logger = Log.repository.getLogger("Marionette");
 
 
 /**
@@ -279,6 +282,51 @@ browser.Context = class {
       this._browserWasRemote = browser.getBrowserForTab(this.tab).isRemoteBrowser;
       this._hasRemotenessChange = false;
     }
+  }
+
+  // Match the desktop window-switch contract used by newer Firefox: selecting
+  // a browsing context and focusing its OS window are separate operations.
+  focusWindow() {
+    let win = this.window;
+    if (win.document.hasFocus()) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+      let cleanup = () => {
+        win.removeEventListener("focus", onFocus, true);
+        timer.cancel();
+      };
+      let onFocus = () => {
+        // A chrome window displaying an HTML document need not dispatch
+        // 'activate' on this DOM window. Check actual document focus instead
+        // of waiting forever for a second, unrelated event.
+        if (!settled && win.document.hasFocus()) {
+          settled = true;
+          cleanup();
+          logger.debug(`Focused window ${win.document.documentURI}`);
+          Services.tm.mainThread.dispatch(() => resolve(), 0);
+        }
+      };
+      win.addEventListener("focus", onFocus, true);
+      timer.initWithCallback(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(new TimeoutError("Window did not receive focus"));
+        }
+      }, 5000, Ci.nsITimer.TYPE_ONE_SHOT);
+      logger.debug(`Focusing window ${win.document.documentURI}`);
+      try {
+        win.focus();
+        onFocus();
+      } catch (e) {
+        settled = true;
+        cleanup();
+        reject(e);
+      }
+    });
   }
 
   /**
