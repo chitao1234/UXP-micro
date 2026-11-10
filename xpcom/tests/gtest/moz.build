@@ -14,6 +14,7 @@ UNIFIED_SOURCES += [
     'TestCOMArray.cpp',
     'TestCOMPtrEq.cpp',
     'TestCRT.cpp',
+    'TestDafsa.cpp',
     'TestEncoding.cpp',
     'TestEscapeURL.cpp',
     'TestExpirationTracker.cpp',
@@ -78,3 +79,8 @@ LOCAL_INCLUDES += [
 ]
 
 FINAL_LIBRARY = 'xul-gtest'
+
+GENERATED_FILES += ['dafsa_test_1.inc']
+dafsa_test = GENERATED_FILES['dafsa_test_1.inc']
+dafsa_test.script = '../../ds/tools/make_dafsa.py'
+dafsa_test.inputs = ['dafsa_test_1.dat']

@@ -1,0 +1,7 @@
+{
+  "source_url": "https://raw.githubusercontent.com/mozilla-firefox/firefox/9b669cbaf212813b13b834853c07a6c9f212d122/security/manager/ssl/nsSTSPreloadList.inc",
+  "revision": "9b669cbaf212813b13b834853c07a6c9f212d122",
+  "sha256": "162c02d3552afbb1950b07693bc58232325adc0856c3463a90b641ee9475be24",
+  "entries": 124983,
+  "expiration_microseconds": 1804872259453000
+}

@@ -21,6 +21,7 @@ function cleanup() {
 }
 
 function run_test() {
+  do_get_profile();
   do_register_cleanup(cleanup);
   Services.obs.addObserver(gObserver, "last-pb-context-exited", false);
 
@@ -119,14 +120,16 @@ function test_part1() {
   // Here's what we have now:
   // |-- includesubdomains.preloaded.test (in preload list, includes subdomains) IS sts host
   //     |-- subdomain.includesubdomains.preloaded.test (include subdomains is false) IS sts host
-  //     |   `-- another.subdomain.includesubdomains.preloaded.test              IS NOT sts host
+  //     |   `-- another.subdomain.includesubdomains.preloaded.test              IS sts host
   //     `-- sibling.includesubdomains.preloaded.test                            IS sts host
   ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "subdomain.includesubdomains.preloaded.test", 0));
   ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
                              "sibling.includesubdomains.preloaded.test", 0));
-  ok(!gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
-                              "another.subdomain.includesubdomains.preloaded.test", 0));
+  // Current Firefox: a child without includeSubDomains cannot cancel an
+  // ancestor that does include subdomains.
+  ok(gSSService.isSecureHost(Ci.nsISiteSecurityService.HEADER_HSTS,
+                             "another.subdomain.includesubdomains.preloaded.test", 0));
 
   // Test that an expired non-private browsing entry results in correctly
   // identifying a host that is on the preload list as no longer sts.

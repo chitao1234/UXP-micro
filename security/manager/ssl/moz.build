@@ -138,6 +138,11 @@ UNIFIED_SOURCES += [
 # HSTS preload list so it cannot be built in UNIFIED mode.
 SOURCES += ['nsSiteSecurityService.cpp']
 
+GENERATED_FILES += ['nsSTSPreloadList.h']
+hsts_preloads = GENERATED_FILES['nsSTSPreloadList.h']
+hsts_preloads.script = '../../../xpcom/ds/tools/make_dafsa.py'
+hsts_preloads.inputs = ['nsSTSPreloadList.inc']
+
 IPDL_SOURCES += [
     'PPSMContentDownloader.ipdl',
 ]

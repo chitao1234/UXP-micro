@@ -104,7 +104,11 @@ private:
                             uint32_t flags, uint64_t* aMaxAge,
                             bool* aIncludeSubdomains, uint32_t* aFailureResult);
 
+  bool GetPreloadStatus(const nsACString& aHost,
+                        bool* aIncludeSubdomains = nullptr) const;
+
   bool mUseStsService;
+  bool mUsePreloadList;
   int64_t mPreloadListTimeOffset;
   RefPtr<mozilla::DataStorage> mSiteStateStorage;
 };

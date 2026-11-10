@@ -5,6 +5,8 @@
 #include "nsSiteSecurityService.h"
 
 #include "mozilla/LinkedList.h"
+#include "mozilla/Dafsa.h"
+#include "nsSTSPreloadList.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Base64.h"
 #include "base64.h"
@@ -107,6 +109,7 @@ nsAutoCString CanonicalizeHostname(const char* hostname)
 
 nsSiteSecurityService::nsSiteSecurityService()
   : mUseStsService(true)
+  , mUsePreloadList(true)
   , mPreloadListTimeOffset(0)
 {
 }
@@ -132,6 +135,10 @@ nsSiteSecurityService::Init()
     "network.stricttransportsecurity.enabled", true);
   mozilla::Preferences::AddStrongObserver(this,
     "network.stricttransportsecurity.enabled");
+  mUsePreloadList = mozilla::Preferences::GetBool(
+    "network.stricttransportsecurity.preloadlist", true);
+  mozilla::Preferences::AddStrongObserver(this,
+    "network.stricttransportsecurity.preloadlist");
   mPreloadListTimeOffset = mozilla::Preferences::GetInt(
     "test.currentTimeOffsetSeconds", 0);
   mozilla::Preferences::AddStrongObserver(this,
@@ -211,6 +218,21 @@ nsSiteSecurityService::SetHSTSState(uint32_t aType,
 
   // If max-age is zero, the host is no longer considered HSTS.
   if (maxage == 0) {
+    nsAutoCString hostname;
+    nsresult rv = GetHost(aSourceURI, hostname);
+    NS_ENSURE_SUCCESS(rv, rv);
+    // A header disables this host's static preload without defeating an
+    // ancestor's includeSubDomains. Explicit removeState still resets state.
+    if (GetPreloadStatus(hostname)) {
+      bool isPrivate = flags & nsISocketProvider::NO_PERMANENT_STORAGE;
+      DataStorageType storageType = isPrivate ? DataStorage_Private
+                                              : DataStorage_Persistent;
+      SiteHSTSState state(0, SecurityPropertyKnockout, false);
+      nsAutoCString value, key;
+      state.ToString(value);
+      SetStorageKey(key, hostname, aType);
+      return mSiteStateStorage->Put(key, value, storageType);
+    }
     return RemoveState(aType, aSourceURI, flags);
   }
 
@@ -556,6 +578,27 @@ nsSiteSecurityService::IsSecureURI(uint32_t aType, nsIURI* aURI,
   return IsSecureHost(aType, hostname.get(), aFlags, aCached, aResult);
 }
 
+// Exact host lookup in Firefox's compact, read-only DAFSA. Expiration and the
+// opt-out preference apply uniformly to all memory tiers.
+bool
+nsSiteSecurityService::GetPreloadStatus(const nsACString& aHost,
+                                       bool* aIncludeSubdomains) const
+{
+  PRTime now = PR_Now() + mPreloadListTimeOffset * PR_USEC_PER_SEC;
+  if (!mUsePreloadList || now >= gPreloadListExpirationTime) {
+    return false;
+  }
+  static const mozilla::Dafsa list(kDafsa);
+  int result = list.Lookup(aHost);
+  if (result == mozilla::Dafsa::kKeyNotFound) {
+    return false;
+  }
+  if (aIncludeSubdomains) {
+    *aIncludeSubdomains = result == 1;
+  }
+  return true;
+}
+
 NS_IMETHODIMP
 nsSiteSecurityService::IsSecureHost(uint32_t aType, const char* aHost,
                                     uint32_t aFlags, bool* aCached,
@@ -619,9 +662,15 @@ nsSiteSecurityService::IsSecureHost(uint32_t aType, const char* aHost,
     }
 
     // If the entry is expired we can remove it.
-    if (expired) {
+    if (expired && !GetPreloadStatus(host)) {
       mSiteStateStorage->Remove(storageKey, storageType);
     }
+  } else if (GetPreloadStatus(host)) {
+    *aResult = true;
+    if (aCached) {
+      *aCached = true;
+    }
+    return NS_OK;
   }
 
   SSSLOG(("no HSTS data for %s found, walking up domain", host.get()));
@@ -670,8 +719,17 @@ nsSiteSecurityService::IsSecureHost(uint32_t aType, const char* aHost,
       }
 
       // If the entry is expired we can remove it.
-      if (expired) {
+      if (expired && !GetPreloadStatus(subdomainString)) {
         mSiteStateStorage->Remove(storageKey, storageType);
+      }
+    } else {
+      bool includeSubdomains = false;
+      if (GetPreloadStatus(subdomainString, &includeSubdomains) &&
+          includeSubdomains) {
+        *aResult = true;
+        if (aCached) {
+          *aCached = true;
+        }
       }
     }
 
@@ -705,6 +763,8 @@ nsSiteSecurityService::Observe(nsISupports *subject,
   if (strcmp(topic, NS_PREFBRANCH_PREFCHANGE_TOPIC_ID) == 0) {
     mUseStsService = mozilla::Preferences::GetBool(
       "network.stricttransportsecurity.enabled", true);
+    mUsePreloadList = mozilla::Preferences::GetBool(
+      "network.stricttransportsecurity.preloadlist", true);
     mPreloadListTimeOffset =
       mozilla::Preferences::GetInt("test.currentTimeOffsetSeconds", 0);
   }
