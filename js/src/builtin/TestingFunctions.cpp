@@ -115,10 +115,8 @@ GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp)
     if (!JS_SetProperty(cx, info, "generational-gc", TrueHandleValue))
         return false;
 
-    // ElementAccessIsTypedArray is disabled while this MIR path lacks dynamic
-    // RAB/GSAB bounds handling. Tests requiring float32 propagation must report
-    // that missing optimization separately from numeric execution coverage.
-    if (!JS_SetProperty(cx, info, "typed-array-ion-specialization", FalseHandleValue))
+    // Fixed-buffer numeric element paths have an explicit non-resizable guard.
+    if (!JS_SetProperty(cx, info, "typed-array-ion-specialization", TrueHandleValue))
         return false;
 
     RootedValue value(cx);

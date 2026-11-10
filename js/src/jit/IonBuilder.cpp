@@ -9761,6 +9761,11 @@ IonBuilder::getStaticTypedArrayObject(MDefinition* obj, MDefinition* index)
         return nullptr;
     }
 
+    if (tarrObj->as<TypedArrayObject>().hasResizableOrGrowableBuffer()) {
+        trackOptimizationOutcome(TrackedOutcome::AccessNotTypedArray);
+        return nullptr;
+    }
+
     TypeSet::ObjectKey* tarrKey = TypeSet::ObjectKey::get(tarrObj);
     if (tarrKey->unknownProperties()) {
         trackOptimizationOutcome(TrackedOutcome::UnknownProperties);
@@ -10296,6 +10301,9 @@ bool
 IonBuilder::jsop_getelem_typed(MDefinition* obj, MDefinition* index,
                                Scalar::Type arrayType)
 {
+    auto* guarded = MGuardNonResizableTypedArray::New(alloc(), obj);
+    current->add(guarded);
+    obj = guarded;
     TemporaryTypeSet* types = bytecodeTypes(pc);
 
     bool maybeUndefined = types->hasType(TypeSet::UndefinedType());
@@ -10872,6 +10880,9 @@ bool
 IonBuilder::jsop_setelem_typed(Scalar::Type arrayType,
                                MDefinition* obj, MDefinition* id, MDefinition* value)
 {
+    auto* guarded = MGuardNonResizableTypedArray::New(alloc(), obj);
+    current->add(guarded);
+    obj = guarded;
     SetElemICInspector icInspect(inspector->setElemICInspector(pc));
     bool expectOOB = icInspect.sawOOBTypedArrayWrite();
 

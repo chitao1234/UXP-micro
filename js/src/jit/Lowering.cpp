@@ -3854,6 +3854,15 @@ LIRGenerator::visitGuardSharedTypedArray(MGuardSharedTypedArray* ins)
 }
 
 void
+LIRGenerator::visitGuardNonResizableTypedArray(MGuardNonResizableTypedArray* ins)
+{
+    auto* guard = new(alloc()) LGuardNonResizableTypedArray(
+        useRegisterAtStart(ins->object()), temp());
+    assignSnapshot(guard, Bailout_TypeBarrierO);
+    defineReuseInput(guard, ins, 0);
+}
+
+void
 LIRGenerator::visitPolyInlineGuard(MPolyInlineGuard* ins)
 {
     MOZ_ASSERT(ins->input()->type() == MIRType::Object);

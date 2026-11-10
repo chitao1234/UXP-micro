@@ -5528,15 +5528,28 @@ jit::ElementAccessIsTypedArray(CompilerConstraintList* constraints,
                                MDefinition* obj, MDefinition* id,
                                Scalar::Type* arrayType)
 {
-    (void) constraints;
-    (void) obj;
-    (void) id;
-    (void) arrayType;
+    if (obj->mightBeType(MIRType::String))
+        return false;
 
-    // Resizable ArrayBuffer and growable SharedArrayBuffer views need dynamic
-    // length/out-of-bounds handling. This older MIR path assumes stable
-    // typed-array length/data slots, so keep element accesses on IC/VM paths.
-    return false;
+    if (id->type() != MIRType::Int32 && id->type() != MIRType::Double)
+        return false;
+
+    TemporaryTypeSet* types = obj->resultTypeSet();
+    if (!types)
+        return false;
+
+    *arrayType = types->getTypedArrayType(constraints);
+    if (*arrayType == Scalar::MaxTypedArrayViewType || Scalar::isBigIntType(*arrayType))
+        return false;
+
+    if (JSObject* singleton = types->maybeSingleton()) {
+        if (singleton->as<TypedArrayObject>().hasResizableOrGrowableBuffer())
+            return false;
+    }
+
+    // A type set distinguishes scalar classes, not fixed and resizable buffer
+    // views. Dynamic element paths must guard the buffer kind at runtime.
+    return true;
 }
 
 bool

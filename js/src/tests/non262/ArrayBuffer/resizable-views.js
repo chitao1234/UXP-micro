@@ -214,5 +214,124 @@ assertEq(readLength(icSharedTracking), 8);
 writeElement(icSharedTracking, 5, 77);
 assertEq(readElement(icSharedTracking, 5), 77);
 
+// Adapted from current Firefox's typedarray/resizable-typedarray-{get,set}-elem
+// tests. Warm each access on fixed buffers first: the same scalar class can
+// also contain RAB/GSAB views, so a class/type guard alone is insufficient.
+function checkElementSpecialization(TA) {
+  var read = Function("view", "index", "return view[index];");
+  var write = Function("view", "index", "value", "view[index] = value;");
+  var readInBounds = Function("view", "index", "return view[index];");
+  var writeInBounds = Function("view", "index", "value", "view[index] = value;");
+  var normal = new TA(4);
+  var expected = new TA(4);
+  var scalar = typeof normal[0] === "bigint" ? BigInt : Number;
+
+  function check(view) {
+    for (var i = 0; i < 200; i++) {
+      var index = i % 8;
+      var value = scalar(i);
+      write(view, index, value);
+      expected[index] = value;
+      assertEq(read(view, index), expected[index]);
+    }
+  }
+
+  // Exercise both the in-bounds and the hole paths before changing buffer kind.
+  for (var i = 0; i < 4000; i++) {
+    var index = i % 8;
+    write(normal, index, scalar(i));
+    expected[index] = scalar(i);
+    assertEq(read(normal, index), expected[index]);
+    var inBounds = i % 4;
+    writeInBounds(normal, inBounds, scalar(i));
+    expected[inBounds] = scalar(i);
+    assertEq(readInBounds(normal, inBounds), expected[inBounds]);
+  }
+
+  var size = TA.BYTES_PER_ELEMENT;
+  var buffer = new ArrayBuffer(4 * size, { maxByteLength: 8 * size });
+  var tracking = new TA(buffer);
+  var fixed = new TA(buffer, size, 2);
+  writeInBounds(tracking, 0, scalar(13));
+  assertEq(readInBounds(tracking, 0), scalar(13));
+  writeInBounds(fixed, 0, scalar(14));
+  assertEq(readInBounds(fixed, 0), scalar(14));
+  check(tracking);
+  buffer.resize(0);
+  assertEq(read(tracking, 0), undefined);
+  assertEq(read(fixed, 0), undefined);
+  write(tracking, 0, scalar(19));
+  write(fixed, 0, scalar(20));
+  buffer.resize(8 * size);
+  assertEq(read(tracking, 0), scalar(0));
+  assertEq(read(fixed, 0), scalar(0));
+  write(fixed, 1, scalar(31));
+  assertEq(read(tracking, 2), scalar(31));
+  write(tracking, 7, scalar(41));
+  assertEq(read(tracking, 7), scalar(41));
+  assertEq(read(fixed, 2), undefined);
+
+  var shared = new SharedArrayBuffer(4 * size, { maxByteLength: 8 * size });
+  var sharedTracking = new TA(shared);
+  var sharedFixed = new TA(shared, size, 2);
+  check(sharedTracking);
+  shared.grow(8 * size);
+  write(sharedTracking, 7, scalar(51));
+  assertEq(read(sharedTracking, 7), scalar(51));
+  write(sharedFixed, 1, scalar(61));
+  assertEq(read(sharedTracking, 2), scalar(61));
+  assertEq(read(sharedFixed, 2), undefined);
+}
+
+var elementTypes = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array,
+                    Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array];
+if (typeof Float16Array === "function")
+  elementTypes.push(Float16Array);
+if (typeof BigInt64Array === "function")
+  elementTypes.push(BigInt64Array, BigUint64Array);
+for (var TA of elementTypes)
+  checkElementSpecialization(TA);
+
+// Keep a separate in-bounds-only call site, including across effectful calls.
+var readAfterCall = Function("view", "callback", "callback(); return view[0];");
+var writeAfterCall = Function("view", "callback", "callback(); view[0] = 27;");
+function noEffect() {}
+for (var i = 0; i < 4000; i++) {
+  assertEq(readAfterCall(normal, noEffect), 7);
+  writeAfterCall(normal, noEffect);
+  normal[0] = 7;
+}
+var effectBuffer = new ArrayBuffer(4, { maxByteLength: 8 });
+var effectView = new Uint8Array(effectBuffer);
+assertEq(readAfterCall(effectView, () => effectBuffer.resize(0)), undefined);
+writeAfterCall(effectView, () => effectBuffer.resize(4));
+assertEq(effectView[0], 27);
+
+// Conversion must precede the store even when it detaches/resizes the buffer.
+var convertingStore = Function("view", "value", "view[0] = value;");
+for (var i = 0; i < 4000; i++)
+  convertingStore(normal, i);
+convertingStore(effectView, { valueOf() { effectBuffer.resize(0); return 73; } });
+assertEq(effectView[0], undefined);
+effectBuffer.resize(4);
+assertEq(effectView[0], 0);
+if (typeof detachArrayBuffer === "function") {
+  var detached = new Uint8Array(4);
+  convertingStore(detached, { valueOf() { detachArrayBuffer(detached.buffer); return 83; } });
+  assertEq(detached[0], undefined);
+  assertEq(readAfterCall(detached, noEffect), undefined);
+}
+
+// Singleton views must not embed RAB data or lengths as constants.
+var singletonBuffer = new ArrayBuffer(4, { maxByteLength: 8 });
+var singletonView = new Uint8Array(singletonBuffer);
+var singletonRead = Function("return singletonView[0];");
+for (var i = 0; i < 2000; i++)
+  assertEq(singletonRead(), 0);
+singletonBuffer.resize(0);
+assertEq(singletonRead(), undefined);
+singletonBuffer.resize(4);
+assertEq(singletonRead(), 0);
+
 if (typeof reportCompare === "function")
   reportCompare(true, true);

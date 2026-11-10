@@ -7065,6 +7065,21 @@ class LGuardClass : public LInstructionHelper<0, 1, 1>
     }
 };
 
+// Guard against resizable or growable TypedArray buffers.
+class LGuardNonResizableTypedArray : public LInstructionHelper<1, 1, 1>
+{
+  public:
+    LIR_HEADER(GuardNonResizableTypedArray)
+
+    LGuardNonResizableTypedArray(const LAllocation& in, const LDefinition& temp) {
+        setOperand(0, in);
+        setTemp(0, temp);
+    }
+    const LDefinition* tempInt() {
+        return getTemp(0);
+    }
+};
+
 // Guard against the sharedness of a TypedArray's memory.
 class LGuardSharedTypedArray : public LInstructionHelper<0, 1, 1>
 {

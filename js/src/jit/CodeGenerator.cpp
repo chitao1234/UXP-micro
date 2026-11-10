@@ -10977,6 +10977,17 @@ CodeGenerator::visitGuardSharedTypedArray(LGuardSharedTypedArray* guard)
 }
 
 void
+CodeGenerator::visitGuardNonResizableTypedArray(LGuardNonResizableTypedArray* guard)
+{
+    Register obj = ToRegister(guard->input());
+    Register tmp = ToRegister(guard->tempInt());
+    masm.loadPtr(Address(obj, NativeObject::offsetOfElements()), tmp);
+    masm.load32(Address(tmp, ObjectElements::offsetOfFlags()), tmp);
+    bailoutTest32(Assembler::NonZero, tmp,
+                  Imm32(ObjectElements::RESIZABLE_OR_GROWABLE_BUFFER), guard->snapshot());
+}
+
+void
 CodeGenerator::visitClampIToUint8(LClampIToUint8* lir)
 {
     Register output = ToRegister(lir->output());

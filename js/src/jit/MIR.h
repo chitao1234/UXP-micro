@@ -12428,9 +12428,36 @@ class MAtomicIsLockFree
     ALLOW_CLONE(MAtomicIsLockFree)
 };
 
+// The buffer kind is immutable, including after detach. Return the guarded
+// object so length/data loads cannot move ahead of this check.
+class MGuardNonResizableTypedArray
+  : public MUnaryInstruction,
+    public SingleObjectPolicy::Data
+{
+    explicit MGuardNonResizableTypedArray(MDefinition* obj)
+      : MUnaryInstruction(obj)
+    {
+        setGuard();
+        setMovable();
+        setResultType(MIRType::Object);
+        setResultTypeSet(obj->resultTypeSet());
+    }
+
+  public:
+    INSTRUCTION_HEADER(GuardNonResizableTypedArray)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, object))
+
+    AliasSet getAliasSet() const override {
+        return AliasSet::None();
+    }
+    bool congruentTo(const MDefinition* ins) const override {
+        return congruentIfOperandsEqual(ins);
+    }
+};
+
 // This applies to an object that is known to be a TypedArray, it bails out
 // if the obj does not map a SharedArrayBuffer.
-
 class MGuardSharedTypedArray
   : public MUnaryInstruction,
     public SingleObjectPolicy::Data

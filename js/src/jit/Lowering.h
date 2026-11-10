@@ -325,6 +325,7 @@ class LIRGenerator : public LIRGeneratorSpecific
     void visitNaNToZero(MNaNToZero *ins);
     void visitAtomicIsLockFree(MAtomicIsLockFree* ins);
     void visitGuardSharedTypedArray(MGuardSharedTypedArray* ins);
+    void visitGuardNonResizableTypedArray(MGuardNonResizableTypedArray* ins);
     void visitCheckReturn(MCheckReturn* ins);
     void visitCheckIsObj(MCheckIsObj* ins);
     void visitCheckIsCallable(MCheckIsCallable* ins);

@@ -328,6 +328,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitStoreTypedArrayElementHole(LStoreTypedArrayElementHole* lir);
     void visitAtomicIsLockFree(LAtomicIsLockFree* lir);
     void visitGuardSharedTypedArray(LGuardSharedTypedArray* lir);
+    void visitGuardNonResizableTypedArray(LGuardNonResizableTypedArray* lir);
     void visitClampIToUint8(LClampIToUint8* lir);
     void visitClampDToUint8(LClampDToUint8* lir);
     void visitClampVToUint8(LClampVToUint8* lir);

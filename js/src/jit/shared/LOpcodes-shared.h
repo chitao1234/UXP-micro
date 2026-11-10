@@ -263,6 +263,7 @@
     _(StoreTypedArrayElementStatic) \
     _(AtomicIsLockFree)             \
     _(GuardSharedTypedArray)        \
+    _(GuardNonResizableTypedArray)  \
     _(CompareExchangeTypedArrayElement) \
     _(AtomicExchangeTypedArrayElement) \
     _(AtomicTypedArrayElementBinop) \
