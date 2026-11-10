@@ -101,6 +101,8 @@ class ProcessHandlerMixin(object):
 
             # Parameter for whether or not we should attempt to track child processes
             self._ignore_children = ignore_children
+            if isWin:
+                self._cleanup_lock = threading.Lock()
 
             if not self._ignore_children and not isWin:
                 # Set the process group id for linux systems
@@ -164,20 +166,19 @@ class ProcessHandlerMixin(object):
 
         def kill(self, sig=None):
             if isWin:
-                if not self._ignore_children and self._handle and self._job:
-                    self.debug("calling TerminateJobObject")
-                    winprocess.TerminateJobObject(self._job, winprocess.ERROR_CONTROL_C_EXIT)
-                    self.returncode = winprocess.GetExitCodeProcess(self._handle)
-                elif self._handle:
-                    self.debug("calling TerminateProcess")
-                    try:
-                        winprocess.TerminateProcess(self._handle, winprocess.ERROR_CONTROL_C_EXIT)
-                    except:
-                        traceback.print_exc()
-                        raise OSError("Could not terminate process")
-                    finally:
-                        winprocess.GetExitCodeProcess(self._handle)
-                        self._cleanup()
+                # Another stop/wait caller may close these handles. Do not
+                # hold the cleanup lock while waiting for job notifications.
+                with self._cleanup_lock:
+                    if not self._ignore_children and self._handle and self._job:
+                        self.debug("calling TerminateJobObject")
+                        winprocess.TerminateJobObject(self._job, winprocess.ERROR_CONTROL_C_EXIT)
+                    elif self._handle:
+                        self.debug("calling TerminateProcess")
+                        try:
+                            winprocess.TerminateProcess(self._handle, winprocess.ERROR_CONTROL_C_EXIT)
+                        except OSError:
+                            traceback.print_exc()
+                            raise OSError("Could not terminate process")
             else:
                 def send_sig(sig):
                     pid = self.detached_pid or self.pid
@@ -492,6 +493,15 @@ falling back to not using job objects for managing child processes""", file=sys.
                             self.debug("We got a message %s" % msgid.value)
                             pass
 
+            def _update_returncode(self):
+                # Match Firefox's synchronized query: another waiter may
+                # already have closed the process handle.
+                with self._cleanup_lock:
+                    if not self._handle:
+                        return False
+                    self.returncode = winprocess.GetExitCodeProcess(self._handle)
+                    return True
+
             def _custom_wait(self, timeout=None):
                 """ Custom implementation of wait.
 
@@ -499,9 +509,7 @@ falling back to not using job objects for managing child processes""", file=sys.
                  will wait indefinitely.
                 """
                 # First, check to see if the process is still running
-                if self._handle:
-                    self.returncode = winprocess.GetExitCodeProcess(self._handle)
-                else:
+                if not self._update_returncode():
                     # Dude, the process is like totally dead!
                     return self.returncode
 
@@ -523,12 +531,17 @@ falling back to not using job objects for managing child processes""", file=sys.
                         # timeout is the max amount of time the procmgr thread will wait for
                         # child processes to shutdown before killing them with extreme prejudice.
                         item = self._process_events.get(timeout=timeout)
+                        # Completion is a persistent job state. Re-emit it for
+                        # concurrent waiters, as current Firefox does.
+                        self._process_events.put(item)
+                        if item[self.pid] == 'FINISHED':
+                            self.debug("received 'FINISHED' from _procmgrthread")
+                            self._process_events.task_done()
                     except:
                         traceback.print_exc()
                         raise OSError("IO Completion Port failed to signal process shutdown")
                     finally:
-                        if self._handle:
-                            self.returncode = winprocess.GetExitCodeProcess(self._handle)
+                        self._update_returncode()
                         self._cleanup()
 
                 else:
@@ -594,18 +607,19 @@ falling back to not using job objects for managing child processes""", file=sys.
                     self._procmgrthread = None
 
             def _cleanup(self):
-                self._cleanup_job_io_port()
-                if self._thread and self._thread != winprocess.INVALID_HANDLE_VALUE:
-                    self._thread.Close()
-                    self._thread = None
-                else:
-                    self._thread = None
+                with self._cleanup_lock:
+                    self._cleanup_job_io_port()
+                    if self._thread and self._thread != winprocess.INVALID_HANDLE_VALUE:
+                        self._thread.Close()
+                        self._thread = None
+                    else:
+                        self._thread = None
 
-                if self._handle and self._handle != winprocess.INVALID_HANDLE_VALUE:
-                    self._handle.Close()
-                    self._handle = None
-                else:
-                    self._handle = None
+                    if self._handle and self._handle != winprocess.INVALID_HANDLE_VALUE:
+                        self._handle.Close()
+                        self._handle = None
+                    else:
+                        self._handle = None
 
         elif isPosix:
 
