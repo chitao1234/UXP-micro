@@ -230,3 +230,5 @@ class BaseRunner(object, metaclass=ABCMeta):
         Cleanup all runner state
         """
         self.stop()
+        if self.clean_profile:
+            self.profile.cleanup()
