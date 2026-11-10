@@ -1778,7 +1778,8 @@ toolbar#nav-bar {
     def cleanup(self, options):
         """ remove temporary files and profile """
         if hasattr(self, 'manifest') and self.manifest is not None:
-            os.remove(self.manifest)
+            if os.path.exists(self.manifest):
+                os.remove(self.manifest)
         if hasattr(self, 'profile'):
             del self.profile
         if options.pidFile != "":

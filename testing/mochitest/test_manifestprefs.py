@@ -19,7 +19,7 @@ class SchemeTests(unittest.TestCase):
         source = Path(__file__).with_name('runtests.py')
         tree = ast.parse(source.read_text(encoding='utf8'))
         owner = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'MochitestDesktop')
-        wanted = ('groupTestsByScheme', 'buildTestURL', 'buildTestPath', 'runMochitests')
+        wanted = ('groupTestsByScheme', 'buildTestURL', 'buildTestPath', 'runMochitests', 'cleanup')
         module = ast.parse('')
         module.body = [n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
         cls.namespace = {'os': os, 'json': json}
@@ -27,6 +27,27 @@ class SchemeTests(unittest.TestCase):
 
     def method(self, name):
         return self.namespace[name]
+
+    def test_cleanup_with_and_without_runner_owned_profile(self):
+        # The pointer-lock catalog parent exposed runner cleanup removing the
+        # profile before Mochitest removes tests.manifest. Follow Firefox's
+        # idempotent cleanup without suppressing other filesystem errors.
+        for profile_exists in (True, False):
+            with self.subTest(profile_exists=profile_exists):
+                with tempfile.TemporaryDirectory() as directory:
+                    profile = Path(directory) / 'profile'
+                    profile.mkdir()
+                    manifest = profile / 'tests.manifest'
+                    manifest.write_text('fixture', encoding='utf8')
+                    if not profile_exists:
+                        manifest.unlink()
+                        profile.rmdir()
+                    harness = SimpleNamespace(manifest=str(manifest), profile=object())
+                    options = SimpleNamespace(pidFile='', manifestFile='fixture')
+                    self.method('cleanup')(harness, options)
+                    self.assertFalse(manifest.exists())
+                    self.assertFalse(hasattr(harness, 'profile'))
+                    self.assertIsNone(options.manifestFile)
 
     def test_groups_default_http_and_explicit_https_without_dropping_tests(self):
         tests = [dict(path='a'), dict(path='b', scheme='https'), dict(path='c', scheme='http')]
