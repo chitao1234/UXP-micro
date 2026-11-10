@@ -20,4 +20,7 @@ function run_test() {
   // just some sanity checks.
   do_check_neq(sharedStr, null);
   do_check_neq(sharedStr, "");
+  const libraries = JSON.parse(sharedStr);
+  Assert.ok(libraries.some(library => /(?:^|[\\/])xul\.(?:dll|pdb)$/i.test(library.name)),
+            "The browser engine appears even when built without PDB records");
 }

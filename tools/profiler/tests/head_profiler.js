@@ -6,6 +6,12 @@ const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
+// The manifest selects these tests only when the native backend is built.
+// Missing registration must fail, rather than silently qualify a no-op.
+Assert.ok("nsIProfiler" in Ci, "Profiler-enabled builds expose nsIProfiler");
+Assert.ok("@mozilla.org/tools/profiler;1" in Cc,
+          "Profiler-enabled builds register the sampling service");
+
 function getInflatedStackLocations(thread, sample) {
   let stackTable = thread.stackTable;
   let frameTable = thread.frameTable;

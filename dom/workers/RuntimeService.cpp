@@ -2890,6 +2890,13 @@ WorkerThreadPrimaryRunnable::Run()
     }
 
     {
+#ifdef MOZ_ENABLE_PROFILER_SPS
+      PseudoStack* stack = mozilla_get_pseudo_stack();
+      if (stack) {
+        stack->sampleContext(cx);
+      }
+#endif
+
       {
         JSAutoRequest ar(cx);
 
@@ -2901,6 +2908,12 @@ WorkerThreadPrimaryRunnable::Run()
       }
 
       BackgroundChild::CloseForCurrentThread();
+
+#ifdef MOZ_ENABLE_PROFILER_SPS
+      if (stack) {
+        stack->sampleContext(nullptr);
+      }
+#endif
     }
 
     // There may still be runnables on the debugger event queue that hold a

@@ -134,6 +134,13 @@ this.AppConstants = Object.freeze({
   false,
 #endif
 
+  MOZ_ENABLE_PROFILER_SPS:
+#ifdef MOZ_ENABLE_PROFILER_SPS
+  true,
+#else
+  false,
+#endif
+
   MOZ_PLACES:
 #ifdef MOZ_PLACES
   true,

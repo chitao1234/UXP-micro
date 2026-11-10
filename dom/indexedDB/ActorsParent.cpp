@@ -13286,6 +13286,10 @@ nsresult
 ConnectionPool::
 ThreadRunnable::Run()
 {
+#ifdef MOZ_ENABLE_PROFILER_SPS
+  char stackTopGuess;
+#endif // MOZ_ENABLE_PROFILER_SPS
+
   MOZ_ASSERT(!IsOnBackgroundThread());
   MOZ_ASSERT(mContinueRunning);
 
@@ -13302,6 +13306,10 @@ ThreadRunnable::Run()
     const nsPrintfCString threadName("IndexedDB #%lu", mSerialNumber);
 
     PR_SetCurrentThreadName(threadName.get());
+
+#ifdef MOZ_ENABLE_PROFILER_SPS
+    profiler_register_thread(threadName.get(), &stackTopGuess);
+#endif // MOZ_ENABLE_PROFILER_SPS
   }
 
   {
@@ -13344,6 +13352,10 @@ ThreadRunnable::Run()
 #endif // DEBUG
     }
   }
+
+#ifdef MOZ_ENABLE_PROFILER_SPS
+  profiler_unregister_thread();
+#endif // MOZ_ENABLE_PROFILER_SPS
 
   return NS_OK;
 }

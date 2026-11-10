@@ -8,6 +8,10 @@
  */
 
 const { SIMPLE_URL } = require("devtools/client/performance/test/helpers/urls");
+// UXP 2ab4d666fb renamed this category. Test visibility independently of the
+// localized browser-engine name.
+const { CATEGORIES } = require("devtools/client/performance/modules/categories");
+const PLATFORM_CATEGORY = CATEGORIES.find(category => category.abbrev === "other").label;
 const { UI_SHOW_PLATFORM_DATA_PREF } = require("devtools/client/performance/test/helpers/prefs");
 const { initPerformanceInNewTab, teardownToolboxAndRemoveTab } = require("devtools/client/performance/test/helpers/panel-utils");
 const { startRecording, stopRecording } = require("devtools/client/performance/test/helpers/actions");
@@ -52,7 +56,7 @@ add_task(function* () {
 
 function geckoCategoryPresent($$) {
   for (let elem of $$(".call-tree-category")) {
-    if (elem.textContent.trim() == "Gecko") {
+    if (elem.textContent.trim() == PLATFORM_CATEGORY) {
       return true;
     }
   }
