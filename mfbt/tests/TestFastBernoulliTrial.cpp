@@ -10,7 +10,9 @@
 
 // Note that because we always provide FastBernoulliTrial with a fixed
 // pseudorandom seed in these tests, the results here are completely
-// deterministic.
+// deterministic. Counts are for Xoroshiro128++ (UXP c90df0c332), not the
+// XorShift128+ generator used by the original Firefox fixture. Keep the
+// distribution and edge-case assertions as well as these exact sequences.
 //
 // A non-optimized version of this test runs in .009s on my laptop. Using larger
 // sample sizes lets us meet tighter bounds on the counts.
@@ -30,7 +32,7 @@ TestProportions()
     size_t count = 0;
     for (size_t i = 0; i < 1000; i++)
       count += bernoulli.trial();
-    MOZ_RELEASE_ASSERT(count == 496);
+    MOZ_RELEASE_ASSERT(count == 506);
   }
 
   {
@@ -38,7 +40,7 @@ TestProportions()
     size_t count = 0;
     for (size_t i = 0; i < 1000; i++)
       count += bernoulli.trial();
-    MOZ_RELEASE_ASSERT(count == 2);
+    MOZ_RELEASE_ASSERT(count == 1);
   }
 
   {
@@ -46,7 +48,7 @@ TestProportions()
     size_t count = 0;
     for (size_t i = 0; i < 1000; i++)
       count += bernoulli.trial();
-    MOZ_RELEASE_ASSERT(count == 852);
+    MOZ_RELEASE_ASSERT(count == 857);
   }
 
   bernoulli.setProbability(0.0);
@@ -96,7 +98,7 @@ TestTrialN()
       count += bernoulli.trial(1);
 
     // Expected value: 0.01 * 10000 == 100
-    MOZ_RELEASE_ASSERT(count == 97);
+    MOZ_RELEASE_ASSERT(count == 77);
   }
 
   {
@@ -106,7 +108,7 @@ TestTrialN()
 
     // Expected value: (1 - (1 - 0.01) ** 3) == 0.0297,
     // 0.0297 * 10000 == 297
-    MOZ_RELEASE_ASSERT(count == 304);
+    MOZ_RELEASE_ASSERT(count == 291);
   }
 
   {
@@ -116,7 +118,7 @@ TestTrialN()
 
     // Expected value: (1 - (1 - 0.01) ** 10) == 0.0956,
     // 0.0956 * 10000 == 956
-    MOZ_RELEASE_ASSERT(count == 936);
+    MOZ_RELEASE_ASSERT(count == 979);
   }
 
   {
@@ -126,7 +128,7 @@ TestTrialN()
 
     // Expected value: (1 - (1 - 0.01) ** 100) == 0.6339
     // 0.6339 * 10000 == 6339
-    MOZ_RELEASE_ASSERT(count == 6372);
+    MOZ_RELEASE_ASSERT(count == 6346);
   }
 
   {
@@ -136,7 +138,7 @@ TestTrialN()
 
     // Expected value: (1 - (1 - 0.01) ** 1000) == 0.9999
     // 0.9999 * 10000 == 9999
-    MOZ_RELEASE_ASSERT(count == 9998);
+    MOZ_RELEASE_ASSERT(count == 9999);
   }
 }
 
