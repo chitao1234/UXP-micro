@@ -784,7 +784,8 @@ class ShellFunction(Function):
         log.debug("%s: running command '%s'" % (self.loc, ' '.join(cline)))
         try:
             p = subprocess.Popen(cline, executable=executable, env=makefile.env, shell=False,
-                                 stdout=subprocess.PIPE, cwd=makefile.workdir)
+                                  stdout=subprocess.PIPE, cwd=makefile.workdir,
+                                  universal_newlines=True)
         except OSError as e:
             print("Error executing command %s" % cline[0], e, file=sys.stderr)
             return

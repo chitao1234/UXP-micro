@@ -11,8 +11,9 @@ def writeenvtofile(args):
 def writesubprocessenvtofile(args):
   with open(args[0], 'w') as f:
     p = subprocess.Popen([sys.executable, "-c",
-                          "import os; print os.environ['%s']" % args[1]],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                          "import os; print(os.environ[%r])" % args[1]],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          universal_newlines=True)
     stdout, stderr = p.communicate()
     assert p.returncode == 0
     f.write(stdout)

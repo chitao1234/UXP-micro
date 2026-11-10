@@ -112,7 +112,7 @@ def touch(args):
                 return localtime()[0] if f == 'Y' else 0
             return int(m.group(f))
         time = [normalized_field(m, f) for f in ['Y', 'M', 'D', 'h', 'm', 's']] + [0, 0, -1]
-        time = mktime(time)
+        time = mktime(tuple(time))
         times = (time, time)
     for f in args:
         if not os.path.exists(f):

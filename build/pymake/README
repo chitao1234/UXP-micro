@@ -62,3 +62,16 @@ Initial code was written by Benjamin Smedberg <benjamin@smedbergs.us>. For futur
 http://benjamin.smedbergs.us/pymake/
 
 See the LICENSE file for license information (MIT license)
+
+RUNNING THE FIXTURES
+
+Use Python 3 and a GNU make 3.81 control, with the usual shell tools on PATH:
+
+  python build/pymake/tests/runtests.py --gmake /path/to/make-3.81 \
+    --tempdir /path/to/temporary-work --logdir /path/to/logs --timeout 30
+
+The tests deliberately exercise 3.81 parsing and expansion behavior; newer
+GNU make versions do not reproduce every oracle. Each fixture runs both the
+GNU control and pymake, except arms explicitly disabled by its #T annotation.
+Expected nonzero exits are checked against the annotated return code. The
+PYMAKE-RESULT JSON records retain the full fixture path and each arm's outcome.

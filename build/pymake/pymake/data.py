@@ -671,7 +671,7 @@ class Pattern(object):
     def __repr__(self):
         return "<Pattern with data %r>" % (self.data,)
 
-    _backre = re.compile(r'[%\\]')
+    _backre = re.compile(r'([%\\])')
     def __str__(self):
         if not self.ispattern():
             return self._backre.sub(r'\\\1', self.data[0])

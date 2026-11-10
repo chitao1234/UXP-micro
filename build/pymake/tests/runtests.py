@@ -16,9 +16,9 @@ The test file may contain lines at the beginning to alter the default behavior. 
 #T grep-for: "text"
 """
 
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE, STDOUT, TimeoutExpired, call, DEVNULL
 from optparse import OptionParser
-import os, re, sys, shutil, glob
+import os, re, sys, shutil, glob, json, locale
 
 class ParentDict(dict):
     def __init__(self, parent, **kwargs):
@@ -44,7 +44,13 @@ o.add_option('-g', '--gmake',
              dest="gmake", default="gmake")
 o.add_option('-d', '--tempdir',
              dest="tempdir", default="_mktests")
+o.add_option('--logdir', dest='logdir',
+             help='Write per-arm logs here instead of beside source makefiles')
+o.add_option('--timeout', dest='timeout', type='float', default=60,
+             help='Maximum seconds for each make invocation (default: 60)')
 opts, args = o.parse_args()
+if opts.logdir:
+    os.makedirs(opts.logdir, exist_ok=True)
 
 if len(args) == 0:
     args = [thisdir]
@@ -68,12 +74,21 @@ def runTest(makefile, make, logfile, options):
     logfd = open(logfile, 'w')
     p = Popen(make + options['commandline'], stdout=logfd, stderr=STDOUT, env=options['env'])
     logfd.close()
-    retcode = p.wait()
+    try:
+        retcode = p.wait(timeout=opts.timeout)
+    except TimeoutExpired:
+        if sys.platform == 'win32':
+            call(['taskkill', '/PID', str(p.pid), '/T', '/F'],
+                 stdout=DEVNULL, stderr=DEVNULL)
+        else:
+            p.kill()
+        p.wait()
+        return False, 'TIMEOUT'
 
     if retcode != options['returncode']:
         return False, "FAIL (returncode=%i)" % retcode
         
-    logfd = open(logfile)
+    logfd = open(logfile, encoding=locale.getpreferredencoding(False), errors='replace')
     stdout = logfd.read()
     logfd.close()
 
@@ -158,11 +173,16 @@ for makefile in makefiles:
 
     mdata.close()
 
+    def logpath(suffix):
+        if opts.logdir:
+            return os.path.join(opts.logdir, os.path.basename(makefile) + suffix)
+        return makefile + suffix
+
     if gmakeoptions['skip']:
         gmakepass, gmakemsg = True, ''
     else:
         gmakepass, gmakemsg = runTest(makefile, [opts.gmake],
-                                      makefile + '.gmakelog', gmakeoptions)
+                                      logpath('.gmakelog'), gmakeoptions)
 
     if gmakeoptions['pass']:
         if not gmakepass:
@@ -178,7 +198,7 @@ for makefile in makefiles:
         pymakepass, pymakemsg = True, ''
     else:
         pymakepass, pymakemsg = runTest(makefile, pymake,
-                                        makefile + '.pymakelog', pymakeoptions)
+                                        logpath('.pymakelog'), pymakeoptions)
 
     if pymakeoptions['pass']:
         if not pymakepass:
@@ -192,6 +212,10 @@ for makefile in makefiles:
 
     print("%-30.30s%-28.28s%-28.28s" % (os.path.basename(makefile),
                                         gmakemsg, pymakemsg))
+    # Preserve full identities and independent arms; fixed-width table names
+    # truncate at 30 characters and cannot reliably identify every fixture.
+    print('PYMAKE-RESULT ' + json.dumps(dict(path=os.path.abspath(makefile),
+          gmake=gmakemsg, pymake=pymakemsg)), flush=True)
 
 print()
 print("Summary:")

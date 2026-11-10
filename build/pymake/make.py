@@ -25,8 +25,14 @@ if __name__ == '__main__':
         cmd += ['SHELL=%s.exe' % shell]
     sys.exit(subprocess.call(cmd))
 
-  sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-  sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+  # Python 3 does not allow unbuffered text streams. Keep output immediate
+  # without replacing stdout/stderr with binary streams.
+  if sys.version_info[0] >= 3:
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
+  else:
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
 
   gc.disable()
 

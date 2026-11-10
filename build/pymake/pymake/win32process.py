@@ -1,5 +1,5 @@
-from ctypes import windll, POINTER, byref, WinError
-from ctypes.wintypes import WINFUNCTYPE, HANDLE, DWORD, BOOL
+from ctypes import windll, POINTER, byref, WinError, WINFUNCTYPE
+from ctypes.wintypes import HANDLE, DWORD, BOOL
 
 INFINITE = -1
 WAIT_FAILED = 0xFFFFFFFF
@@ -10,7 +10,7 @@ _GetExitCodeProcess = _GetExitCodeProcessProto(("GetExitCodeProcess", windll.ker
 def GetExitCodeProcess(h):
     exitcode = DWORD()
     r = _GetExitCodeProcess(h, byref(exitcode))
-    if r is 0:
+    if r == 0:
         raise WinError()
     return exitcode.value
 
