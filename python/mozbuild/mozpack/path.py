@@ -34,6 +34,13 @@ def normsep(path):
 
     return path
 
+def strip_extended_length_prefix(path):
+    """Normalize paths returned by Windows APIs before comparing them."""
+    if path.startswith(('\\\\?\\', '//?/')):
+        path = path[4:]
+    return os.path.normpath(path)
+
+
 def relpath(path, start):
     rel = normsep(os.path.relpath(path, start))
     return '' if rel == '.' else rel

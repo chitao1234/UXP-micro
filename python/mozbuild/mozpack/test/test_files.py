@@ -51,6 +51,7 @@ from mozpack.chrome.manifest import (
     ManifestOverride,
 )
 import unittest
+from unittest.mock import patch
 import mozfile
 import mozunit
 import os
@@ -266,6 +267,15 @@ class TestFile(TestWithTmpDir):
 
 
 class TestAbsoluteSymlinkFile(TestWithTmpDir):
+    def setUp(self):
+        super(TestAbsoluteSymlinkFile, self).setUp()
+        from buildconfig import substs
+        # These cases exercise symlink staging independently of the build's
+        # selected staging mode. test_symlink_file also checks forced copying.
+        staging = patch.dict(substs, NSDISTMODE='symlink')
+        staging.start()
+        self.addCleanup(staging.stop)
+
     def test_absolute_relative(self):
         AbsoluteSymlinkFile('/foo')
 
@@ -284,11 +294,20 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
         if self.symlink_supported:
             self.assertTrue(os.path.islink(dest))
             link = os.readlink(dest)
-            self.assertEqual(link, source)
+            self.assertEqual(mozpath.strip_extended_length_prefix(link),
+                             mozpath.strip_extended_length_prefix(source))
         else:
             self.assertTrue(os.path.isfile(dest))
             content = open(dest).read()
             self.assertEqual(content, 'Hello world')
+
+        from buildconfig import substs
+        copy_dest = self.tmppath('copy')
+        with patch.dict(substs, NSDISTMODE='copy'):
+            self.assertTrue(s.copy(copy_dest))
+        self.assertFalse(os.path.islink(copy_dest))
+        with open(copy_dest) as fh:
+            self.assertEqual(fh.read(), 'Hello world')
 
     def test_replace_file_with_symlink(self):
         # If symlinks are supported, an existing file should be replaced by a
@@ -307,7 +326,8 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
         if self.symlink_supported:
             self.assertTrue(os.path.islink(dest))
             link = os.readlink(dest)
-            self.assertEqual(link, source)
+            self.assertEqual(mozpath.strip_extended_length_prefix(link),
+                             mozpath.strip_extended_length_prefix(source))
         else:
             self.assertTrue(os.path.isfile(dest))
             content = open(dest).read()
@@ -331,7 +351,8 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
 
         self.assertTrue(os.path.islink(dest))
         link = os.readlink(dest)
-        self.assertEqual(link, source)
+        self.assertEqual(mozpath.strip_extended_length_prefix(link),
+                         mozpath.strip_extended_length_prefix(source))
 
     def test_noop(self):
         if not self.symlink_supported:
@@ -345,13 +366,15 @@ class TestAbsoluteSymlinkFile(TestWithTmpDir):
 
         os.symlink(source, dest)
         link = os.readlink(dest)
-        self.assertEqual(link, source)
+        self.assertEqual(mozpath.strip_extended_length_prefix(link),
+                         mozpath.strip_extended_length_prefix(source))
 
         s = AbsoluteSymlinkFile(source)
         self.assertFalse(s.copy(dest))
 
         link = os.readlink(dest)
-        self.assertEqual(link, source)
+        self.assertEqual(mozpath.strip_extended_length_prefix(link),
+                         mozpath.strip_extended_length_prefix(source))
 
 class TestPreprocessedFile(TestWithTmpDir):
     def test_preprocess(self):
