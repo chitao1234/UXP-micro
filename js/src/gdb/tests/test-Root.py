@@ -14,7 +14,8 @@ run_fragment('Root.HeapSlot')
 
 # This depends on implementation details of arrays, but since HeapSlot is
 # not a public type, I'm not sure how to avoid doing *something* ugly.
-assert_pretty('((js::NativeObject *) array.get())->elements_[0]', '$jsval("plinth")')
+array = gdb.parse_and_eval('array')['ptr'].cast(gdb.lookup_type('js::NativeObject').pointer())
+assert_pretty(array['elements_'][0], '$jsval("plinth")')
 
 run_fragment('Root.barriers');
 

@@ -1,4 +1,6 @@
-import fcntl, os, select, time
+import os, time
+if os.name != 'nt':
+    import fcntl, select
 from subprocess import Popen, PIPE
 
 # Run a series of subprocesses. Try to keep up to a certain number going in
@@ -73,6 +75,8 @@ class TaskPool(object):
             return None
 
     def run_all(self):
+        if os.name == 'nt':
+            return self.run_windows()
         # The currently running tasks: a set of Task instances.
         running = set()
         with open(os.devnull, 'r') as devnull:
@@ -159,6 +163,41 @@ class TaskPool(object):
                 # to avoid mutating the set while iterating over it.)
                 running -= finished
         return None
+
+    def run_windows(self):
+        # Windows select() cannot poll subprocess pipes. communicate() drains
+        # both streams; completion callbacks remain on the summary thread.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from subprocess import TimeoutExpired, call, DEVNULL
+
+        def execute(task):
+            pipe = Popen(task.cmd(), stdin=DEVNULL, stdout=PIPE, stderr=PIPE,
+                         cwd=self.cwd, universal_newlines=True,
+                         encoding='utf-8', errors='replace')
+            task.start(pipe, time.time() + self.timeout)
+            try:
+                stdout, stderr = pipe.communicate(timeout=self.timeout)
+                return task, stdout, stderr, False
+            except TimeoutExpired:
+                call(['taskkill', '/PID', str(pipe.pid), '/T', '/F'],
+                     stdout=DEVNULL, stderr=DEVNULL)
+                stdout, stderr = pipe.communicate()
+                return task, stdout, stderr, True
+
+        tasks = []
+        while self.next_pending:
+            tasks.append(self.next_pending)
+            self.next_pending = self.get_next_pending()
+        with ThreadPoolExecutor(max_workers=self.job_limit) as pool:
+            for future in as_completed([pool.submit(execute, task) for task in tasks]):
+                task, stdout, stderr, expired = future.result()
+                task.onStdout(stdout)
+                task.onStderr(stderr)
+                if expired:
+                    task.onTimeout()
+                else:
+                    task.onFinished(task.pipe.returncode)
+
 
 def get_cpu_count():
     """

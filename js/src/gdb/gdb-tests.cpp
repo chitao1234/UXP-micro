@@ -63,11 +63,21 @@ void breakpoint() {
 
 GDBFragment* GDBFragment::allFragments = nullptr;
 
+static bool
+testBuildId(JS::BuildIdCharVector* buildId)
+{
+    // These fragments do not persist compiled modules. Still, asm.js/wasm
+    // compilation requires the embedding to provide a build identifier.
+    const char id[] = "gdb-tests";
+    return buildId->append(id, sizeof(id));
+}
+
 int
 main(int argc, const char** argv)
 {
     if (!JS_Init()) return 1;
     JSContext* cx = checkPtr(JS_NewContext(1024 * 1024));
+    JS::SetBuildIdOp(cx, testBuildId);
 
     JS_SetGCParameter(cx, JSGC_MAX_BYTES, 0xffffffff);
     JS_SetNativeStackQuota(cx, 5000000);

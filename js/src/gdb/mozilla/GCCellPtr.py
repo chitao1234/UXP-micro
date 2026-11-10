@@ -30,7 +30,13 @@ class GCCellPtrTypeCache(object):
         self.kind_to_type = kind_to_type
 
         self.Null = e['JS::TraceKind::Null']
-        self.mask = gdb.parse_and_eval('JS::OutOfLineTraceKindMask')
+        # This namespace-scope constant has internal linkage. Look it up in
+        # the static symbol table instead of C++ expression lookup (which can
+        # scan every compilation unit in MinGW debug builds).
+        lookup_static = getattr(gdb, 'lookup_static_symbol', None)
+        symbol = lookup_static('JS::OutOfLineTraceKindMask') if lookup_static else None
+        self.mask = (symbol.value() if symbol else
+                     gdb.parse_and_eval('JS::OutOfLineTraceKindMask'))
 
 @pretty_printer('JS::GCCellPtr')
 class GCCellPtr(object):

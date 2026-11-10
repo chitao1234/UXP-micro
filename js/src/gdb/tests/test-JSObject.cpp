@@ -1,5 +1,6 @@
 #include "gdb-tests.h"
 #include "jsapi.h"
+#include <string.h>
 
 FRAGMENT(JSObject, simple) {
   JS::Rooted<JSObject*> glob(cx, JS::CurrentGlobalOrNull(cx));
@@ -16,8 +17,12 @@ FRAGMENT(JSObject, simple) {
   JSObject* plainRaw = plain;
   JSObject* funcRaw = func;
 
-  static const JSClass cls = { "\xc7X" };
+  // JS_NewObject requires an ASCII class name.  Exercise the printer's
+  // escaping after construction, as in the upstream fixture.
+  char namebuf[20] = "goodname";
+  static const JSClass cls = { namebuf };
   JS::RootedObject badClassName(cx, JS_NewObject(cx, &cls));
+  strcpy(namebuf, "\xc7X");
 
   breakpoint();
 

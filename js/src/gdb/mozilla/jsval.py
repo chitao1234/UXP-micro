@@ -169,9 +169,9 @@ class jsvalTypeCache(object):
         try:
             # Looking up the tag will throw an exception if BigInt is not
             # enabled.
-            self.BIGINT = get('JSVAL_TYPE_BIGINT')
+            self.BIGINT = d['JSVAL_TYPE_BIGINT']
             self.enable_bigint = True
-        except:
+        except KeyError:
             pass
 
         # Let self.magic_names be an array whose i'th element is the name of

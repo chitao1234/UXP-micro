@@ -5,7 +5,7 @@
 
 # run-tests.py -- Python harness for GDB SpiderMonkey support
 
-import os, re, subprocess, sys, traceback
+import os, re, subprocess, sys, traceback, json
 from threading import Thread
 
 # From this directory:
@@ -85,15 +85,23 @@ class Summary(object):
         self.update()
 
     def passed(self, test):
+        print('TEST-PASS | js-gdb/%s' % test.name, flush=True)
+        self.run += 1
+        self.update()
+
+    def skipped(self, test):
+        print('TEST-SKIP | js-gdb/%s | no applicable fragment or assertion' % test.name, flush=True)
         self.run += 1
         self.update()
 
     def failed(self, test):
+        print('TEST-UNEXPECTED-FAIL | js-gdb/%s' % test.name, flush=True)
         self.run += 1
         self.failures.append(test)
         self.update()
 
     def timeout(self, test):
+        print('TEST-UNEXPECTED-TIMEOUT | js-gdb/%s' % test.name, flush=True)
         self.run += 1
         self.timeouts.append(test)
         self.update()
@@ -110,7 +118,7 @@ class Summary(object):
 
             if OPTIONS.worklist:
                 try:
-                    with open(OPTIONS.worklist) as out:
+                    with open(OPTIONS.worklist, 'w') as out:
                         for test in self.failures:
                             out.write(test.name + '\n')
                 except IOError as err:
@@ -120,7 +128,7 @@ class Summary(object):
 
             if OPTIONS.write_failures:
                 try:
-                    with open(OPTIONS.write_failures) as out:
+                    with open(OPTIONS.write_failures, 'w') as out:
                         for test in self.failures:
                             test.show(out)
                 except IOError as err:
@@ -154,11 +162,14 @@ class Test(TaskPool.Task):
     def cmd(self):
         testlibdir = os.path.normpath(os.path.join(OPTIONS.testdir, '..', 'lib-for-tests'))
         return [OPTIONS.gdb_executable,
+                '--batch',
                 '-nw',          # Don't create a window (unnecessary?)
                 '-nx',          # Don't read .gdbinit.
                 '--ex', 'add-auto-load-safe-path %s' % (OPTIONS.builddir,),
                 '--ex', 'set env LD_LIBRARY_PATH %s' % os.path.join(OPTIONS.objdir, 'js', 'src'),
-                '--ex', 'file %s' % (os.path.join(OPTIONS.builddir, 'gdb-tests'),),
+                '--ex', 'file "%s"' % (os.path.join(OPTIONS.builddir, 'gdb-tests' + ('.exe' if os.name == 'nt' else '')).replace('\\', '/'),),
+                '--ex', 'python import sys',
+                '--ex', 'source %s' % os.path.join(OPTIONS.builddir, 'gdb-tests-gdb.py').replace('\\', '/'),
                 '--eval-command', 'python testlibdir=%r' % (testlibdir,),
                 '--eval-command', 'python testscript=%r' % (self.test_path,),
                 '--eval-command', 'python exec(open(%r).read())' % os.path.join(testlibdir, 'catcher.py')]
@@ -169,21 +180,28 @@ class Test(TaskPool.Task):
             self.summary.interleave_output(lambda: self.show_cmd(sys.stdout))
 
     def onStdout(self, text):
-        self.stdout += text
+        self.stdout += text.decode('utf-8', 'replace') if isinstance(text, bytes) else text
 
     def onStderr(self, text):
-        self.stderr += text
+        self.stderr += text.decode('utf-8', 'replace') if isinstance(text, bytes) else text
 
     def onFinished(self, returncode):
         self.returncode = returncode
         if OPTIONS.show_output:
             self.summary.interleave_output(lambda: self.show_output(sys.stdout))
-        if returncode != 0:
+        markers = re.findall(r'^JS-GDB-TEST-COMPLETE (.+)$', self.stdout, re.M)
+        if returncode != 0 or len(markers) != 1:
             self.summary.failed(self)
         else:
-            self.summary.passed(self)
+            counts = json.loads(markers[0])
+            if counts['fragments'] or counts['checks']:
+                self.summary.passed(self)
+            else:
+                self.summary.skipped(self)
 
     def onTimeout(self):
+        # Preserve the last breakpoint/diagnostic when a debugger hangs.
+        self.summary.interleave_output(lambda: self.show_output(sys.stdout))
         self.summary.timeout(self)
 
     def show_cmd(self, out):
@@ -218,7 +236,8 @@ def find_tests(dir, substring = None):
     return ans
 
 def build_test_exec(builddir):
-    p = subprocess.check_call(['make', 'gdb-tests'], cwd=builddir)
+    make = os.environ.get('MAKE', 'mozmake' if os.name == 'nt' else 'make')
+    subprocess.check_call([make, 'gdb-tests.exe' if os.name == 'nt' else 'gdb-tests'], cwd=builddir)
 
 def run_tests(tests, summary):
     pool = TaskPool(tests, job_limit=OPTIONS.workercount, timeout=OPTIONS.timeout)
@@ -267,6 +286,8 @@ def main(argv):
                   help='Find tests in [TESTDIR].')
     op.add_option('--builddir', dest='builddir',
                   help='Build test executable in [BUILDDIR].')
+    op.add_option('--no-build', action='store_true',
+                  help='Use an already built matching gdb-tests executable.')
     (OPTIONS, args) = op.parse_args(argv)
     if len(args) < 1:
         op.error('missing OBJDIR argument')
@@ -291,7 +312,7 @@ def main(argv):
         try:
             with open(OPTIONS.worklist) as f:
                 for line in f:
-                    test_set.update(os.path.join(test_dir, line.strip('\n')))
+                    test_set.add(os.path.join(OPTIONS.testdir, line.strip('\n')))
         except IOError:
             # With worklist, a missing file means to start the process with
             # the complete list of tests.
@@ -302,7 +323,7 @@ def main(argv):
         try:
             with open(OPTIONS.read_tests) as f:
                 for line in f:
-                    test_set.update(os.path.join(test_dir, line.strip('\n')))
+                    test_set.add(os.path.join(OPTIONS.testdir, line.strip('\n')))
         except IOError as err:
             sys.stderr.write("Error trying to read test file '%s': %s\n"
                              % (OPTIONS.read_tests, err))
@@ -316,7 +337,7 @@ def main(argv):
     if OPTIONS.exclude:
         exclude_set = set()
         for exclude in OPTIONS.exclude:
-            exclude_set.update(find_tests(test_dir, exclude))
+            exclude_set.update(find_tests(OPTIONS.testdir, exclude))
         test_set -= exclude_set
 
     if not test_set:
@@ -329,7 +350,8 @@ def main(argv):
     # Build the test executable from all the .cpp files found in the test
     # directory tree.
     try:
-        build_test_exec(OPTIONS.builddir)
+        if not OPTIONS.no_build:
+            build_test_exec(OPTIONS.builddir)
     except subprocess.CalledProcessError as err:
         sys.stderr.write("Error building test executable: %s\n" % (err,))
         sys.exit(1)

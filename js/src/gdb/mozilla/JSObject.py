@@ -14,7 +14,11 @@ class JSObjectTypeCache(object):
         baseshape_flags = gdb.lookup_type('js::BaseShape::Flag')
         self.flag_DELEGATE = prettyprinters.enum_value(baseshape_flags, 'js::BaseShape::DELEGATE')
         self.func_ptr_type = gdb.lookup_type('JSFunction').pointer()
-        self.class_NON_NATIVE = gdb.parse_and_eval('js::Class::NON_NATIVE')
+        # Read the static member through its DWARF type. C++ expression-name
+        # lookup can scan every compilation unit for an un-emitted constant
+        # in MinGW builds; no inferior memory access is needed here.
+        class_ptr = gdb.Value(0).cast(gdb.lookup_type('js::Class').pointer())
+        self.class_NON_NATIVE = class_ptr['NON_NATIVE']
         self.NativeObject_ptr_t = gdb.lookup_type('js::NativeObject').pointer()
 
 # There should be no need to register this for JSFunction as well, since we

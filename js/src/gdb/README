@@ -163,6 +163,23 @@ are drawn from the list below.
   Build the C++ executable that GDB debugs to run the tests in BUILDDIR.
   If omitted, create a 'gdb-tests' subdirectory of LIBDIR.
 
+--no-build
+  Use an existing gdb-tests executable from the matching standalone debug
+  build. This avoids rebuilding the fixture when only Python printers change.
+
+Windows builds use gdb-tests.exe and a pool that drains both debugger pipes
+and terminates the debugger/inferior process tree on timeout. Use a GDB with
+Python support, and put the matching standalone build's dist/bin directory
+on PATH for its runtime DLLs. An unrelated JS build's DLLs are not suitable.
+For example, from the source root with JSOBJ and GDB set to local paths:
+
+  python js/src/gdb/run-tests.py --no-build --gdb "%GDB%" --builddir "%JSOBJ%/js/src/gdb" --no-progress -j 2 "%JSOBJ%"
+
+Every completed script emits TEST-PASS, TEST-SKIP or TEST-UNEXPECTED-FAIL with
+its full relative name. A pass requires a successful GDB exit and a completion
+marker from the test prologue. A platform-gated script that executes no fragment
+or assertion is a skip. Timeouts retain debugger diagnostics and never pass.
+
 (It is safe to use relative paths for LIBDIR, SRCDIR, and so on. They are
 always interpreted relative to the directory that was current when
 run-tests.py was started.)

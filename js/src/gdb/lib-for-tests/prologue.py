@@ -3,13 +3,19 @@ import os
 import re
 import sys
 import traceback
+import json
+
+executed_fragments = 0
+executed_checks = 0
 
 # testlibdir is set on the GDB command line, via --eval-command python testlibdir=...
 sys.path[0:0] = [testlibdir]
 
 # Run the C++ fragment named |fragment|, stopping on entry to |function|
 # ('breakpoint', by default) and then select the calling frame.
-def run_fragment(fragment, function='breakpoint'):
+def run_fragment(fragment, function='gdb-tests.cpp:breakpoint'):
+    global executed_fragments
+    executed_fragments += 1
     # Arrange to stop at a reasonable place in the test program.
     bp = gdb.Breakpoint(function);
     try:
@@ -22,6 +28,8 @@ def run_fragment(fragment, function='breakpoint'):
 
 # Assert that |actual| is equal to |expected|; if not, complain in a helpful way.
 def assert_eq(actual, expected):
+    global executed_checks
+    executed_checks += 1
     if actual != expected:
         raise AssertionError("""Unexpected result:
 expected: %r
@@ -29,6 +37,8 @@ actual:   %r""" % (expected, actual))
 
 # Assert that |expected| regex matches |actual| result; if not, complain in a helpful way.
 def assert_match(actual, expected):
+    global executed_checks
+    executed_checks += 1
     if re.match(expected, actual, re.MULTILINE) == None:
         raise AssertionError("""Unexpected result:
 expected pattern: %r
@@ -52,6 +62,8 @@ def assert_regexp_pretty(value, form):
 # Check that the list of registered pretty-printers includes one named
 # |printer|, with a subprinter named |subprinter|.
 def assert_subprinter_registered(printer, subprinter):
+    global executed_checks
+    executed_checks += 1
     # Match a line containing |printer| followed by a colon, and then a
     # series of more-indented lines containing |subprinter|.
 
@@ -74,12 +86,15 @@ gdb.execute('set confirm off', False)
 gdb.execute('set print static-members off')
 gdb.execute('set print address off')
 gdb.execute('set print pretty off')
+gdb.execute('set target-charset UTF-8')
 gdb.execute('set width 0')
 
 try:
     # testscript is set on the GDB command line, via:
     # --eval-command python testscript=...
     exec(open(testscript).read())
+    print('JS-GDB-TEST-COMPLETE ' + json.dumps(dict(
+          fragments=executed_fragments, checks=executed_checks)), flush=True)
 except AssertionError as err:
     sys.stderr.write('\nAssertion traceback:\n')
     (t, v, tb) = sys.exc_info()
