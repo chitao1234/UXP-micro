@@ -4,7 +4,7 @@
 
 import contextlib
 import time
-import urllib
+from urllib.parse import quote
 
 from marionette_driver import By, errors, expected, Wait
 from marionette_harness import (
@@ -18,7 +18,7 @@ from marionette_harness import (
 
 
 def inline(doc):
-    return "data:text/html;charset=utf-8,%s" % urllib.quote(doc)
+    return "data:text/html;charset=utf-8,%s" % quote(doc)
 
 
 class TestBackForwardNavigation(WindowManagerMixin, MarionetteTestCase):
@@ -255,14 +255,8 @@ class TestNavigate(WindowManagerMixin, MarionetteTestCase):
 
     @property
     def location_href(self):
-        # Windows 8 has recently seen a proliferation of intermittent
-        # test failures to do with failing to compare "about:blank" ==
-        # u"about:blank". For the sake of consistenty, we encode the
-        # returned URL as Unicode here to ensure that the values are
-        # absolutely of the same type.
-        #
-        # (https://bugzilla.mozilla.org/show_bug.cgi?id=1322862)
-        return self.marionette.execute_script("return window.location.href").encode("utf-8")
+        # The driver returns text under Python 3, just like absolute_url().
+        return self.marionette.execute_script("return window.location.href")
 
     def test_set_location_through_execute_script(self):
         self.marionette.execute_script(
@@ -432,16 +426,16 @@ class TestTLSNavigation(MarionetteTestCase):
     def test_deactivation(self):
         invalid_cert_url = self.fixtures.where_is("/test.html", on="https")
 
-        print "with safe session"
+        print("with safe session")
         with self.safe_session() as session:
             with self.assertRaises(errors.InsecureCertificateException):
                 session.navigate(invalid_cert_url)
 
-        print "with unsafe session"
+        print("with unsafe session")
         with self.unsafe_session() as session:
             session.navigate(invalid_cert_url)
 
-        print "with safe session again"
+        print("with safe session again")
         with self.safe_session() as session:
             with self.assertRaises(errors.InsecureCertificateException):
                 session.navigate(invalid_cert_url)

@@ -13,6 +13,7 @@ from marionette_harness import (
     BaseMarionetteTestRunner,
     BaseMarionetteArguments,
     BrowserMobProxyArguments,
+    MarionetteJSTestCase,
     MarionetteTestCase,
 )
 
@@ -20,7 +21,7 @@ from marionette_harness import (
 class MarionetteTestRunner(BaseMarionetteTestRunner):
     def __init__(self, **kwargs):
         BaseMarionetteTestRunner.__init__(self, **kwargs)
-        self.test_handlers = [MarionetteTestCase]
+        self.test_handlers = [MarionetteTestCase, MarionetteJSTestCase]
 
 
 class MarionetteArguments(BaseMarionetteArguments):
@@ -57,6 +58,12 @@ class MarionetteHarness(object):
         logger = mozlog.commandline.setup_logging(
             args.logger_name, args, logger_defaults or {"tbpl": sys.stdout})
 
+        # Logging options own open streams after argparse conversion. They
+        # have already been consumed and are not testcase constructor options.
+        # Do not pass them into the runner's deepcopy of extra test arguments.
+        for key in list(vars(args)):
+            if key.startswith("log_"):
+                delattr(args, key)
         args.logger = logger
         return vars(args)
 

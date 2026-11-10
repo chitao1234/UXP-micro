@@ -177,7 +177,7 @@ class PredicatesTest(MarionetteTestCase):
 
     def test_until(self):
         c = wait.SystemClock()
-        self.assertFalse(wait.until_pred(c, sys.maxint))
+        self.assertFalse(wait.until_pred(c, sys.maxsize))
         self.assertTrue(wait.until_pred(c, 0))
 
 

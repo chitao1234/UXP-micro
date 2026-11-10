@@ -6,7 +6,7 @@ import base64
 import hashlib
 import imghdr
 import struct
-import urllib
+from urllib.parse import quote
 
 from marionette_driver import By
 from marionette_driver.errors import JavascriptException, NoSuchWindowException
@@ -19,7 +19,7 @@ from marionette_harness import (
 
 
 def inline(doc, mime="text/html;charset=utf-8"):
-    return "data:{0},{1}".format(mime, urllib.quote(doc))
+    return "data:{0},{1}".format(mime, quote(doc))
 
 
 box = inline("<body><div id='box'><p id='green' style='width: 50px; height: 50px; "
@@ -65,7 +65,7 @@ class ScreenCaptureTestCase(MarionetteTestCase):
 
     def assert_png(self, screenshot):
         """Test that screenshot is a Base64 encoded PNG file."""
-        image = base64.decodestring(screenshot)
+        image = base64.b64decode(screenshot)
         self.assertEqual(imghdr.what("", image), "png")
 
     def assert_formats(self, element=None):
@@ -82,8 +82,8 @@ class ScreenCaptureTestCase(MarionetteTestCase):
         # Valid data should have been returned
         self.assert_png(screenshot_image)
         self.assertEqual(imghdr.what("", binary1), "png")
-        self.assertEqual(screenshot_image, base64.b64encode(binary1))
-        self.assertEqual(hash1, hashlib.sha256(screenshot_image).hexdigest())
+        self.assertEqual(screenshot_image, base64.b64encode(binary1).decode("ascii"))
+        self.assertEqual(hash1, hashlib.sha256(screenshot_image.encode("ascii")).hexdigest())
 
         # Different formats produce different data
         self.assertNotEqual(screenshot_image, binary1)
@@ -101,7 +101,7 @@ class ScreenCaptureTestCase(MarionetteTestCase):
 
     def get_image_dimensions(self, screenshot):
         self.assert_png(screenshot)
-        image = base64.decodestring(screenshot)
+        image = base64.b64decode(screenshot)
         width, height = struct.unpack(">LL", image[16:24])
         return int(width), int(height)
 

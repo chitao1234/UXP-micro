@@ -154,7 +154,6 @@ class MarionetteTestResult(StructuredTestResult, TestResultCollection):
         super(MarionetteTestResult, self).addFailure(test, err)
 
     def addSuccess(self, test):
-        self.passed += 1
         self.add_test_result(test, result_actual='PASS')
         super(MarionetteTestResult, self).addSuccess(test)
 
@@ -172,6 +171,20 @@ class MarionetteTestResult(StructuredTestResult, TestResultCollection):
     def addSkip(self, test, reason):
         self.add_test_result(test, output=reason, result_actual='SKIPPED')
         super(MarionetteTestResult, self).addSkip(test, reason)
+
+    def parent_summary(self):
+        # A method failure and its teardown error are two diagnostics for one
+        # executed case. Keep both in the collection/log, but count the case
+        # once with its worst outcome.
+        from collections import Counter
+        priority = {'PASS': 0, 'SKIPPED': 1, 'KNOWN-FAIL': 2,
+                    'UNEXPECTED-PASS': 3, 'UNEXPECTED-FAIL': 4, 'ERROR': 5}
+        cases = {}
+        for result in self:
+            previous = cases.get(result.test_name)
+            if previous is None or priority[result.result] > priority[previous]:
+                cases[result.test_name] = result.result
+        return dict(completed=len(cases), counts=dict(Counter(cases.values())))
 
     def getInfo(self, test):
         return test.test_name
@@ -205,14 +218,17 @@ class MarionetteTestResult(StructuredTestResult, TestResultCollection):
                 self.logger.info('END LOG:')
 
     def stopTest(self, *args, **kwargs):
-        unittest._TextTestResult.stopTest(self, *args, **kwargs)
         if self.marionette.check_for_crash():
             # this tells unittest.TestSuite not to continue running tests
             self.shouldStop = True
             test = next((a for a in args if isinstance(a, unittest.TestCase)),
                         None)
             if test:
-                self.addError(test, sys.exc_info())
+                error = sys.exc_info()
+                if error[0] is None:
+                    error = (RuntimeError, RuntimeError('Browser process crashed during test'), None)
+                self.addError(test, error)
+        super(MarionetteTestResult, self).stopTest(*args, **kwargs)
 
 
 class MarionetteTextTestRunner(StructuredTestRunner):
@@ -983,6 +999,7 @@ class BaseMarionetteTestRunner(object):
         self.tests.append({'filepath': filepath, 'expected': expected})
 
     def run_test(self, filepath, expected):
+        self.logger.info('MARIONETTE-PARENT-START ' + json.dumps(dict(path=filepath)))
         testloader = unittest.TestLoader()
         suite = unittest.TestSuite()
         self.test_kwargs['expected'] = expected
@@ -999,7 +1016,8 @@ class BaseMarionetteTestRunner(object):
                                            **self.test_kwargs)
                 break
 
-        if suite.countTestCases():
+        selected_cases = suite.countTestCases()
+        if selected_cases:
             runner = self.textrunnerclass(logger=self.logger,
                                           marionette=self.marionette,
                                           capabilities=self.capabilities,
@@ -1029,6 +1047,16 @@ class BaseMarionetteTestRunner(object):
             for result in self.results:
                 result.result_modifiers = []
 
+            # Count the actual result collection, independently of suite-level
+            # totals. A failed import, early exit or unexecuted case cannot
+            # qualify the file that owns it.
+            summary = results.parent_summary()
+            summary.update(path=filepath, selected=selected_cases)
+            self.logger.info('MARIONETTE-PARENT-RESULT ' + json.dumps(summary))
+        else:
+            self.logger.info('MARIONETTE-PARENT-RESULT ' + json.dumps(dict(
+                path=filepath, selected=0, completed=0, counts={})))
+
     def run_test_set(self, tests):
         if self.shuffle:
             random.seed(self.shuffle_seed)
@@ -1042,10 +1070,10 @@ class BaseMarionetteTestRunner(object):
     def run_test_sets(self):
         if len(self.tests) < 1:
             raise Exception('There are no tests to run.')
-        elif self.total_chunks > len(self.tests):
+        elif self.total_chunks is not None and self.total_chunks > len(self.tests):
             raise ValueError('Total number of chunks must be between 1 and {}.'
                              .format(len(self.tests)))
-        if self.total_chunks > 1:
+        if self.total_chunks is not None and self.total_chunks > 1:
             chunks = [[] for i in range(self.total_chunks)]
             for i, test in enumerate(self.tests):
                 target_chunk = i % self.total_chunks

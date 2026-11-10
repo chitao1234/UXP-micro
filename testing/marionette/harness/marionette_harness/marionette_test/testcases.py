@@ -127,6 +127,9 @@ class CommonTestCase(unittest.TestCase, metaclass=MetaParameterized):
         result.startTest(self)
 
         testMethod = getattr(self, self._testMethodName)
+        expecting_failure = (self.expected == 'fail' or
+                             getattr(self, '__unittest_expecting_failure__', False) or
+                             getattr(testMethod, '__unittest_expecting_failure__', False))
         if (getattr(self.__class__, "__unittest_skip__", False) or
                 getattr(testMethod, "__unittest_skip__", False)):
             # If the class or method was skipped.
@@ -159,10 +162,12 @@ class CommonTestCase(unittest.TestCase, metaclass=MetaParameterized):
                 result.addError(self, sys.exc_info())
             else:
                 try:
-                    if self.expected == 'fail':
+                    if expecting_failure:
                         try:
                             testMethod()
-                        except:
+                        except (SkipTest, KeyboardInterrupt):
+                            raise
+                        except Exception:
                             raise _ExpectedFailure(sys.exc_info())
                         raise _UnexpectedSuccess
                     else:
@@ -421,6 +426,31 @@ if (!testUtils.hasOwnProperty("specialPowersObserver")) {
                 self.loglines = marionette.get_logs()
                 raise
         self.marionette.test_name = original_test_name
+
+
+class MarionetteJSTestCase(CommonTestCase):
+    """Run the JavaScript selftests still registered by unit-tests.ini.
+
+    These use CommonTestCase.run_js_test's existing assertion and expected
+    timeout handling, as did the original Marionette JavaScript handler.
+    """
+
+    match_re = re.compile(r"test_(.*)\.js$")
+
+    def __init__(self, marionette_weakref, fixtures, jsFile, **kwargs):
+        self.jsFile = jsFile
+        super(MarionetteJSTestCase, self).__init__(
+            'runTest', marionette_weakref=marionette_weakref,
+            fixtures=fixtures, **kwargs)
+
+    @classmethod
+    def add_tests_to_suite(cls, mod_name, filepath, suite, testloader, marionette,
+                           fixtures, testvars, **kwargs):
+        suite.addTest(cls(weakref.ref(marionette), fixtures,
+                          jsFile=filepath, **kwargs))
+
+    def runTest(self):
+        self.run_js_test(self.jsFile)
 
 
 class MarionetteTestCase(CommonTestCase):

@@ -2,7 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import urllib
+from urllib.parse import quote
 
 from marionette_driver import expected
 from marionette_driver.by import By
@@ -11,7 +11,7 @@ from marionette_harness import marionette_test
 
 
 def inline(doc):
-    return "data:text/html;charset=utf-8,{}".format(urllib.quote(doc))
+    return "data:text/html;charset=utf-8,{}".format(quote(doc))
 
 static_element = inline("""<p>foo</p>""")
 static_elements = static_element + static_element

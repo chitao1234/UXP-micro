@@ -145,7 +145,7 @@ class Wait(object):
             message = " with message: {}".format(message)
 
         raise errors.TimeoutException(
-            "Timed out after {0} seconds{1}".format(round((self.clock.now - start), 1),
+            "Timed out after {0:.1f} seconds{1}".format(round((self.clock.now - start), 1),
                                                     message if message else ""),
             cause=last_exc)
 

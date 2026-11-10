@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import os
-import urllib
+from urllib.parse import quote
 
 from marionette_driver import By, errors
 from marionette_driver.marionette import HTMLElement
@@ -13,7 +13,7 @@ from marionette_harness import MarionetteTestCase, skip_if_mobile, WindowManager
 
 
 def inline(doc):
-    return "data:text/html;charset=utf-8,{}".format(urllib.quote(doc))
+    return "data:text/html;charset=utf-8,{}".format(quote(doc))
 
 
 elements = inline("<p>foo</p> <p>bar</p>")

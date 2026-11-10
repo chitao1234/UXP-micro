@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import contextlib
-import urllib
+from urllib.parse import quote
 
 from tempfile import NamedTemporaryFile as tempfile
 
@@ -12,9 +12,9 @@ from marionette_driver.wait import Wait
 from marionette_harness import MarionetteTestCase, skip
 
 
-single = "data:text/html,{}".format(urllib.quote("<input type=file>"))
-multiple = "data:text/html,{}".format(urllib.quote("<input type=file multiple>"))
-upload = lambda url: "data:text/html,{}".format(urllib.quote("""
+single = "data:text/html,{}".format(quote("<input type=file>"))
+multiple = "data:text/html,{}".format(quote("<input type=file multiple>"))
+upload = lambda url: "data:text/html,{}".format(quote("""
     <form action='{}' method=post enctype='multipart/form-data'>
      <input type=file>
      <input type=submit>

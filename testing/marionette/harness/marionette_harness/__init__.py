@@ -7,6 +7,7 @@ __version__ = '4.0.0'
 from .marionette_test import (
     CommonTestCase,
     expectedFailure,
+    MarionetteJSTestCase,
     MarionetteTestCase,
     parameterized,
     run_if_e10s,

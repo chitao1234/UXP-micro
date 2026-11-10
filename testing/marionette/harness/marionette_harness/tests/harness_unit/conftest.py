@@ -4,7 +4,7 @@
 
 import pytest
 
-from mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock
 
 from marionette_driver.marionette import Marionette
 

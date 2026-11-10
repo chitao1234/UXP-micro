@@ -9,8 +9,8 @@ from marionette_harness.marionette_test import (
     MarionetteTestCase
 )
 
-class Parameterizable(object):
-    __metaclass__ = MetaParameterized
+class Parameterizable(object, metaclass=MetaParameterized):
+    pass
 
 class TestDataDriven(MarionetteTestCase):
     def test_parameterized(self):
@@ -64,4 +64,4 @@ class TestDataDriven(MarionetteTestCase):
                     pass
 
     def test_marionette_test_case_is_parameterizable(self):
-        self.assertTrue(issubclass(MarionetteTestCase.__metaclass__, MetaParameterized))
+        self.assertIsInstance(MarionetteTestCase, MetaParameterized)

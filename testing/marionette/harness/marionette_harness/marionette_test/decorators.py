@@ -107,7 +107,7 @@ def skip_if_desktop(reason):
 
         @functools.wraps(test_item)
         def skip_wrapper(self, *args, **kwargs):
-            if self.marionette.session_capabilities.get('browserName') == 'firefox':
+            if self.marionette.session_capabilities.get('browserName') != 'fennec':
                 raise SkipTest(reason)
             return test_item(self, *args, **kwargs)
         return skip_wrapper

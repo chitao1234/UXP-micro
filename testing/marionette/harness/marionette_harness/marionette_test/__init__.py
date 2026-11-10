@@ -26,6 +26,7 @@ from .decorators import (
 
 from .testcases import (
     CommonTestCase,
+    MarionetteJSTestCase,
     MarionetteTestCase,
     MetaParameterized,
 )

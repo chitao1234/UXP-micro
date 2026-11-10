@@ -2,8 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import types
-import urllib
+from urllib.parse import quote
 
 from marionette_driver.by import By
 
@@ -35,9 +34,9 @@ boolean_attributes = {
 
 def inline(doc, doctype="html"):
     if doctype == "html":
-        return "data:text/html;charset=utf-8,{}".format(urllib.quote(doc))
+        return "data:text/html;charset=utf-8,{}".format(quote(doc))
     elif doctype == "xhtml":
-        return "data:application/xhtml+xml,{}".format(urllib.quote(
+        return "data:application/xhtml+xml,{}".format(quote(
 r"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
@@ -82,25 +81,25 @@ class TestGetElementAttribute(MarionetteTestCase):
         self.marionette.navigate(inline("<p style=foo>"))
         el = self.marionette.find_element(By.TAG_NAME, "p")
         attr = el.get_attribute("style")
-        self.assertIsInstance(attr, types.StringTypes)
+        self.assertIsInstance(attr, str)
         self.assertEqual("foo", attr)
 
     def test_boolean_attributes(self):
-        for tag, attrs in boolean_attributes.iteritems():
+        for tag, attrs in boolean_attributes.items():
             for attr in attrs:
                 print("testing boolean attribute <{0} {1}>".format(tag, attr))
                 doc = inline("<{0} {1}>".format(tag, attr))
                 self.marionette.navigate(doc)
                 el = self.marionette.find_element(By.TAG_NAME, tag)
                 res = el.get_attribute(attr)
-                self.assertIsInstance(res, types.StringTypes)
+                self.assertIsInstance(res, str)
                 self.assertEqual("true", res)
 
     def test_global_boolean_attributes(self):
         self.marionette.navigate(inline("<p hidden>foo"))
         el = self.marionette.find_element(By.TAG_NAME, "p")
         attr = el.get_attribute("hidden")
-        self.assertIsInstance(attr, types.StringTypes)
+        self.assertIsInstance(attr, str)
         self.assertEqual("true", attr)
 
         self.marionette.navigate(inline("<p>foo"))
@@ -111,7 +110,7 @@ class TestGetElementAttribute(MarionetteTestCase):
         self.marionette.navigate(inline("<p itemscope>foo"))
         el = self.marionette.find_element(By.TAG_NAME, "p")
         attr = el.get_attribute("itemscope")
-        self.assertIsInstance(attr, types.StringTypes)
+        self.assertIsInstance(attr, str)
         self.assertEqual("true", attr)
 
         self.marionette.navigate(inline("<p>foo"))
@@ -126,7 +125,7 @@ class TestGetElementAttribute(MarionetteTestCase):
         self.marionette.navigate(doc)
         el = self.marionette.find_element(By.TAG_NAME, "p")
         attr = el.get_attribute("hidden")
-        self.assertIsInstance(attr, types.StringTypes)
+        self.assertIsInstance(attr, str)
         self.assertEqual("true", attr)
 
 

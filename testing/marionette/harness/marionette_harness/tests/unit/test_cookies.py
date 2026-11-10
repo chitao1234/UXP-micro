@@ -51,7 +51,7 @@ class CookieTest(MarionetteTestCase):
     def test_delete_all_cookie(self):
         self.marionette.add_cookie(self.COOKIE_A)
         cookie_returned = str(self.marionette.execute_script("return document.cookie"))
-        print cookie_returned
+        print(cookie_returned)
         self.assertTrue(self.COOKIE_A["name"] in cookie_returned)
         self.marionette.delete_all_cookies()
         self.assertFalse(self.marionette.get_cookies())

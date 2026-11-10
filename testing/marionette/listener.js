@@ -1468,7 +1468,7 @@ function* sendKeysToElement(id, val) {
     yield interaction.uploadFile(el, path);
   } else if ((el.type == "date" || el.type == "time") &&
       Preferences.get("dom.forms.datetime")) {
-    yield interaction.setFormControlValue(el, val);
+      yield interaction.setFormControlValue(el, val.join(""));
   } else {
     yield interaction.sendKeysToElement(
         el, val, false, capabilities.get("moz:accessibilityChecks"));
