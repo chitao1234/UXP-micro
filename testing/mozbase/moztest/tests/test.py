@@ -12,10 +12,27 @@ import time
 import unittest
 
 from moztest.results import TestContext, TestResult, TestResultCollection
-from moztest.adapters.unit import StructuredTestRunner
+from moztest.adapters.unit import StructuredTestRunner, StructuredTestResult
 
 
 class StructuredResults(unittest.TestCase):
+    def test_subclass_can_supply_readonly_passed_collection(self):
+        class Derived(StructuredTestResult):
+            @property
+            def tests_passed(self):
+                return ['subclass-owned-results']
+
+        class Logger:
+            def test_end(self, *args, **kwargs):
+                pass
+
+        result = Derived(io.StringIO(), True, 1, logger=Logger())
+        result._test_results = []
+        result.addSuccess(unittest.FunctionTestCase(lambda: None))
+        self.assertEqual(result.passed, 1)
+        self.assertEqual(result.tests_passed, ['subclass-owned-results'])
+        self.assertEqual(len(result._tests_passed), 1)
+
     def run_cases(self, cases):
         class Logger(object):
             def __init__(self):

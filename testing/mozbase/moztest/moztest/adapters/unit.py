@@ -49,9 +49,13 @@ class StructuredTestResult(TextTestResult):
         self.test_list = kwargs.pop("test_list", [])
         self.result_callbacks = kwargs.pop('result_callbacks', [])
         self.passed = 0
-        self.tests_passed = []
+        self._tests_passed = []
         self.testsRun = 0
         TextTestResult.__init__(self, *args, **kwargs)
+
+    @property
+    def tests_passed(self):
+        return self._tests_passed
 
     def call_callbacks(self, test, status):
         debug_info = {}
@@ -163,7 +167,7 @@ class StructuredTestResult(TextTestResult):
 
     def addSuccess(self, test):
         self.passed += 1
-        self.tests_passed.append(test)
+        self._tests_passed.append(test)
         extra = self._get_class_method_name(test)
         self._record_test_end(test,
                              "PASS",
