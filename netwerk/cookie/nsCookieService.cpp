@@ -4049,10 +4049,10 @@ nsCookieService::CheckPrefixes(nsCookieAttributes &aCookie,
   // Per RFC 6265bis section 5.4, UAs MUST match these prefixes case-insensitively,
   // even though section 4.1.3 describes them with "case-sensitive match" language.
   // That wording, however, applies to server-side semantics, not UA-enforcement!
-  bool isSecure   = nsCRT::strncasecmp(aCookie.value.get(), kSecure, kSecureLen) == 0;
-  bool isHost     = nsCRT::strncasecmp(aCookie.value.get(), kHost, kHostLen) == 0;
-  bool isHttp     = nsCRT::strncasecmp(aCookie.value.get(), kHttp, kHttpLen) == 0;
-  bool isHostHttp = nsCRT::strncasecmp(aCookie.value.get(), kHostHttp, kHostHttpLen) == 0;
+  bool isSecure   = nsCRT::strncasecmp(aCookie.name.get(), kSecure, kSecureLen) == 0;
+  bool isHost     = nsCRT::strncasecmp(aCookie.name.get(), kHost, kHostLen) == 0;
+  bool isHttp     = nsCRT::strncasecmp(aCookie.name.get(), kHttp, kHttpLen) == 0;
+  bool isHostHttp = nsCRT::strncasecmp(aCookie.name.get(), kHostHttp, kHostHttpLen) == 0;
 
   if (!isSecure && !isHost && !isHttp && !isHostHttp) {
     // not one of the magic prefixes: carry on

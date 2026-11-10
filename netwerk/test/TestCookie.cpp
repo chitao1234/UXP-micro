@@ -563,23 +563,23 @@ main(int32_t argc, char *argv[])
       GetACookie(cookieService, "http://parser.test/", nullptr, getter_Copies(cookie));
       rv[4] = CheckResult(cookie.get(), MUST_BE_NULL);
 
-      // test the handling of VALUE-only cookies (see bug 169091),
-      // i.e. "six" should assume an empty NAME, which allows other VALUE-only
-      // cookies to overwrite it
+      // Equal-less cookies are name-only, and distinct names coexist. UXP
+      // 2b3ad2f082 rejects explicitly empty names, as current Firefox's
+      // default valueless-cookie policy also does.
       SetACookie(cookieService, "http://parser.test/", nullptr, "six", nullptr);
       GetACookie(cookieService, "http://parser.test/", nullptr, getter_Copies(cookie));
-      rv[5] = CheckResult(cookie.get(), MUST_EQUAL, "six");
+      rv[5] = CheckResult(cookie.get(), MUST_EQUAL, "six=");
       SetACookie(cookieService, "http://parser.test/", nullptr, "seven", nullptr);
       GetACookie(cookieService, "http://parser.test/", nullptr, getter_Copies(cookie));
-      rv[6] = CheckResult(cookie.get(), MUST_EQUAL, "seven");
+      rv[6] = CheckResult(cookie.get(), MUST_EQUAL, "six=; seven=");
       SetACookie(cookieService, "http://parser.test/", nullptr, " =eight", nullptr);
       GetACookie(cookieService, "http://parser.test/", nullptr, getter_Copies(cookie));
-      rv[7] = CheckResult(cookie.get(), MUST_EQUAL, "eight");
+      rv[7] = CheckResult(cookie.get(), MUST_EQUAL, "six=; seven=");
       SetACookie(cookieService, "http://parser.test/", nullptr, "test=six", nullptr);
       GetACookie(cookieService, "http://parser.test/", nullptr, getter_Copies(cookie));
-      rv[9] = CheckResult(cookie.get(), MUST_CONTAIN, "test=six");
+      rv[8] = CheckResult(cookie.get(), MUST_CONTAIN, "test=six");
 
-      allTestsPassed = PrintResult(rv, 10) && allTestsPassed;
+      allTestsPassed = PrintResult(rv, 9) && allTestsPassed;
 
 
       // *** path ordering tests
@@ -687,6 +687,52 @@ main(int32_t argc, char *argv[])
       rv[6] = CheckResult(cookie.get(), MUST_EQUAL, "__Host-f=test");
 
       allTestsPassed = PrintResult(rv, 7) && allTestsPassed;
+
+      // Adapted from current Firefox's cookies/prefix WPT cases, including
+      // __Http- and __Host-Http-. Prefixes apply to names, never ordinary
+      // values, and matching is case-insensitive.
+      sBuffer = PR_sprintf_append(sBuffer, "*** Beginning extended cookie prefix tests...\n");
+      struct PrefixCase {
+        const char* uri;
+        const char* header;
+        const char* pair;
+        bool fromHttp;
+        bool accepted;
+      };
+      const PrefixCase prefixCases[] = {
+        {"https://matrix.prefix.test/", "__Http-a=ok; secure", "__Http-a=ok", true, false},
+        {"https://matrix.prefix.test/", "__Http-b=ok; secure; httponly", "__Http-b=ok", true, true},
+        {"https://matrix.prefix.test/", "__Http-c=ok; httponly", "__Http-c=ok", true, false},
+        {"http://matrix.prefix.test/", "__Http-d=ok; secure; httponly", "__Http-d=ok", true, false},
+        {"https://matrix.prefix.test/", "__Http-e=ok; secure; httponly", "__Http-e=ok", false, false},
+        {"https://matrix.prefix.test/", "__Host-Http-a=ok; secure; path=/", "__Host-Http-a=ok", true, false},
+        {"https://matrix.prefix.test/", "__Host-Http-b=ok; secure; httponly; path=/", "__Host-Http-b=ok", true, true},
+        {"https://matrix.prefix.test/", "__Host-Http-c=ok; secure; httponly; path=/; domain=prefix.test", "__Host-Http-c=ok", true, false},
+        {"https://matrix.prefix.test/", "__Host-Http-d=ok; secure; httponly; path=/some", "__Host-Http-d=ok", true, false},
+        {"https://matrix.prefix.test/", "__Host-Http-e=ok; secure; httponly; path=/", "__Host-Http-e=ok", false, false},
+        {"https://matrix.prefix.test/", "__hOsT-a=ok; secure; path=/", "__hOsT-a=ok", true, true},
+        {"http://matrix.prefix.test/", "__hOsT-b=ok", "__hOsT-b=ok", true, false},
+        {"https://matrix.prefix.test/", "__hTtP-a=ok; secure", "__hTtP-a=ok", true, false},
+        {"https://matrix.prefix.test/", "__hTtP-b=ok; secure; httponly", "__hTtP-b=ok", true, true},
+        {"https://matrix.prefix.test/", "__hOsT-hTtP-a=ok; secure; path=/", "__hOsT-hTtP-a=ok", true, false},
+        {"https://matrix.prefix.test/", "__hOsT-hTtP-b=ok; secure; httponly; path=/", "__hOsT-hTtP-b=ok", true, true},
+        {"http://matrix.prefix.test/", "plain=__Host-value", "plain=__Host-value", true, true},
+        {"http://matrix.prefix.test/", "plain-http=__Http-value", "plain-http=__Http-value", true, true},
+      };
+      for (const auto& test : prefixCases) {
+        if (test.fromHttp) {
+          SetACookie(cookieService, test.uri, nullptr, test.header, nullptr);
+        } else {
+          SetACookieNoHttp(cookieService, test.uri, test.header);
+        }
+        // Query the nested path securely to detect invalid Path/Domain cookies
+        // too, rather than mistaking a path mismatch for rejection.
+        GetACookie(cookieService, "https://matrix.prefix.test/some/", nullptr,
+                   getter_Copies(cookie));
+        bool result = CheckResult(cookie.get(), test.accepted ? MUST_CONTAIN : MUST_NOT_CONTAIN,
+                                  test.pair);
+        allTestsPassed = PrintResult(&result, 1) && allTestsPassed;
+      }
 
       // *** leave-secure-alone tests
       sBuffer = PR_sprintf_append(sBuffer, "*** Beginning leave-secure-alone tests...\n");
