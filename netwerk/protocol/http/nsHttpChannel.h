@@ -431,7 +431,8 @@ private:
         return rv == NS_ERROR_REDIRECT_LOOP         ||
                rv == NS_ERROR_CORRUPTED_CONTENT     ||
                rv == NS_ERROR_UNKNOWN_PROTOCOL      ||
-               rv == NS_ERROR_MALFORMED_URI;
+               rv == NS_ERROR_MALFORMED_URI          ||
+               rv == NS_ERROR_PORT_ACCESS_NOT_ALLOWED;
     }
 
     // Create a aggregate set of the current notification callbacks
