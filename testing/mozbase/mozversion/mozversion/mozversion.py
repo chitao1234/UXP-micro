@@ -33,13 +33,14 @@ class Version(object):
         for type, section in INI_DATA_MAPPING:
             config_file = os.path.join(path, "%s.ini" % type)
             if os.path.exists(config_file):
-                self._parse_ini_file(open(config_file), type, section)
+                with open(config_file) as fp:
+                    self._parse_ini_file(fp, type, section)
             else:
                 self._logger.warning('Unable to find %s' % config_file)
 
     def _parse_ini_file(self, fp, type, section):
         config = configparser.RawConfigParser()
-        config.readfp(fp)
+        config.read_file(fp)
         name_map = {'codename': 'display_name',
                     'milestone': 'version',
                     'sourcerepository': 'repository',
