@@ -1,4 +1,4 @@
-// |reftest| module skip-if(release_or_beta)
+// |reftest| module
 
 async function* f() {
     return "success";
