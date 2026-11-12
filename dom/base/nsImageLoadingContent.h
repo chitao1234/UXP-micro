@@ -269,13 +269,6 @@ private:
   friend struct AutoStateChanger;
 
   /**
-   * UpdateImageState recomputes the current state of this image loading
-   * content and updates what ImageState() returns accordingly.  It will also
-   * fire a ContentStatesChanged() notification as needed if aNotify is true.
-   */
-  void UpdateImageState(bool aNotify);
-
-  /**
    * Method to fire an event once we know what's going on with the image load.
    *
    * @param aEventType "loadstart", "loadend", "load", or "error" depending on
@@ -292,6 +285,13 @@ private:
   RefPtr<mozilla::AsyncEventDispatcher> mPendingEvent;
 
 protected:
+  /**
+   * Recompute this content's current loading/broken state and notify the
+   * document if requested. Subclasses update state when their loading policy
+   * changes without starting an image request.
+   */
+  void UpdateImageState(bool aNotify);
+
   /**
    * Method to create an nsIURI object from the given string (will
    * handle getting the right charset, base, etc).  You MUST pass in a

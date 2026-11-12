@@ -140,6 +140,14 @@ nsHtml5TreeBuilder::createElement(int32_t aNamespace,
     switch (aNamespace) {
       case kNameSpaceID_XHTML:
         if (nsHtml5Atoms::img == aName) {
+          bool lazy = false;
+          for (int32_t i = 0; i < aAttributes->getLength(); ++i) {
+            if (aAttributes->getLocalNameNoBoundsCheck(i)->Equals(
+                  NS_LITERAL_STRING("loading"))) {
+              lazy = aAttributes->getValueNoBoundsCheck(i).LowerCaseEqualsASCII("lazy");
+              break;
+            }
+          }
           nsHtml5String url =
             aAttributes->getValue(nsHtml5AttributeName::ATTR_SRC);
           nsHtml5String srcset =
@@ -151,7 +159,7 @@ nsHtml5TreeBuilder::createElement(int32_t aNamespace,
           nsHtml5String sizes =
             aAttributes->getValue(nsHtml5AttributeName::ATTR_SIZES);
           mSpeculativeLoadQueue.AppendElement()->InitImage(
-           url, crossOrigin, referrerPolicy, srcset, sizes);
+           url, crossOrigin, referrerPolicy, srcset, sizes, lazy && scriptingEnabled);
         } else if (nsHtml5Atoms::source == aName) {
           nsHtml5String srcset =
             aAttributes->getValue(nsHtml5AttributeName::ATTR_SRCSET);

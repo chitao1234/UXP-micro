@@ -46,6 +46,8 @@
 #include "mozilla/net/ReferrerPolicy.h"
 
 #include "nsLayoutUtils.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/dom/DOMIntersectionObserver.h"
 
 using namespace mozilla::net;
 
@@ -110,6 +112,7 @@ HTMLImageElement::HTMLImageElement(already_AddRefed<mozilla::dom::NodeInfo>& aNo
   : nsGenericHTMLElement(aNodeInfo)
   , mForm(nullptr)
   , mInDocResponsiveContent(false)
+  , mLazyLoading(false)
   , mCurrentDensity(1.0)
 {
   // We start out broken
@@ -118,6 +121,7 @@ HTMLImageElement::HTMLImageElement(already_AddRefed<mozilla::dom::NodeInfo>& aNo
 
 HTMLImageElement::~HTMLImageElement()
 {
+  StopLazyLoading();
   DestroyImageLoadingContent();
 }
 
@@ -196,8 +200,16 @@ HTMLImageElement::Draggable() const
 bool
 HTMLImageElement::Complete()
 {
-  if (!mCurrentRequest) {
+  nsAutoString src;
+  if (!HasAttr(kNameSpaceID_None, nsGkAtoms::srcset) &&
+      (!GetAttr(kNameSpaceID_None, nsGkAtoms::src, src) || src.IsEmpty())) {
     return true;
+  }
+  if (mPendingImageLoadTask && mPendingImageLoadTask->AlwaysLoad()) {
+    return false;
+  }
+  if (!mCurrentRequest) {
+    return !mLazyLoading;
   }
 
   if (mPendingRequest) {
@@ -209,6 +221,111 @@ HTMLImageElement::Complete()
   return
     (status &
      (imgIRequest::STATUS_LOAD_COMPLETE | imgIRequest::STATUS_ERROR)) != 0;
+}
+
+void
+HTMLImageElement::GetLoading(nsAString& aValue) const
+{
+  if (AttrValueIs(kNameSpaceID_None, nsGkAtoms::loading,
+                  NS_LITERAL_STRING("lazy"), eIgnoreCase)) {
+    aValue.AssignLiteral("lazy");
+  } else {
+    aValue.AssignLiteral("eager");
+  }
+}
+
+bool
+HTMLImageElement::HasLazyLoading() const
+{
+  return Preferences::GetBool("dom.image-lazy-loading.enabled", true) &&
+    AttrValueIs(kNameSpaceID_None, nsGkAtoms::loading,
+                NS_LITERAL_STRING("lazy"), eIgnoreCase) &&
+    !OwnerDoc()->IsStaticDocument() && OwnerDoc()->IsScriptEnabled();
+}
+
+bool
+HTMLImageElement::IsImageAvailable(nsIURI* aURI, nsIPrincipal* aPrincipal)
+{
+  imgLoader* loader = nsContentUtils::GetImgLoaderForDocument(OwnerDoc());
+  ReferrerPolicy policy = GetImageReferrerPolicy();
+  if (policy == RP_Unset) {
+    policy = OwnerDoc()->GetReferrerPolicy();
+  }
+  return loader && loader->IsImageAvailable(aURI,
+    aPrincipal ? aPrincipal : NodePrincipal(), GetCORSMode(), OwnerDoc(),
+    static_cast<nsIContent*>(this),
+    HaveSrcsetOrInPicture() ? nsIContentPolicy::TYPE_IMAGESET
+                            : nsIContentPolicy::TYPE_INTERNAL_IMAGE,
+    policy);
+}
+
+void
+HTMLImageElement::SetLazyLoading()
+{
+  if (mLazyLoading || !HasLazyLoading()) {
+    return;
+  }
+  mLazyLoading = true;
+  if (IsInComposedDoc()) {
+    OwnerDoc()->EnsureLazyLoadObserver().Observe(*this);
+  }
+  UpdateImageState(true);
+}
+
+void
+HTMLImageElement::StopLazyLoading()
+{
+  if (!mLazyLoading) {
+    return;
+  }
+  if (auto* observer = OwnerDoc()->GetLazyLoadObserver()) {
+    observer->Unobserve(*this);
+  }
+  mLazyLoading = false;
+}
+
+void
+HTMLImageElement::StartLazyImageLoad(bool aForPrint)
+{
+  if (!mLazyLoading) {
+    return;
+  }
+  mLazyLoadForcedForPrint |= aForPrint;
+  StopLazyLoading();
+  mForcingLazyImageLoadForPrint = aForPrint;
+  // This call has already passed the lazy intersection gate. Preserve the
+  // stable-state task's AlwaysLoad semantics for the selected source.
+  LoadSelectedImage(true, true, true);
+  if (aForPrint) {
+    imgRequestProxy* request = mPendingRequest ? mPendingRequest : mCurrentRequest;
+    if (request) {
+      request->StartDecoding();
+    }
+  }
+  mForcingLazyImageLoadForPrint = false;
+}
+
+void
+HTMLImageElement::TrackImageLoadForPrint()
+{
+  if (!OwnerDoc()->IsStaticDocument() || !mLazyLoadForcedForPrint ||
+      !mCurrentRequest) {
+    return;
+  }
+  uint32_t status = 0;
+  if (NS_FAILED(mCurrentRequest->GetImageStatus(&status)) ||
+      (status & (imgIRequest::STATUS_LOAD_COMPLETE | imgIRequest::STATUS_ERROR))) {
+    return;
+  }
+  // The clone has its own proxy, but Clone() initially inherits the source
+  // document's load group. Join the print document's group only after its
+  // progress listener is installed, so final print reflow waits for this load.
+  nsCOMPtr<nsILoadGroup> group = OwnerDoc()->GetDocumentLoadGroup();
+  mCurrentRequest->SetLoadGroup(group);
+  nsLoadFlags flags;
+  mCurrentRequest->GetLoadFlags(&flags);
+  mCurrentRequest->SetLoadFlags(flags & ~nsIRequest::LOAD_BACKGROUND);
+  mCurrentRequest->AddToLoadGroup();
 }
 
 NS_IMETHODIMP
@@ -393,6 +510,14 @@ HTMLImageElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
                                bool aNotify)
 {
   nsAttrValueOrString attrVal(aValue);
+
+  if (aNameSpaceID == kNameSpaceID_None && aName == nsGkAtoms::loading) {
+    if (HasLazyLoading()) {
+      SetLazyLoading();
+    } else {
+      StartLazyImageLoad();
+    }
+  }
   
   if (aValue) {
     AfterMaybeChangeAttr(aNameSpaceID, aName, attrVal, aOldValue, true,
@@ -418,7 +543,7 @@ HTMLImageElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       !aValue) {
     // SetAttr handles setting src since it needs to catch img.src =
     // img.src, so we only need to handle the unset case
-    if (InResponsiveMode()) {
+    if (InResponsiveMode() || mLazyLoading) {
       if (mResponsiveSelector &&
           mResponsiveSelector->Content() == this) {
         mResponsiveSelector->SetDefaultSource(NullString());
@@ -486,27 +611,21 @@ HTMLImageElement::AfterMaybeChangeAttr(int32_t aNamespaceID, nsIAtom* aName,
       }
       QueueImageLoadTask(true);
     } else if (aNotify && OwnerDoc()->IsCurrentActiveDocument()) {
-      // If aNotify is false, we are coming from the parser or some such place;
-      // we'll get bound after all the attributes have been set, so we'll do the
-      // sync image load from BindToTree. Skip the LoadImage call in that case.
-
-      // Note that this sync behavior is partially removed from the spec, bug 1076583
-
-      // A hack to get animations to reset. See bug 594771.
-      mNewRequestsWillNeedAnimationReset = true;
-
-      // Force image loading here, so that we'll try to load the image from
-      // network if it's set to be not cacheable.
-      // Potentially, false could be passed here rather than aNotify since
-      // UpdateState will be called by SetAttrAndNotify, but there are two
-      // obstacles to this: 1) LoadImage will end up calling
-      // UpdateState(aNotify), and we do not want it to call UpdateState(false)
-      // when aNotify is true, and 2) When this function is called by
-      // OnAttrSetButNotChanged, SetAttrAndNotify will not subsequently call
-      // UpdateState.
-      LoadImage(aValue.String(), true, aNotify, eImageLoadType_Normal, mSrcTriggeringPrincipal);
-
-      mNewRequestsWillNeedAnimationReset = false;
+      // Like current Firefox, only an available cached image can load in the
+      // setter. Otherwise await stable state, so subsequent loading/srcset/
+      // crossorigin mutations take effect before a request is started.
+      nsCOMPtr<nsIURI> uri;
+      StringToURI(aValue.String(), OwnerDoc(), getter_AddRefs(uri));
+      if (IsImageAvailable(uri, mSrcTriggeringPrincipal)) {
+        mPendingImageLoadTask = nullptr;
+        StopLazyLoading();
+        mNewRequestsWillNeedAnimationReset = true;
+        LoadImage(aValue.String(), true, aNotify, eImageLoadType_Normal,
+                  mSrcTriggeringPrincipal);
+        mNewRequestsWillNeedAnimationReset = false;
+      } else {
+        QueueImageLoadTask(true);
+      }
     }
   } else if (aNamespaceID == kNameSpaceID_None &&
              aName == nsGkAtoms::crossorigin &&
@@ -519,7 +638,7 @@ HTMLImageElement::AfterMaybeChangeAttr(int32_t aNamespaceID, nsIAtom* aName,
       aNamespaceID == kNameSpaceID_None &&
       aNotify) {
     ReferrerPolicy referrerPolicy = GetImageReferrerPolicy();
-    if (!InResponsiveMode() &&
+    if (!InResponsiveMode() && !mLazyLoading &&
         referrerPolicy != RP_Unset &&
         aValueMaybeChanged &&
         referrerPolicy != ReferrerPolicyFromAttr(aOldValue)) {
@@ -536,7 +655,7 @@ HTMLImageElement::AfterMaybeChangeAttr(int32_t aNamespaceID, nsIAtom* aName,
   // reload after the attribute has been set if the reload is triggerred by
   // cross origin changing.
   if (forceReload) {
-    if (InResponsiveMode()) {
+    if (InResponsiveMode() || mLazyLoading) {
       // per spec, full selection runs when this changes, even though
       // it doesn't directly affect the source selection
       QueueImageLoadTask(true);
@@ -614,6 +733,13 @@ HTMLImageElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
   nsImageLoadingContent::BindToTree(aDocument, aParent, aBindingParent,
                                     aCompileEventHandlers);
 
+  // Parser attributes have all been installed by now, independent of order.
+  if (mLazyLoading && !HasLazyLoading()) {
+    StopLazyLoading();
+  } else if (mLazyLoading && IsInComposedDoc()) {
+    OwnerDoc()->EnsureLazyLoadObserver().Observe(*this);
+  }
+
   if (aParent) {
     UpdateFormOwner();
   }
@@ -629,7 +755,7 @@ HTMLImageElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
     // in order to react to changes in the environment. See note of
     // https://html.spec.whatwg.org/multipage/embedded-content.html#img-environment-changes
     QueueImageLoadTask(false);
-  } else if (!InResponsiveMode() &&
+  } else if (!InResponsiveMode() && !mLazyLoading &&
              HasAttr(kNameSpaceID_None, nsGkAtoms::src)) {
     // We skip loading when our attributes were set from parser land,
     // so trigger a aForce=false load now to check if things changed.
@@ -661,6 +787,11 @@ HTMLImageElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
 void
 HTMLImageElement::UnbindFromTree(bool aDeep, bool aNullParent)
 {
+  if (mLazyLoading) {
+    if (auto* observer = OwnerDoc()->GetLazyLoadObserver()) {
+      observer->Unobserve(*this);
+    }
+  }
   if (mForm) {
     if (aNullParent || !FindAncestorForm(mForm)) {
       ClearForm(true);
@@ -739,6 +870,8 @@ HTMLImageElement::NodeInfoChanged()
 {
   // Resetting the last selected source if adoption steps are run.
   mLastSelectedSource = nullptr;
+  StopLazyLoading();
+  SetLazyLoading();
 }
 
 // static
@@ -840,8 +973,20 @@ HTMLImageElement::CopyInnerTo(Element* aDest)
 {
   bool destIsStatic = aDest->OwnerDoc()->IsStaticDocument();
   auto dest = static_cast<HTMLImageElement*>(aDest);
+  bool forceStaticLoad = destIsStatic && mLazyLoadForcedForPrint && HasLazyLoading();
   if (destIsStatic) {
-    CreateStaticImageClone(dest);
+    imgRequestProxy* request = mPendingRequest ? mPendingRequest : mCurrentRequest;
+    uint32_t status = 0;
+    if (forceStaticLoad && request &&
+        NS_SUCCEEDED(request->GetImageStatus(&status)) &&
+        !(status & (imgIRequest::STATUS_LOAD_COMPLETE | imgIRequest::STATUS_ERROR))) {
+      nsresult rv = dest->UseAsPrimaryRequest(request, false,
+        HaveSrcsetOrInPicture() ? eImageLoadType_Imageset : eImageLoadType_Normal);
+      NS_ENSURE_SUCCESS(rv, rv);
+      dest->mLazyLoadForcedForPrint = true;
+    } else {
+      CreateStaticImageClone(dest);
+    }
   }
 
   nsresult rv = nsGenericHTMLElement::CopyInnerTo(aDest);
@@ -980,6 +1125,10 @@ HTMLImageElement::LoadSelectedImage(bool aForce, bool aNotify, bool aAlwaysLoad)
 {
   nsresult rv = NS_ERROR_FAILURE;
 
+  if (mLazyLoading && !HasLazyLoading()) {
+    StopLazyLoading();
+  }
+
   if (aForce) {
     // In responsive mode we generally want to re-run the full
     // selection algorithm whenever starting a new load, per
@@ -999,6 +1148,13 @@ HTMLImageElement::LoadSelectedImage(bool aForce, bool aNotify, bool aAlwaysLoad)
     if (!aAlwaysLoad && SelectedSourceMatchesLast(selectedSource, currentDensity)) {
       return NS_OK;
     }
+    if (mLazyLoading) {
+      if (!IsImageAvailable(url, triggeringPrincipal)) {
+        CancelImageRequests(aNotify);
+        return NS_OK;
+      }
+      StopLazyLoading();
+    }
     if (url) {
       rv = LoadImage(url, aForce, aNotify, eImageLoadType_Imageset, triggeringPrincipal);
     }
@@ -1014,6 +1170,14 @@ HTMLImageElement::LoadSelectedImage(bool aForce, bool aNotify, bool aAlwaysLoad)
         if (!aAlwaysLoad && SelectedSourceMatchesLast(selectedSource, currentDensity)) {
           return NS_OK;
         }
+      }
+
+      if (mLazyLoading) {
+        if (!IsImageAvailable(selectedSource, mSrcTriggeringPrincipal)) {
+          CancelImageRequests(aNotify);
+          return NS_OK;
+        }
+        StopLazyLoading();
       }
 
       // If we have a srcset attribute or are in a <picture> element,
@@ -1354,6 +1518,7 @@ HTMLImageElement::SelectSourceForTagWithAttrs(nsIDocument *aDocument,
 void
 HTMLImageElement::DestroyContent()
 {
+  StopLazyLoading();
   mResponsiveSelector = nullptr;
 
   nsGenericHTMLElement::DestroyContent();

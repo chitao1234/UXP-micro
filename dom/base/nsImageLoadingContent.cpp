@@ -46,6 +46,7 @@
 #include "mozilla/AutoRestore.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/ImageTracker.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/Preferences.h"
@@ -665,6 +666,11 @@ nsImageLoadingContent::ForceReload(bool aNotify /* = true */,
 NS_IMETHODIMP
 nsImageLoadingContent::BlockOnload(imgIRequest* aRequest)
 {
+  nsLoadFlags flags;
+  if (NS_SUCCEEDED(aRequest->GetLoadFlags(&flags)) &&
+      (flags & nsIRequest::LOAD_BACKGROUND)) {
+    return NS_OK;
+  }
   if (aRequest == mCurrentRequest) {
     NS_ASSERTION(!(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD),
                  "Double BlockOnload!?");
@@ -688,6 +694,12 @@ nsImageLoadingContent::BlockOnload(imgIRequest* aRequest)
 NS_IMETHODIMP
 nsImageLoadingContent::UnblockOnload(imgIRequest* aRequest)
 {
+  // Background requests deliberately skipped BlockOnload. Consult the stored
+  // flag, not the mutable element attribute or request's current load flags.
+  if ((aRequest == mCurrentRequest && !(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD)) ||
+      (aRequest == mPendingRequest && !(mPendingRequestFlags & REQUEST_BLOCKS_ONLOAD))) {
+    return NS_OK;
+  }
   if (aRequest == mCurrentRequest) {
     NS_ASSERTION(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD,
                  "Double UnblockOnload!?");
@@ -847,6 +859,14 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
   nsContentPolicyType policyType = PolicyTypeForLoad(aImageLoadType);
 
   nsLoadFlags loadFlags = aLoadFlags;
+  nsCOMPtr<nsIContent> imageContent =
+    do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
+  if (auto* image = HTMLImageElement::FromContent(imageContent)) {
+    if (image->HasLazyLoading() && !image->IsForcingLazyImageLoadForPrint()) {
+      // As in current Firefox, this controls load-event blocking, not priority.
+      loadFlags |= nsIRequest::LOAD_BACKGROUND;
+    }
+  }
   int32_t corsmode = GetCORSMode();
   if (corsmode == CORS_ANONYMOUS) {
     loadFlags |= imgILoader::LOAD_CORS_ANONYMOUS;
@@ -1027,8 +1047,15 @@ nsImageLoadingContent::UpdateImageState(bool aNotify)
   } else if (mImageBlockingStatus == nsIContentPolicy::REJECT_TYPE) {
     mUserDisabled = true;
   } else if (!mCurrentRequest) {
-    // No current request means error, since we weren't disabled or suppressed
-    mBroken = true;
+    if (auto* image = HTMLImageElement::FromContent(thisContent)) {
+      // A deferred lazy image has not failed; it is still loading in the HTML
+      // state model until its request becomes eligible to start.
+      mLoading = image->IsLazyLoading();
+    }
+    if (!mLoading) {
+      // No current request means error, since we weren't disabled or suppressed.
+      mBroken = true;
+    }
   } else {
     uint32_t currentLoadStatus;
     nsresult rv = mCurrentRequest->GetImageStatus(&currentLoadStatus);

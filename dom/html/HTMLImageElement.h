@@ -115,6 +115,19 @@ public:
   uint32_t NaturalWidth();
   uint32_t NaturalHeight();
   bool Complete();
+  void GetLoading(nsAString& aValue) const;
+  void SetLoading(const nsAString& aValue, ErrorResult& aError)
+  {
+    SetHTMLAttr(nsGkAtoms::loading, aValue, aError);
+  }
+  bool HasLazyLoading() const;
+  bool IsLazyLoading() const { return mLazyLoading; }
+  bool IsForcingLazyImageLoadForPrint() const
+  {
+    return mForcingLazyImageLoadForPrint;
+  }
+  void StartLazyImageLoad(bool aForPrint = false);
+  void TrackImageLoadForPrint();
   uint32_t Hspace()
   {
     return GetUnsignedIntAttr(nsGkAtoms::hspace, 0);
@@ -205,7 +218,7 @@ public:
 
   bool IsAwaitingLoad() const
   {
-    return !!mPendingImageLoadTask;
+    return mLazyLoading || !!mPendingImageLoadTask;
   }
 
   int32_t X();
@@ -273,11 +286,12 @@ protected:
 
   // Queues a task to run LoadSelectedImage pending stable state.
   //
-  // Pending Bug 1076583 this is only used by the responsive image
-  // algorithm (InResponsiveMode()) -- synchronous actions when just
-  // using img.src will bypass this, and update source and kick off
-  // image load synchronously.
+  // Uncached src loads use the same stable-state section as srcset/picture,
+  // allowing src followed by loading="lazy" in one task to remain deferred.
   void QueueImageLoadTask(bool aAlwaysLoad);
+  void SetLazyLoading();
+  void StopLazyLoading();
+  bool IsImageAvailable(nsIURI* aURI, nsIPrincipal* aPrincipal);
 
   // True if we have a srcset attribute or a <picture> parent, regardless of if
   // any valid responsive sources were parsed from either.
@@ -388,6 +402,9 @@ private:
                             bool aNotify);
 
   bool mInDocResponsiveContent;
+  bool mLazyLoading;
+  bool mLazyLoadForcedForPrint = false;
+  bool mForcingLazyImageLoadForPrint = false;
   RefPtr<ImageLoadTask> mPendingImageLoadTask;
   nsCOMPtr<nsIPrincipal> mSrcTriggeringPrincipal;
   nsCOMPtr<nsIPrincipal> mSrcsetTriggeringPrincipal;

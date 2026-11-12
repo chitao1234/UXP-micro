@@ -9,6 +9,8 @@
 #include "nsIFrame.h"
 #include "nsContentUtils.h"
 #include "nsLayoutUtils.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/dom/HTMLImageElement.h"
 
 namespace mozilla {
 namespace dom {
@@ -57,6 +59,35 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(DOMIntersectionObserver)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRoot)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mQueuedEntries)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+static void
+LazyLoadCallback(nsIDocument& aDocument, Element& aTarget)
+{
+  if (aTarget.GetComposedDoc() != &aDocument) {
+    return;
+  }
+  if (auto* image = HTMLImageElement::FromContent(&aTarget)) {
+    image->StartLazyImageLoad();
+  }
+}
+
+DOMIntersectionObserver::DOMIntersectionObserver(nsIDocument& aDocument,
+                                               NativeCallback aCallback)
+  : mOwner(aDocument.GetInnerWindow())
+  , mDocument(&aDocument)
+  , mNativeCallback(aCallback)
+  , mConnected(false)
+{
+}
+
+already_AddRefed<DOMIntersectionObserver>
+DOMIntersectionObserver::CreateLazyLoadObserver(nsIDocument& aDocument)
+{
+  RefPtr<DOMIntersectionObserver> observer =
+    new DOMIntersectionObserver(aDocument, LazyLoadCallback);
+  observer->mThresholds.AppendElement(0.0);
+  return observer.forget();
+}
 
 already_AddRefed<DOMIntersectionObserver>
 DOMIntersectionObserver::Constructor(const mozilla::dom::GlobalObject& aGlobal,
@@ -169,6 +200,13 @@ DOMIntersectionObserver::Observe(Element& aTarget)
 void
 DOMIntersectionObserver::Unobserve(Element& aTarget)
 {
+  if (mNativeCallback) {
+    for (size_t i = mQueuedEntries.Length(); i > 0; --i) {
+      if (mQueuedEntries[i - 1]->Target() == &aTarget) {
+        mQueuedEntries.RemoveElementAt(i - 1);
+      }
+    }
+  }
   if (!mObservationTargets.Contains(&aTarget)) {
     // You're not on the list, buddy!
     return;
@@ -219,6 +257,9 @@ DOMIntersectionObserver::Disconnect()
     target->UnregisterIntersectionObserver(this);
   }
   mObservationTargets.Clear();
+  if (mNativeCallback) {
+    mQueuedEntries.Clear();
+  }
   if (mDocument) {
     mDocument->RemoveIntersectionObserver(this);
   }
@@ -339,7 +380,19 @@ DOMIntersectionObserver::Update(nsIDocument* aDocument, DOMHighResTimeStamp time
   }
 
   nsMargin rootMargin;
+  int32_t lazyMargin = 0;
+  if (mNativeCallback) {
+    lazyMargin = Preferences::GetInt("dom.lazy-loading.margin", -1);
+    if (lazyMargin < 0) {
+      lazyMargin = Preferences::GetInt("browser.memoryTier", 3) <= 1 ? 300 : 1250;
+    }
+    lazyMargin = std::min(lazyMargin, 100000);
+  }
   NS_FOR_CSS_SIDES(side) {
+    if (mNativeCallback) {
+      rootMargin.Side(side) = nsPresContext::CSSPixelsToAppUnits(lazyMargin);
+      continue;
+    }
     nscoord basis = side == eSideTop || side == eSideBottom ?
       rootRect.height : rootRect.width;
     nsCSSValue value = mRootMargin.*nsCSSRect::sides[side];
@@ -395,6 +448,11 @@ DOMIntersectionObserver::Update(nsIDocument* aDocument, DOMHighResTimeStamp time
         if (containerFrame->GetType() == nsGkAtoms::scrollFrame) {
           nsIScrollableFrame* scrollFrame = do_QueryFrame(containerFrame);
           nsRect subFrameRect = scrollFrame->GetScrollPortRect();
+          if (mNativeCallback && root && CheckSimilarOrigin(root, target)) {
+            // Native loading also looks ahead inside nested scrollers. This
+            // margin is never exposed to script or applied to author observers.
+            subFrameRect.Inflate(nsPresContext::CSSPixelsToAppUnits(lazyMargin));
+          }
           nsRect intersectionRectRelativeToContainer =
             nsLayoutUtils::TransformFrameRectToAncestor(targetFrame,
                                                         intersectionRect.value(),
@@ -531,6 +589,18 @@ DOMIntersectionObserver::Notify()
   if (!mQueuedEntries.Length()) {
     return;
   }
+  if (mNativeCallback) {
+    nsTArray<RefPtr<DOMIntersectionObserverEntry>> entries;
+    entries.SwapElements(mQueuedEntries);
+    if (mDocument) {
+      for (const auto& entry : entries) {
+        if (entry->IsIntersecting() && entry->Target()) {
+          mNativeCallback(*mDocument, *entry->Target());
+        }
+      }
+    }
+    return;
+  }
   mozilla::dom::Sequence<mozilla::OwningNonNull<DOMIntersectionObserverEntry>> entries;
   if (entries.SetCapacity(mQueuedEntries.Length(), mozilla::fallible)) {
     for (size_t i = 0; i < mQueuedEntries.Length(); ++i) {
@@ -540,6 +610,15 @@ DOMIntersectionObserver::Notify()
   }
   mQueuedEntries.Clear();
   mCallback->Call(this, entries, *this);
+}
+
+size_t
+DOMIntersectionObserver::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
+{
+  return aMallocSizeOf(this) +
+    mThresholds.ShallowSizeOfExcludingThis(aMallocSizeOf) +
+    mObservationTargets.ShallowSizeOfExcludingThis(aMallocSizeOf) +
+    mQueuedEntries.ShallowSizeOfExcludingThis(aMallocSizeOf);
 }
 
 

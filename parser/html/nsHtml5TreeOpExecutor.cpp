@@ -976,8 +976,13 @@ nsHtml5TreeOpExecutor::PreloadImage(const nsAString& aURL,
                                     const nsAString& aCrossOrigin,
                                     const nsAString& aSrcset,
                                     const nsAString& aSizes,
-                                    const nsAString& aImageReferrerPolicy)
+                                    const nsAString& aImageReferrerPolicy,
+                                    bool aLazy)
 {
+  if (aLazy && mozilla::Preferences::GetBool("dom.image-lazy-loading.enabled", true) &&
+      mDocument->IsScriptEnabled() && !mDocument->IsStaticDocument()) {
+    return;
+  }
   nsCOMPtr<nsIURI> baseURI = BaseURIForPreload();
   bool isImgSet = false;
   nsCOMPtr<nsIURI> uri = mDocument->ResolvePreloadImage(baseURI, aURL, aSrcset,

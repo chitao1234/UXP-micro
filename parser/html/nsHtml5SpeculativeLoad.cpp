@@ -11,7 +11,8 @@ nsHtml5SpeculativeLoad::nsHtml5SpeculativeLoad()
   mOpCode(eSpeculativeLoadUninitialized),
 #endif
   mIsAsync(false),
-  mIsDefer(false)
+  mIsDefer(false),
+  mIsLazyImage(false)
 {
   MOZ_COUNT_CTOR(nsHtml5SpeculativeLoad);
 }
@@ -39,7 +40,7 @@ nsHtml5SpeculativeLoad::Perform(nsHtml5TreeOpExecutor* aExecutor)
     case eSpeculativeLoadImage:
       aExecutor->PreloadImage(mUrlOrSizes, mCrossOriginOrMedia, mCharsetOrSrcset,
                               mTypeOrCharsetSourceOrDocumentModeOrMetaCSPOrSizesOrIntegrity,
-                              mReferrerPolicyOrIntegrity);
+                              mReferrerPolicyOrIntegrity, mIsLazyImage);
       break;
     case eSpeculativeLoadOpenPicture:
       aExecutor->PreloadOpenPicture();

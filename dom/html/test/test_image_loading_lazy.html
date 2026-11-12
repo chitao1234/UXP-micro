@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native lazy image loading, requests and lifetime</title>
+<link rel="help" href="https://html.spec.whatwg.org/#lazy-loading-attributes">
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<style>iframe{width:400px;height:200px;border:0}</style>
+<div id="fixture"></div>
+<script>
+// Adapted from current Firefox WPT image-loading-lazy{,-to-eager,-srcset,
+// -in-scroller,-in-script-disabled-iframe}, picture-loading-lazy,
+// update-the-image-data/{src-then-lazy-load,lazy-out-of-band-load} and
+// html/syntax/speculative-parsing/.../img-src-loading-lazy.tentative.html.
+SimpleTest.waitForExplicitFinish();
+const prefix = "lazy-" + Date.now() + "-";
+const endpoint = "file_image_loading_lazy.sjs";
+const fixture = document.getElementById("fixture");
+const url = (id, extra = "") => endpoint + "?id=" + prefix + id + extra;
+const frameTick = () => new Promise(resolve => requestAnimationFrame(resolve));
+const turn = async () => { await frameTick(); await frameTick(); };
+async function status(id) {
+  return (await fetch(url(id, "&action=status"))).json();
+}
+async function waitFor(check, message) {
+  const end = performance.now() + 8000;
+  while (!check()) {
+    if (performance.now() > end) throw new Error(message);
+    await frameTick();
+  }
+}
+function loaded(image) {
+  return new Promise((resolve, reject) => {
+    image.addEventListener("load", resolve, {once: true});
+    image.addEventListener("error", () => reject(new Error("image error: " + image.src)),
+                           {once: true});
+  });
+}
+async function frame(src, sandbox) {
+  const element = document.createElement("iframe");
+  if (sandbox !== undefined) element.setAttribute("sandbox", sandbox);
+  const done = new Promise(resolve => element.onload = resolve);
+  element.src = src;
+  fixture.appendChild(element);
+  await done;
+  return element;
+}
+function image(doc, id) {
+  const img = doc.createElement("img");
+  img.loading = "lazy";
+  img.width = img.height = 64;
+  img.style.cssText = "position:absolute;top:20000px";
+  img.src = url(id);
+  doc.body.appendChild(img);
+  return img;
+}
+async function run() {
+  const probe = new Image();
+  is(probe.loading, "eager", "missing attribute defaults to eager");
+  for (const value of ["invalid", "", " lazy "]) {
+    probe.loading = value;
+    is(probe.loading, "eager", "invalid attribute defaults to eager: " + value);
+  }
+  probe.loading = "LaZy";
+  is(probe.loading, "lazy", "lazy keyword is ASCII case insensitive");
+  is(probe.getAttribute("loading"), "LaZy", "raw attribute is preserved");
+  ok(probe.complete, "lazy image without a source is complete");
+  probe.removeAttribute("loading");
+  is(probe.loading, "eager", "removing attribute restores default");
+
+  const f = await frame(url("parser", "&action=page"));
+  const doc = f.contentDocument, win = f.contentWindow;
+  const near = doc.getElementById("near"), far = doc.getElementById("far");
+  ok(win.loaded, "window load has fired with lazy requests still pending");
+  ok(!near.complete, "in-viewport slow lazy image does not block window load");
+  is(await status("parser-far"), null, "speculative parser did not request the far image");
+  ok(!far.complete, "deferred far image is incomplete");
+  is(far.naturalWidth, 0, "deferred image has no image data");
+  await waitFor(() => near.complete && near.naturalWidth, "near image did not load");
+  is((await status("parser-near")).count, 1, "visible image fetched exactly once");
+  const farDone = loaded(far);
+  far.scrollIntoView();
+  await farDone;
+  is(far.naturalWidth, 64, "scrolling resumes deferred request");
+  is((await status("parser-far")).count, 1, "resumed image fetched exactly once");
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext("2d");
+  context.drawImage(far, 0, 0);
+  is(Array.from(context.getImageData(32, 32, 1, 1).data).join(), "0,128,0,255",
+     "resumed image has exact expected pixels");
+  win.scrollTo(0, 0);
+
+  for (const remove of [false, true]) {
+    const id = "eager-" + remove, img = image(doc, id);
+    await turn();
+    is(await status(id), null, "new offscreen image remains deferred");
+    const done = loaded(img);
+    if (remove) img.removeAttribute("loading"); else img.loading = "eager";
+    await done;
+    ok(img.complete && img.naturalWidth === 64, "eager transition resumes offscreen image");
+    img.remove();
+  }
+
+  for (const property of ["src", "srcset"]) {
+    const img = doc.createElement("img"), id = "src-first-" + property;
+    img[property] = url(id);
+    img.loading = "lazy";
+    img.style.display = "none";
+    doc.body.appendChild(img);
+    await turn();
+    is(await status(id), null, property + " set before lazy in the same task does not fetch");
+    ok(!img.complete && !img.naturalWidth, "hidden lazy image stays unavailable");
+    img.remove();
+  }
+
+  const responsive = doc.createElement("picture");
+  responsive.style.cssText = "position:absolute;top:20000px";
+  responsive.innerHTML = '<source srcset="' + url("picture-selected") + '">' +
+    '<img width="64" height="64" loading="lazy" src="' + url("picture-fallback") + '">';
+  doc.body.appendChild(responsive);
+  const pictureImage = responsive.querySelector("img");
+  await turn();
+  is(await status("picture-selected"), null, "picture source is deferred");
+  const pictureDone = loaded(pictureImage);
+  pictureImage.loading = "eager";
+  await pictureDone;
+  ok(pictureImage.currentSrc.includes("picture-selected"), "resumption uses responsive source");
+  is(await status("picture-fallback"), null, "unused picture fallback was not fetched");
+  responsive.remove();
+
+  const mutable = image(doc, "obsolete");
+  mutable.src = url("new-source");
+  mutable.referrerPolicy = "no-referrer";
+  mutable.crossOrigin = "anonymous";
+  await turn();
+  is(await status("obsolete"), null, "superseded deferred source never fetches");
+  const mutationDone = loaded(mutable);
+  mutable.loading = "eager";
+  await mutationDone;
+  is((await status("new-source")).referrer, "", "resumption applies current referrer policy");
+  mutable.remove();
+
+  for (const source of ["data", "blob"]) {
+    const img = image(doc, source);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"/>';
+    img.src = source === "data" ? "data:image/svg+xml," + encodeURIComponent(svg) :
+      URL.createObjectURL(new Blob([svg], {type: "image/svg+xml"}));
+    await turn();
+    ok(!img.complete && !img.naturalWidth, source + " URL stays deferred");
+    const done = loaded(img);
+    img.loading = "eager";
+    await done;
+    is(img.naturalWidth, 64, source + " URL loads on eager transition");
+    if (source === "blob") URL.revokeObjectURL(img.src);
+    img.remove();
+  }
+
+  const cached = doc.createElement("img");
+  cached.id = "cached-source";
+  const cachedDone = loaded(cached);
+  doc.body.appendChild(cached);
+  doc.defaultView.eval("document.getElementById('cached-source').src=" +
+                       JSON.stringify(url("cached", "&cache=1")));
+  await cachedDone;
+  const cachedLazy = doc.createElement("img");
+  cachedLazy.loading = "lazy";
+  cachedLazy.style.display = "none";
+  cachedLazy.src = cached.src;
+  doc.body.appendChild(cachedLazy);
+  await turn();
+  ok(cachedLazy.complete, "completed available image satisfies a lazy load immediately");
+  is(cachedLazy.naturalWidth, 64, "completed available image can satisfy a hidden lazy load");
+  is((await status("cached")).count, 1,
+     "dynamic lazy image reused the available request");
+  cached.remove(); cachedLazy.remove();
+
+  const scroller = doc.createElement("div");
+  scroller.style.cssText = "position:absolute;top:0;width:100px;height:100px;overflow:auto";
+  scroller.innerHTML = '<div style="height:20000px"></div>' +
+    '<img loading="lazy" width="64" height="64" src="' + url("nested") + '">';
+  doc.body.appendChild(scroller);
+  await turn();
+  is(await status("nested"), null, "far image inside nested scroller stays deferred");
+  const nested = scroller.querySelector("img"), nestedDone = loaded(nested);
+  scroller.scrollTop = scroller.scrollHeight;
+  await nestedDone;
+  ok(nested.complete && nested.naturalWidth, "nested scrolling resumes image");
+  scroller.remove();
+
+  const detached = image(doc, "detached");
+  await turn();
+  detached.remove();
+  await turn();
+  is(await status("detached"), null, "removing lazy target does not start a load");
+  detached.style.top = "0";
+  doc.body.appendChild(detached);
+  await waitFor(() => detached.complete && detached.naturalWidth, "reinserted image did not load");
+  is((await status("detached")).count, 1, "reinsertion resumes exactly once");
+  detached.remove();
+
+  const second = await frame("about:blank");
+  second.contentDocument.body.style.height = "40000px";
+  const adopted = image(doc, "adopted");
+  await turn();
+  second.contentDocument.adoptNode(adopted);
+  adopted.style.top = "0";
+  second.contentDocument.body.appendChild(adopted);
+  await waitFor(() => adopted.complete && adopted.naturalWidth, "adopted image did not load");
+  is((await status("adopted")).count, 1, "adoption rebinds observation to new document");
+  second.remove();
+
+  // Exercise policy transitions directly, rather than rerunning unrelated
+  // browser coverage at every tier. Author loading semantics stay the same.
+  await SpecialPowers.pushPrefEnv({set: [["browser.memoryTier", 0],
+                                        ["dom.lazy-loading.margin", -1]]});
+  const budgeted = image(doc, "tier-margin");
+  budgeted.style.top = "1000px";
+  let authorIntersection;
+  const authorObserver = new win.IntersectionObserver(entries => {
+    authorIntersection = entries[entries.length - 1].isIntersecting;
+  }, {rootMargin: "0px"});
+  authorObserver.observe(budgeted);
+  await turn();
+  await waitFor(() => authorIntersection !== undefined,
+                "author intersection observer did not notify");
+  is(authorIntersection, false, "author observer sees the offscreen image outside its root");
+  is(await status("tier-margin"), null, "low tier retains its smaller lookahead distance");
+  const budgetDone = loaded(budgeted);
+  await SpecialPowers.pushPrefEnv({set: [["browser.memoryTier", 3]]});
+  doc.defaultView.scrollBy(0, 1);
+  await budgetDone;
+  is((await status("tier-margin")).count, 1, "higher tier starts the nearby offscreen image");
+  is(authorIntersection, false, "native lookahead does not inflate author observers");
+  authorObserver.disconnect();
+  budgeted.remove();
+  await SpecialPowers.pushPrefEnv({set: [["dom.lazy-loading.margin", 0]]});
+  const override = image(doc, "override-margin");
+  override.style.top = "1000px";
+  await turn();
+  is(await status("override-margin"), null, "explicit margin overrides the tier default");
+  const overrideDone = loaded(override);
+  doc.defaultView.scrollBy(0, 1);
+  override.loading = "eager";
+  await overrideDone;
+  override.remove();
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+  await SpecialPowers.popPrefEnv();
+  f.remove();
+
+  const disabled = await frame(url("disabled", "&action=page"), "allow-same-origin");
+  ok(disabled.contentDocument.getElementById("far").complete,
+     "scripting-disabled document eagerly loads even offscreen lazy image");
+  is((await status("disabled-far")).count, 1, "scripting-disabled image fetched");
+  disabled.remove();
+}
+addEventListener("load", () => run().catch(error => ok(false, error + "\n" + error.stack))
+  .then(() => { fixture.textContent = ""; SimpleTest.finish(); }), {once: true});
+</script>

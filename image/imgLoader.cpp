@@ -44,6 +44,7 @@
 #include "nsIMemoryReporter.h"
 #include "DecoderFactory.h"
 #include "Image.h"
+#include "ProgressTracker.h"
 #include "gfxPrefs.h"
 #include "prtime.h"
 
@@ -1402,6 +1403,55 @@ imgLoader::ClearCache(bool chrome)
   } else {
     return ClearImageCache();
   }
+}
+
+bool
+imgLoader::IsImageAvailable(nsIURI* aURI, nsIPrincipal* aTriggeringPrincipal,
+                            int32_t aCORSMode, nsIDocument* aDocument,
+                            nsISupports* aLoadingContext,
+                            nsContentPolicyType aPolicyType,
+                            ReferrerPolicy aReferrerPolicy)
+{
+  if (!aURI || !aDocument) {
+    return false;
+  }
+  nsCOMPtr<nsILoadGroup> group = aDocument->GetDocumentLoadGroup();
+  nsLoadFlags flags = nsIRequest::LOAD_NORMAL;
+  if (group) {
+    group->GetLoadFlags(&flags);
+  }
+  if (flags & nsIRequest::LOAD_BYPASS_CACHE) {
+    return false;
+  }
+  nsresult rv;
+  nsIPrincipal* cachePrincipal = aTriggeringPrincipal ?
+    aTriggeringPrincipal : aDocument->NodePrincipal();
+  ImageCacheKey key(aURI,
+    BasePrincipal::Cast(cachePrincipal)->OriginAttributesRef(),
+    aDocument, rv);
+  if (NS_FAILED(rv)) {
+    return false;
+  }
+  RefPtr<imgCacheEntry> entry;
+  if (!GetCache(key).Get(key, getter_AddRefs(entry)) || !entry) {
+    return false;
+  }
+  RefPtr<imgRequest> request = entry->GetRequest();
+  // The DOM CORSMode enum is zero-based; imgIRequest's IDL constants start at 1.
+  const int32_t requestCORSMode = aCORSMode + 1;
+  if (!request ||
+      !ValidateSecurityInfo(request, entry->ForcePrincipalCheck(),
+                            requestCORSMode, aTriggeringPrincipal,
+                            aLoadingContext, aPolicyType, aReferrerPolicy)) {
+    return false;
+  }
+  RefPtr<ProgressTracker> progress = request->GetProgressTracker();
+  if (!progress) {
+    return false;
+  }
+  const uint32_t status = progress->GetImageStatus();
+  return (status & imgIRequest::STATUS_LOAD_COMPLETE) &&
+         !(status & imgIRequest::STATUS_ERROR);
 }
 
 NS_IMETHODIMP

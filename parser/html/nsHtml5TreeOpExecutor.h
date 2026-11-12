@@ -264,7 +264,8 @@ class nsHtml5TreeOpExecutor final : public nsHtml5DocumentBuilder,
                       const nsAString& aCrossOrigin,
                       const nsAString& aSrcset,
                       const nsAString& aSizes,
-                      const nsAString& aImageReferrerPolicy);
+                    const nsAString& aImageReferrerPolicy,
+                    bool aLazy = false);
 
     void PreloadOpenPicture();
 

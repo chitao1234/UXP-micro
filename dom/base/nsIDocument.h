@@ -2800,6 +2800,10 @@ public:
   virtual void ScheduleIntersectionObserverNotification() = 0;
   virtual void NotifyIntersectionObservers() = 0;
 
+  virtual mozilla::dom::DOMIntersectionObserver& EnsureLazyLoadObserver() = 0;
+  virtual mozilla::dom::DOMIntersectionObserver* GetLazyLoadObserver() const = 0;
+  virtual void ForceLazyLoadsForPrint() = 0;
+
   bool ShouldThrowOnDynamicMarkupInsertion()
   {
     return mThrowOnDynamicMarkupInsertionCounter;

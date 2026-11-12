@@ -12,6 +12,8 @@
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/dom/Selection.h"
 #include "mozilla/dom/CustomEvent.h"
+#include "mozilla/dom/HTMLImageElement.h"
+#include "mozilla/dom/ShadowRoot.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
@@ -414,6 +416,19 @@ nsPrintEngine::CommonPrint(bool                    aIsPrintPreview,
   return rv;
 }
 
+static void
+TrackImageLoadsForPrint(nsIContent* aRoot)
+{
+  for (nsIContent* node = aRoot; node; node = node->GetNextNode(aRoot)) {
+    if (auto* image = mozilla::dom::HTMLImageElement::FromContent(node)) {
+      image->TrackImageLoadForPrint();
+    }
+    if (auto* shadow = node->GetShadowRoot()) {
+      TrackImageLoadsForPrint(shadow);
+    }
+  }
+}
+
 nsresult
 nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
                              nsIPrintSettings*       aPrintSettings,
@@ -508,6 +523,11 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
   // Get the docshell for this documentviewer
   nsCOMPtr<nsIDocShell> webContainer(do_QueryReferent(mContainer, &rv));
   NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIDocument> sourceDocument = do_QueryInterface(aDoc);
+  if (sourceDocument) {
+    sourceDocument->ForceLazyLoadsForPrint();
+  }
 
   {
     if (aIsPrintPreview) {
@@ -755,6 +775,12 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
 
   mLoadCounter = 0;
   mDidLoadDataForPrinting = false;
+
+  for (nsPrintObject* po : printData->mPrintDocList) {
+    if (po->mDocument) {
+      TrackImageLoadsForPrint(po->mDocument->GetRootElement());
+    }
+  }
 
   if (aIsPrintPreview) {
     bool notifyOnInit = false;

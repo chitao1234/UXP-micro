@@ -75,11 +75,13 @@ class nsHtml5SpeculativeLoad {
                           nsHtml5String aCrossOrigin,
                           nsHtml5String aReferrerPolicy,
                           nsHtml5String aSrcset,
-                          nsHtml5String aSizes)
+                          nsHtml5String aSizes,
+                          bool aLazy = false)
     {
       NS_PRECONDITION(mOpCode == eSpeculativeLoadUninitialized,
                       "Trying to reinitialize a speculative load!");
       mOpCode = eSpeculativeLoadImage;
+      mIsLazyImage = aLazy;
       aUrl.ToString(mUrlOrSizes);
       aCrossOrigin.ToString(mCrossOriginOrMedia);
       nsString
@@ -257,6 +259,7 @@ class nsHtml5SpeculativeLoad {
      */
     bool mIsAsync;
     bool mIsDefer;
+    bool mIsLazyImage = false;
 
     /* If mOpCode is eSpeculativeLoadPictureSource, this is the value of the
      * "sizes" attribute. If the attribute is not set, this will be a void

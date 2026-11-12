@@ -289,6 +289,14 @@ public:
   imgLoader();
   nsresult Init();
 
+  // Non-fetching check for the synchronous available-image path. A true result
+  // never bypasses the security/cache validation in the subsequent LoadImage.
+  bool IsImageAvailable(nsIURI* aURI, nsIPrincipal* aTriggeringPrincipal,
+                        int32_t aCORSMode, nsIDocument* aDocument,
+                        nsISupports* aLoadingContext,
+                        nsContentPolicyType aPolicyType,
+                        ReferrerPolicy aReferrerPolicy);
+
   [[nodiscard]] nsresult LoadImage(nsIURI* aURI,
                                    nsIURI* aInitialDocumentURI,
                                    nsIURI* aReferrerURI,

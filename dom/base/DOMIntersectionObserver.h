@@ -6,6 +6,8 @@
 #ifndef DOMIntersectionObserver_h
 #define DOMIntersectionObserver_h
 
+#include "mozilla/MemoryReporting.h"
+
 #include "mozilla/dom/IntersectionObserverBinding.h"
 #include "nsCSSValue.h"
 #include "nsTArray.h"
@@ -118,12 +120,17 @@ public:
   : mOwner(aOwner)
   , mDocument(mOwner->GetExtantDoc())
   , mCallback(&aCb)
+  , mNativeCallback(nullptr)
   , mConnected(false)
   {
   }
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(DOMIntersectionObserver)
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_DOM_INTERSECTION_OBSERVER_IID)
+
+  using NativeCallback = void (*)(nsIDocument&, Element&);
+  static already_AddRefed<DOMIntersectionObserver>
+  CreateLazyLoadObserver(nsIDocument& aDocument);
 
   static already_AddRefed<DOMIntersectionObserver>
   Constructor(const mozilla::dom::GlobalObject& aGlobal,
@@ -165,8 +172,10 @@ public:
 
   void Update(nsIDocument* aDocument, DOMHighResTimeStamp time);
   void Notify();
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 
 protected:
+  DOMIntersectionObserver(nsIDocument& aDocument, NativeCallback aCallback);
   void Connect();
   void QueueIntersectionObserverEntry(Element* aTarget,
                                       DOMHighResTimeStamp time,
@@ -178,6 +187,7 @@ protected:
   nsCOMPtr<nsPIDOMWindowInner>                    mOwner;
   RefPtr<nsIDocument>                             mDocument;
   RefPtr<mozilla::dom::IntersectionCallback>      mCallback;
+  NativeCallback                                 mNativeCallback;
   RefPtr<nsINode>                                 mRoot;
   nsCSSRect                                       mRootMargin;
   nsTArray<double>                                mThresholds;

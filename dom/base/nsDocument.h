@@ -626,6 +626,13 @@ public:
   virtual void ScheduleIntersectionObserverNotification() override;
   virtual void NotifyIntersectionObservers() override;
 
+  virtual mozilla::dom::DOMIntersectionObserver& EnsureLazyLoadObserver() override;
+  virtual mozilla::dom::DOMIntersectionObserver* GetLazyLoadObserver() const override
+  {
+    return mLazyLoadObserver;
+  }
+  virtual void ForceLazyLoadsForPrint() override;
+
   virtual void NotifyLayerManagerRecreated() override;
 
   // Check whether web components are enabled for the global of aObject.
@@ -1204,6 +1211,7 @@ protected:
   // Hashtable of intersection observers
   nsTHashtable<nsPtrHashKey<mozilla::dom::DOMIntersectionObserver>>
     mIntersectionObservers;
+  RefPtr<mozilla::dom::DOMIntersectionObserver> mLazyLoadObserver;
 
   // Tracker for animations that are waiting to start.
   // nullptr until GetOrCreatePendingAnimationTracker is called.

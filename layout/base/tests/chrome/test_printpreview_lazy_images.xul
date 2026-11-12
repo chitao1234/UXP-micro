@@ -1,0 +1,151 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        onload="run()" width="700" height="600">
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+  <script src="printpreview_test_utils.js"/>
+  <body xmlns="http://www.w3.org/1999/xhtml"/>
+  <iframe id="source" src="file_printpreview_lazy_image.html" type="content" width="600" height="200"/>
+  <iframe id="preview" type="content" width="600" height="400"/>
+  <iframe id="lazy-preview" type="content" width="600" height="400"/>
+  <script><![CDATA[
+SimpleTest.waitForExplicitFinish();
+const Ci = Components.interfaces;
+const source = document.getElementById("source");
+const preview = document.getElementById("preview");
+const lazyPreview = document.getElementById("lazy-preview");
+const printInterface = win => win.QueryInterface(Ci.nsIInterfaceRequestor)
+  .getInterface(Ci.nsIWebBrowserPrint);
+async function makePreview(printer, settings, sourceWindow) {
+  let finished = false;
+  const listener = {
+    QueryInterface(iid) {
+      if (iid.equals(Ci.nsIWebProgressListener) ||
+          iid.equals(Ci.nsISupports) || iid.equals(Ci.nsISupportsWeakReference)) {
+        return this;
+      }
+      throw Components.results.NS_NOINTERFACE;
+    },
+    onStateChange(progress, request, flags, status) {
+      if ((flags & Ci.nsIWebProgressListener.STATE_STOP) &&
+          (flags & Ci.nsIWebProgressListener.STATE_IS_NETWORK)) finished = true;
+    },
+    onProgressChange() {}, onLocationChange() {}, onStatusChange() {},
+    onSecurityChange() {}
+  };
+  printer.printPreview(settings, sourceWindow, listener);
+  await waitFor(() => finished, "print preview construction did not finish");
+}
+async function waitFor(check, message) {
+  const end = Date.now() + 10000;
+  while (!check()) {
+    if (Date.now() > end) throw new Error(message);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+}
+function snapshot(previewFrame) {
+  const canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+  canvas.width = 600; canvas.height = 400;
+  const context = canvas.getContext("2d");
+  context.drawWindow(previewFrame.contentWindow, 0, 0, 600, 400, "white");
+  const pixels = context.getImageData(0, 0, 600, 400).data;
+  let blue = 0;
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i] < 80 && pixels[i + 1] < 120 && pixels[i + 2] > 150 &&
+        pixels[i + 3] > 240) ++blue;
+  }
+  return {pixels: Array.from(pixels), blue};
+}
+async function run() {
+  let printer;
+  try {
+    const sourceDoc = source.contentDocument;
+    const image = sourceDoc.getElementById("deferred");
+    const host = sourceDoc.createElement("div");
+    host.id = "shadow-host";
+    sourceDoc.body.appendChild(host);
+    const shadow = host.attachShadow({mode: "open"});
+    shadow.innerHTML = '<style>img{position:absolute;top:20000px}' +
+      '@media print{img{position:static}}</style>' +
+      '<img width="32" height="32" src="blue-32x32.png">';
+    const shadowImage = shadow.querySelector("img");
+    image.loading = "eager";
+    await waitFor(() => image.complete && image.naturalWidth &&
+                       shadowImage.complete && shadowImage.naturalWidth,
+                  "eager baseline image did not load");
+    printer = printInterface(preview.contentWindow);
+    const settings = createTestPrintPreviewSettings();
+    for (const part of ["headerStrLeft", "headerStrCenter", "headerStrRight",
+                        "footerStrLeft", "footerStrCenter", "footerStrRight"]) {
+      settings[part] = "";
+    }
+    await makePreview(printer, settings, source.contentWindow);
+    await waitFor(() => printer.doingPrintPreview, "eager baseline preview did not finish");
+    const eager = snapshot(preview);
+    ok(eager.blue > 100, "eager print preview paints the image");
+    printer.exitPrintPreview();
+
+    image.loading = "lazy";
+    image.src = "blue-32x32.png?lazy-print=" + Date.now();
+    shadowImage.loading = "lazy";
+    shadowImage.src = "blue-32x32.png?shadow-lazy-print=" + Date.now();
+    await new Promise(resolve => requestAnimationFrame(() =>
+      requestAnimationFrame(resolve)));
+    ok(!image.complete && !image.naturalWidth,
+       "fresh offscreen image is deferred before printing");
+    ok(!shadowImage.complete && !shadowImage.naturalWidth,
+       "fresh offscreen shadow image is deferred before printing");
+    const lazySettings = createTestPrintPreviewSettings();
+    for (const part of ["headerStrLeft", "headerStrCenter", "headerStrRight",
+                        "footerStrLeft", "footerStrCenter", "footerStrRight"]) {
+      lazySettings[part] = "";
+    }
+    const lazyPrinter = printInterface(lazyPreview.contentWindow);
+    lazyPreview.style.position = "fixed";
+    lazyPreview.style.left = "0px";
+    lazyPreview.style.top = "200px";
+    const previewRect = lazyPreview.getBoundingClientRect();
+    ok(previewRect.top < window.innerHeight && previewRect.bottom > 0,
+       "lazy print preview viewer is inside the visible chrome window");
+    await makePreview(lazyPrinter, lazySettings, source.contentWindow);
+    await waitFor(() => lazyPrinter.doingPrintPreview, "lazy preview did not finish");
+    await waitFor(() => image.complete && image.naturalWidth,
+                  "print action did not resume the source image request");
+    await waitFor(() => {
+      const printedImage = lazyPreview.contentDocument.getElementById("deferred");
+      return printedImage && printedImage.complete && printedImage.naturalWidth;
+    }, "print preview clone did not load the image");
+    const printedImage = lazyPreview.contentDocument.getElementById("deferred");
+    const printedRequest = printedImage.getRequest(Ci.nsIImageLoadingContent.CURRENT_REQUEST);
+    printedRequest.startDecoding();
+    await waitFor(() => printedRequest.imageStatus & Ci.imgIRequest.STATUS_FRAME_COMPLETE,
+                  "print preview image did not decode its first frame");
+    const imageRect = printedImage.getBoundingClientRect();
+    is(imageRect.width, 32, "print clone image has its reflowed width");
+    is(imageRect.height, 32, "print clone image has its reflowed height");
+    const printedShadowImage = lazyPreview.contentDocument
+      .getElementById("shadow-host").shadowRoot.querySelector("img");
+    ok(printedShadowImage.complete && printedShadowImage.naturalWidth,
+       "print also resumes shadow-tree images");
+    const shadowRect = printedShadowImage.getBoundingClientRect();
+    is(shadowRect.width, 32, "shadow print image has its reflowed width");
+    is(shadowRect.height, 32, "shadow print image has its reflowed height");
+    lazyPreview.contentDocument.documentElement.getBoundingClientRect();
+    lazyPreview.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIDOMWindowUtils).redraw(1);
+    ok(true, "print resumes the source image and updates the preview");
+    const lazy = snapshot(lazyPreview);
+    ok(lazy.blue > 100, "print resumes and paints the deferred image");
+    is(lazy.pixels.filter((value, i) => value !== eager.pixels[i]).length, 0,
+       "lazy and eager print previews have identical pixels");
+  } catch (error) {
+    ok(false, error + "\n" + error.stack);
+  } finally {
+    if (printer && printer.doingPrintPreview) printer.exitPrintPreview();
+    const lazyPrinter = printInterface(lazyPreview.contentWindow);
+    if (lazyPrinter && lazyPrinter.doingPrintPreview) lazyPrinter.exitPrintPreview();
+    SimpleTest.finish();
+  }
+}
+  ]]></script>
+</window>

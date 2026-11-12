@@ -1635,6 +1635,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsDocument)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentTimeline)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPendingAnimationTracker)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTemplateContentsOwner)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLazyLoadObserver)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mChildrenCollection)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mAnonymousContents)
 
@@ -1735,6 +1736,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPreloadingImages)
 
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mIntersectionObservers)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mLazyLoadObserver)
 
   tmp->ClearAllBoxObjects();
 
@@ -11757,6 +11759,11 @@ nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
   aWindowSizes->mDOMOtherSize +=
     mStyledLinks.ShallowSizeOfExcludingThis(aWindowSizes->mMallocSizeOf);
 
+  if (mLazyLoadObserver) {
+    aWindowSizes->mDOMOtherSize +=
+      mLazyLoadObserver->SizeOfIncludingThis(aWindowSizes->mMallocSizeOf);
+  }
+
   aWindowSizes->mDOMOtherSize +=
     mIdentifierMap.SizeOfExcludingThis(aWindowSizes->mMallocSizeOf);
 
@@ -11945,6 +11952,38 @@ nsDocument::AddIntersectionObserver(DOMIntersectionObserver* aObserver)
   MOZ_ASSERT(!mIntersectionObservers.Contains(aObserver),
              "Intersection observer already in the list");
   mIntersectionObservers.PutEntry(aObserver);
+}
+
+static void
+ForceLazyLoadTargetsForPrint(nsIContent* aRoot)
+{
+  for (nsIContent* node = aRoot; node; node = node->GetNextNode(aRoot)) {
+    if (auto* image = HTMLImageElement::FromContent(node)) {
+      image->StartLazyImageLoad(true);
+    }
+    if (auto* shadow = node->GetShadowRoot()) {
+      ForceLazyLoadTargetsForPrint(shadow);
+    }
+  }
+}
+
+DOMIntersectionObserver&
+nsDocument::EnsureLazyLoadObserver()
+{
+  if (!mLazyLoadObserver) {
+    mLazyLoadObserver = DOMIntersectionObserver::CreateLazyLoadObserver(*this);
+  }
+  return *mLazyLoadObserver;
+}
+
+void
+nsDocument::ForceLazyLoadsForPrint()
+{
+  ForceLazyLoadTargetsForPrint(GetRootElement());
+  EnumerateSubDocuments([](nsIDocument* aSubDocument, void*) {
+    aSubDocument->ForceLazyLoadsForPrint();
+    return true;
+  }, nullptr);
 }
 
 void
