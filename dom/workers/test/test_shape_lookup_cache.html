@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shape lookup caches across worker policy transitions</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+function workerMain() {
+  let saved = [];
+  onmessage = function(event) {
+    try {
+      for (const o of saved) {
+        if (o.p20 !== 20 || o.p25 !== 250 || o.absent !== undefined)
+          throw Error('retained object changed');
+      }
+      saved = [];
+      let checks = 0;
+      for (let n = 0; n < 160; n++) {
+        const o = {};
+        o['round_' + event.data + '_' + n] = 0;
+        for (let i = 0; i < 80; i++) o['p' + i] = i;
+        const miss = Symbol('missing-' + n);
+        for (let i = 0; i < 100; i++) {
+          if (o.p20 !== 20 || o[miss] !== undefined || o.absent !== undefined)
+            throw Error('cached lookup changed');
+          checks++;
+        }
+        delete o.p25; o.p25 = 250;
+        if (Object.keys(o).pop() !== 'p25') throw Error('enumeration order');
+        saved.push(o);
+      }
+      // Exercise allocation/collection between messages while saved objects
+      // survive both directions of the process-wide policy change.
+      let temporary = [];
+      for (let i=0;i<40000;i++) temporary.push({a:i,b:[i,i+1],c:Symbol('temp')});
+      temporary = null;
+      postMessage({round:event.data,checks,retained:saved.length});
+    } catch (e) { postMessage({error:String(e)}); }
+  };
+}
+async function run() {
+  const source = URL.createObjectURL(new Blob(['('+workerMain.toString()+')()'],
+                                            {type:'application/javascript'}));
+  const workers = [new Worker(source),new Worker(source)];
+  function round(worker, id) {
+    return new Promise((resolve,reject) => {
+      worker.onerror = e => reject(Error(e.message));
+      worker.onmessage = e => {
+        if (e.data.error) reject(Error(e.data.error)); else resolve(e.data);
+      };
+      worker.postMessage(id);
+    });
+  }
+  try {
+    for (const [id,enabled] of [false,true,false,true].entries()) {
+      await SpecialPowers.pushPrefEnv({set:[['javascript.options.mem.shape_lookup_cache',enabled]]});
+      const results = await Promise.all(workers.map(w=>round(w,id)));
+      for (const r of results) {
+        is(r.round,id,'worker finished requested policy round');
+        is(r.checks,16000,'all worker lookups are correct');
+        is(r.retained,160,'mutated objects survive until next policy round');
+      }
+      SpecialPowers.forceGC();
+    }
+    for (let n=0;n<4;n++) await SpecialPowers.popPrefEnv();
+  } finally {
+    workers.forEach(w=>w.terminate());
+    URL.revokeObjectURL(source);
+  }
+}
+run().catch(e=>ok(false,e+'\n'+e.stack)).then(()=>SimpleTest.finish());
+</script>

@@ -7593,6 +7593,7 @@ ProcessArgs(JSContext* cx, OptionParser* op)
 static bool
 SetContextOptions(JSContext* cx, const OptionParser& op)
 {
+    JS_SetShapeLookupCacheEnabled(op.getBoolOption("shape-lookup-cache"));
     enableBaseline = !op.getBoolOption("no-baseline");
     enableIon = !op.getBoolOption("no-ion");
     enableAsmJS = !op.getBoolOption("no-asmjs");
@@ -8142,6 +8143,7 @@ main(int argc, char** argv, char** envp)
         || !op.addStringOption('\0', "ion-parallel-compile", "on/off",
                                "--ion-parallel compile is deprecated. Use --ion-offthread-compile.")
         || !op.addBoolOption('\0', "baseline", "Enable baseline compiler (default)")
+        || !op.addBoolOption('\0', "shape-lookup-cache", "Use bounded property-tree lookup caches")
         || !op.addBoolOption('\0', "no-baseline", "Disable baseline compiler")
         || !op.addBoolOption('\0', "baseline-eager", "Always baseline-compile methods")
         || !op.addIntOption('\0', "baseline-warmup-threshold", "COUNT",

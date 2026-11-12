@@ -9,6 +9,7 @@
 
 #include "js/Initialization.h"
 #include "js/RootingAPI.h"
+#include "jsfriendapi.h"
 
 JSAPITest* JSAPITest::list;
 
@@ -106,12 +107,22 @@ int main(int argc, char* argv[])
 {
     int total = 0;
     int failures = 0;
-    const char* filter = (argc == 2) ? argv[1] : nullptr;
+    const char* filter = nullptr;
+    bool shapeLookupCache = false;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--shape-lookup-cache"))
+            shapeLookupCache = true;
+        else if (!filter)
+            filter = argv[i];
+        else
+            return 2;
+    }
 
     if (!JS_Init()) {
         printf("TEST-UNEXPECTED-FAIL | jsapi-tests | JS_Init() failed.\n");
         return 1;
     }
+    JS_SetShapeLookupCacheEnabled(shapeLookupCache);
 
     for (JSAPITest* test = JSAPITest::list; test; test = test->next) {
         const char* name = test->name();

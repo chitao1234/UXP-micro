@@ -1405,6 +1405,8 @@ GCDecommitPrefsCallback(const char*, void*)
     // Preferences are read only on the main thread. SpiderMonkey publishes the
     // process policy atomically for worker and background GC threads as well.
     int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+    JS_SetShapeLookupCacheEnabled(Preferences::GetBool(
+        "javascript.options.mem.shape_lookup_cache", tier >= 0 && tier <= 1));
     JS_SetGCDecommitEnabled(Preferences::GetBool(
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
     JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
@@ -2064,6 +2066,12 @@ ReportZoneStats(const JS::ZoneStats& zStats,
         REPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("shapes/malloc-heap/tree-tables"),
             KIND_HEAP, shapeInfo.shapesMallocHeapTreeTables,
             "Property tables of shapes in a property tree.");
+    }
+
+    if (shapeInfo.shapesMallocHeapTreeICs > 0) {
+        REPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("shapes/malloc-heap/tree-lookup-caches"),
+            KIND_HEAP, shapeInfo.shapesMallocHeapTreeICs,
+            "Bounded lookup caches for immutable property-tree shapes, including cached misses.");
     }
 
     if (shapeInfo.shapesMallocHeapDictTables > 0) {
@@ -3461,6 +3469,8 @@ XPCJSContext::Initialize()
                                   "javascript.options.mem.gc_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.nursery_lazy_commit");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.shape_lookup_cache");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.wasm_shared_code");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,

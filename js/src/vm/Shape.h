@@ -129,6 +129,49 @@ enum class MaybeAdding { Adding = true, NotAdding = false };
 
 class AutoKeepShapeTables;
 
+// Process policy published atomically by the embedding's main thread.
+bool ShapeLookupCacheEnabled();
+void SetShapeLookupCacheEnabled(bool enabled);
+
+// Adapted from Firefox 78's ShapeIC. Cache a few successful or unsuccessful
+// lookups before indexing the entire immutable lineage. A single allocation
+// includes the entries; neither Shape nor BaseShape grows.
+class ShapeIC {
+    static const uint32_t MAX_SIZE = 7;
+    struct Entry {
+        jsid id;
+        Shape* shape;
+    };
+    Entry entries_[MAX_SIZE];
+    uint32_t count_;
+
+  public:
+    ShapeIC() : count_(0) {}
+    bool search(jsid id, Shape** shape) const {
+        for (uint32_t i = 0; i < count_; ++i) {
+            if (entries_[i].id == id) {
+                *shape = entries_[i].shape;
+                return true; // A cached miss has a null shape.
+            }
+        }
+        return false;
+    }
+    bool append(jsid id, Shape* shape) {
+        if (count_ == MAX_SIZE)
+            return false;
+        entries_[count_++] = {id, shape};
+        return true;
+    }
+    void trace(JSTracer* trc);
+    void preBarrier();
+#ifdef JSGC_HASH_TABLE_CHECKS
+    void checkAfterMovingGC();
+#endif
+    size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+        return mallocSizeOf(this);
+    }
+};
+
 /*
  * Shapes use multiplicative hashing, but specialized to
  * minimize footprint.
@@ -285,6 +328,42 @@ class ShapeTable {
     bool grow(ExclusiveContext* cx);
 };
 
+// Tagged cache pointer as in Firefox 78. Null is empty, a tagged pointer is a
+// bounded IC, and an untagged one is a full table.
+class ShapeCachePtr {
+    uintptr_t bits_;
+    static const uintptr_t IC_TAG = 1;
+
+  public:
+    ShapeCachePtr() : bits_(0) {}
+    bool isIC() const { return bits_ & IC_TAG; }
+    bool isTable() const { return bits_ && !isIC(); }
+    bool isInitialized() const { return bits_ != 0; }
+    ShapeIC* ic() const {
+        MOZ_ASSERT(isIC());
+        return reinterpret_cast<ShapeIC*>(bits_ & ~IC_TAG);
+    }
+    ShapeTable* table() const {
+        MOZ_ASSERT(isTable());
+        return reinterpret_cast<ShapeTable*>(bits_);
+    }
+    void setIC(ShapeIC* ic) {
+        MOZ_ASSERT(!isInitialized() && ic && !(uintptr_t(ic) & IC_TAG));
+        bits_ = uintptr_t(ic) | IC_TAG;
+    }
+    void setTable(ShapeTable* table) {
+        MOZ_ASSERT(!isInitialized() && table && !(uintptr_t(table) & IC_TAG));
+        bits_ = uintptr_t(table);
+    }
+    void destroy(FreeOp* fop);
+    void maybePurge();
+    size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+        return isIC() ? ic()->sizeOfIncludingThis(mallocSizeOf) :
+               isTable() ? table()->sizeOfIncludingThis(mallocSizeOf) : 0;
+    }
+};
+static_assert(sizeof(ShapeCachePtr) == sizeof(void*), "Shape cache must not grow BaseShape");
+
 // Ensures no shape tables are purged in the current zone.
 class MOZ_RAII AutoKeepShapeTables
 {
@@ -413,8 +492,8 @@ class BaseShape : public gc::TenuredCell
     /* For owned BaseShapes, the canonical unowned BaseShape. */
     GCPtrUnownedBaseShape unowned_;
 
-    /* For owned BaseShapes, the shape's shape table. */
-    ShapeTable*      table_;
+    /* For owned BaseShapes, the shape's bounded lookup cache or full table. */
+    ShapeCachePtr   cache_;
 
 #if JS_BITS_PER_WORD == 32
     // Ensure sizeof(BaseShape) is a multiple of gc::CellSize.
@@ -446,22 +525,26 @@ class BaseShape : public gc::TenuredCell
 
     uint32_t getObjectFlags() const { return flags & OBJECT_FLAG_MASK; }
 
-    bool hasTable() const { MOZ_ASSERT_IF(table_, isOwned()); return table_ != nullptr; }
-    void setTable(ShapeTable* table) { MOZ_ASSERT(isOwned()); table_ = table; }
+    bool hasTable() const { MOZ_ASSERT_IF(cache_.isInitialized(), isOwned()); return cache_.isTable(); }
+    bool hasIC() const { MOZ_ASSERT_IF(cache_.isInitialized(), isOwned()); return cache_.isIC(); }
+    void setTable(ShapeTable* table) { MOZ_ASSERT(isOwned()); cache_.setTable(table); }
+    void setIC(ShapeIC* ic) { MOZ_ASSERT(isOwned()); cache_.setIC(ic); }
+    ShapeIC* maybeIC(const JS::AutoCheckCannotGC&) const {
+        return hasIC() ? cache_.ic() : nullptr;
+    }
+    void removeICForTable();
+    size_t sizeOfCache(mozilla::MallocSizeOf mallocSizeOf) const {
+        return cache_.sizeOfExcludingThis(mallocSizeOf);
+    }
 
     ShapeTable* maybeTable(const AutoKeepShapeTables&) const {
-        MOZ_ASSERT_IF(table_, isOwned());
-        return table_;
+        return hasTable() ? cache_.table() : nullptr;
     }
     ShapeTable* maybeTable(const JS::AutoCheckCannotGC&) const {
-        MOZ_ASSERT_IF(table_, isOwned());
-        return table_;
+        return hasTable() ? cache_.table() : nullptr;
     }
     void maybePurgeTable() {
-        if (table_ && table_->freeList() == SHAPE_INVALID_SLOT) {
-            js_delete(table_);
-            table_ = nullptr;
-        }
+        cache_.maybePurge();
     }
 
     uint32_t slotSpan() const { MOZ_ASSERT(isOwned()); return slotSpan_; }
@@ -676,6 +759,7 @@ class Shape : public gc::TenuredCell
      * lineage in preparation for converting an object to dictionary mode.
      */
     static bool hashify(ExclusiveContext* cx, Shape* shape);
+    static bool cachify(ExclusiveContext* cx, Shape* shape);
     void handoffTableTo(Shape* newShape);
 
     void setParent(Shape* p) {
@@ -698,6 +782,10 @@ class Shape : public gc::TenuredCell
 
   public:
     bool hasTable() const { return base()->hasTable(); }
+    bool hasIC() const { return base()->hasIC(); }
+    ShapeIC* maybeIC(const JS::AutoCheckCannotGC& check) const {
+        return base()->maybeIC(check);
+    }
 
     ShapeTable* maybeTable(const AutoKeepShapeTables& keep) const {
         return base()->maybeTable(keep);
@@ -727,6 +815,10 @@ class Shape : public gc::TenuredCell
                 info->shapesMallocHeapDictTables += table->sizeOfIncludingThis(mallocSizeOf);
             else
                 info->shapesMallocHeapTreeTables += table->sizeOfIncludingThis(mallocSizeOf);
+        }
+        if (ShapeIC* ic = maybeIC(nogc)) {
+            MOZ_ASSERT(!inDictionary());
+            info->shapesMallocHeapTreeICs += ic->sizeOfIncludingThis(mallocSizeOf);
         }
 
         if (!inDictionary() && kids.isHash())
@@ -1530,6 +1622,11 @@ Shape::searchNoHashify(Shape* start, jsid id)
         return entry.shape();
     }
 
+    if (ShapeIC* ic = start->maybeIC(nogc)) {
+        Shape* found;
+        if (ic->search(id, &found))
+            return found;
+    }
     return start->searchLinear(id);
 }
 

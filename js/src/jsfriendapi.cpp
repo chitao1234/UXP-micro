@@ -40,6 +40,12 @@ using mozilla::Move;
 using mozilla::PodArrayZero;
 
 JS_FRIEND_API(void)
+JS_SetShapeLookupCacheEnabled(bool enabled)
+{
+    SetShapeLookupCacheEnabled(enabled);
+}
+
+JS_FRIEND_API(void)
 JS_SetGCDecommitEnabled(bool enabled)
 {
     gc::SetGCDecommitEnabled(enabled);

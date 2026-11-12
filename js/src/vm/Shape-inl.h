@@ -53,6 +53,8 @@ Shape::maybeCreateTableForLookup(ExclusiveContext* cx)
 {
     if (hasTable())
         return true;
+    if (hasIC())
+        return ShapeLookupCacheEnabled() || Shape::hashify(cx, this);
 
     if (!inDictionary() && numLinearSearches() < LINEAR_SEARCHES_MAX) {
         incrementNumLinearSearches();
@@ -62,7 +64,8 @@ Shape::maybeCreateTableForLookup(ExclusiveContext* cx)
     if (!isBigEnoughForAShapeTable())
         return true;
 
-    return Shape::hashify(cx, this);
+    return !inDictionary() && ShapeLookupCacheEnabled()
+           ? Shape::cachify(cx, this) : Shape::hashify(cx, this);
 }
 
 template<MaybeAdding Adding>
@@ -94,12 +97,28 @@ Shape::search(ExclusiveContext* cx, Shape* start, jsid id)
             ShapeTable::Entry& entry = table->search<Adding>(id, nogc);
             return entry.shape();
         }
+        if (ShapeIC* ic = start->maybeIC(nogc)) {
+            Shape* found;
+            if (ic->search(id, &found))
+                return found;
+        }
     } else {
         // Just do a linear search.
         cx->recoverFromOutOfMemory();
     }
 
-    return start->searchLinear(id);
+    Shape* found = start->searchLinear(id);
+    bool full = false;
+    {
+        JS::AutoCheckCannotGC nogc;
+        if (ShapeIC* ic = start->maybeIC(nogc))
+            full = !ic->append(id, found);
+    }
+    // The optional index must not make a valid lookup fail with OOM. Keep the
+    // IC until a complete replacement has been successfully allocated.
+    if (full && !Shape::hashify(cx, start))
+        cx->recoverFromOutOfMemory();
+    return found;
 }
 
 inline Shape*

@@ -8,6 +8,7 @@
 #include "vm/Shape-inl.h"
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/PodOperations.h"
 
@@ -35,6 +36,92 @@ using mozilla::PodZero;
 using mozilla::RotateLeft;
 
 using JS::AutoCheckCannotGC;
+
+static mozilla::Atomic<bool, mozilla::Relaxed> shapeLookupCacheEnabled(false);
+
+bool
+js::ShapeLookupCacheEnabled()
+{
+    return shapeLookupCacheEnabled;
+}
+
+void
+js::SetShapeLookupCacheEnabled(bool enabled)
+{
+    shapeLookupCacheEnabled = enabled;
+}
+
+void
+ShapeIC::trace(JSTracer* trc)
+{
+    for (uint32_t i = 0; i < count_; ++i) {
+        // Include miss keys, especially unique symbols. Unlike a full table,
+        // these keys need not occur in the owner's immutable shape lineage.
+        TraceManuallyBarrieredEdge(trc, &entries_[i].id, "ShapeIC id");
+        if (entries_[i].shape)
+            TraceManuallyBarrieredEdge(trc, &entries_[i].shape, "ShapeIC shape");
+    }
+}
+
+void
+ShapeIC::preBarrier()
+{
+    for (uint32_t i = 0; i < count_; ++i)
+        InternalBarrierMethods<jsid>::preBarrier(entries_[i].id);
+}
+
+void
+ShapeCachePtr::destroy(FreeOp* fop)
+{
+    if (isIC()) {
+        if (fop)
+            fop->delete_(ic());
+        else
+            js_delete(ic());
+    } else if (isTable()) {
+        if (fop)
+            fop->delete_(table());
+        else
+            js_delete(table());
+    }
+    bits_ = 0;
+}
+
+void
+ShapeCachePtr::maybePurge()
+{
+    // Called by the GC while AutoKeepShapeTables is not active. Preserve a
+    // dictionary freelist, which contains semantic slot-allocation state.
+    if (isIC() || (isTable() && table()->freeList() == SHAPE_INVALID_SLOT))
+        destroy(nullptr);
+}
+
+void
+BaseShape::removeICForTable()
+{
+    if (cache_.isIC()) {
+        // Replacing a cache between incremental GC slices must preserve the
+        // snapshot's miss-key edges. GC purge/finalization must not touch dead
+        // keys, so the barrier belongs only on this mutator replacement path.
+        cache_.ic()->preBarrier();
+        cache_.destroy(nullptr);
+    }
+}
+
+#ifdef JSGC_HASH_TABLE_CHECKS
+void
+ShapeIC::checkAfterMovingGC()
+{
+    for (uint32_t i = 0; i < count_; ++i) {
+        if (JSID_IS_STRING(entries_[i].id))
+            CheckGCThingAfterMovingGC(JSID_TO_STRING(entries_[i].id));
+        else if (JSID_IS_SYMBOL(entries_[i].id))
+            CheckGCThingAfterMovingGC(JSID_TO_SYMBOL(entries_[i].id));
+        if (entries_[i].shape)
+            CheckGCThingAfterMovingGC(entries_[i].shape);
+    }
+}
+#endif
 
 Shape* const ShapeTable::Entry::SHAPE_REMOVED = (Shape*)ShapeTable::Entry::SHAPE_COLLISION;
 
@@ -166,7 +253,21 @@ Shape::hashify(ExclusiveContext* cx, Shape* shape)
         return false;
     }
 
+    shape->base()->removeICForTable();
     shape->base()->setTable(table);
+    return true;
+}
+
+/* static */ bool
+Shape::cachify(ExclusiveContext* cx, Shape* shape)
+{
+    MOZ_ASSERT(!shape->inDictionary() && !shape->hasTable() && !shape->hasIC());
+    if (!shape->ensureOwnBaseShape(cx))
+        return false;
+    ShapeIC* ic = cx->new_<ShapeIC>();
+    if (!ic)
+        return false;
+    shape->base()->setIC(ic);
     return true;
 }
 
@@ -1284,8 +1385,7 @@ BaseShape::BaseShape(const StackBaseShape& base)
   : clasp_(base.clasp),
     flags(base.flags),
     slotSpan_(0),
-    unowned_(nullptr),
-    table_(nullptr)
+    unowned_(nullptr)
 {
 }
 
@@ -1365,6 +1465,11 @@ BaseShape::traceChildrenSkipShapeTable(JSTracer* trc)
     if (isOwned())
         TraceEdge(trc, &unowned_, "base");
 
+    // The GC marker skips full tables because their edges all occur in the
+    // marked lineage. IC miss keys do not, so trace ICs even on that fast path.
+    if (cache_.isIC())
+        cache_.ic()->trace(trc);
+
     assertConsistency();
 }
 
@@ -1422,10 +1527,7 @@ Zone::checkBaseShapeTableAfterMovingGC()
 void
 BaseShape::finalize(FreeOp* fop)
 {
-    if (table_) {
-        fop->delete_(table_);
-        table_ = nullptr;
-    }
+    cache_.destroy(fop);
 }
 
 inline
@@ -1757,8 +1859,7 @@ JS::ubi::Concrete<js::Shape>::size(mozilla::MallocSizeOf mallocSizeOf) const
     Size size = js::gc::Arena::thingSize(get().asTenured().getAllocKind());
 
     AutoCheckCannotGC nogc;
-    if (ShapeTable* table = get().maybeTable(nogc))
-        size += table->sizeOfIncludingThis(mallocSizeOf);
+    size += get().base()->sizeOfCache(mallocSizeOf);
 
     if (!get().inDictionary() && get().kids.isHash())
         size += get().kids.toHash()->sizeOfIncludingThis(mallocSizeOf);

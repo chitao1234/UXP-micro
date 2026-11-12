@@ -7371,6 +7371,8 @@ js::gc::CheckHashTablesAfterMovingGC(JSRuntime* rt)
         for (auto baseShape = zone->cellIter<BaseShape>(); !baseShape.done(); baseShape.next()) {
             if (ShapeTable* table = baseShape->maybeTable(nogc))
                 table->checkAfterMovingGC();
+            if (ShapeIC* ic = baseShape->maybeIC(nogc))
+                ic->checkAfterMovingGC();
         }
     }
     for (CompartmentsIter c(rt, SkipAtoms); !c.done(); c.next()) {

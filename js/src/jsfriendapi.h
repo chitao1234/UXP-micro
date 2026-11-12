@@ -51,6 +51,11 @@ JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data);
 extern JS_FRIEND_API(void)
 JS_SetGCDecommitEnabled(bool enabled);
 
+// Select bounded shape lookup caches for future property-tree lookups. Full
+// dictionary tables and already allocated indices remain valid across changes.
+extern JS_FRIEND_API(void)
+JS_SetShapeLookupCacheEnabled(bool enabled);
+
 // Lazy backing is independent of tenured-arena decommit. Nursery capacity and
 // collection decisions remain unchanged; actual page state survives changes.
 extern JS_FRIEND_API(void)

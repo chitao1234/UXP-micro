@@ -4282,6 +4282,16 @@ GetErrorNotes(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+ShapeLookupCache(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length())
+        JS_SetShapeLookupCacheEnabled(ToBoolean(args[0]));
+    args.rval().setBoolean(ShapeLookupCacheEnabled());
+    return true;
+}
+
+static bool
 NurseryStrings(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4318,6 +4328,9 @@ IsNurseryAllocated(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
+    JS_FN_HELP("shapeLookupCache", ShapeLookupCache, 1, 0,
+"shapeLookupCache([enabled])",
+"  Select bounded shape lookup caches process-wide; return the current policy."),
     JS_FN_HELP("isNurseryAllocated", IsNurseryAllocated, 1, 0,
 "isNurseryAllocated(value)",
 "  Return whether value is a nursery cell, without causing GC."),

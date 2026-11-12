@@ -229,6 +229,7 @@ struct ShapeInfo
     macro(Other,   GCHeapUsed, shapesGCHeapDict) \
     macro(Other,   GCHeapUsed, shapesGCHeapBase) \
     macro(Other,   MallocHeap, shapesMallocHeapTreeTables) \
+    macro(Other,   MallocHeap, shapesMallocHeapTreeICs) \
     macro(Other,   MallocHeap, shapesMallocHeapDictTables) \
     macro(Other,   MallocHeap, shapesMallocHeapTreeKids)
 
