@@ -305,7 +305,14 @@ struct CodeSizes
     macro(_, NonHeap, baseline) \
     macro(_, NonHeap, regexp) \
     macro(_, NonHeap, other) \
-    macro(_, NonHeap, unused)
+    macro(_, NonHeap, unused) \
+    macro(_, MallocHeap, poolMetadata)
+
+    // Alternate views of executable backing. Excluded from total sizes.
+    size_t reserved = 0;
+    size_t decommitted = 0;
+    size_t reclaimable = 0;
+    size_t pools = 0;
 
     CodeSizes()
       : FOR_EACH_SIZE(ZERO_SIZE)

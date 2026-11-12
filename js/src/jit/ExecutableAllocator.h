@@ -82,6 +82,10 @@ enum CodeKind { ION_CODE = 0, BASELINE_CODE, REGEXP_CODE, OTHER_CODE };
 class ExecutableAllocator;
 class JitRuntime;
 
+// Changes allocation backing, never compiler thresholds or live code ownership.
+void SetJitCodeDecommitEnabled(bool enabled);
+bool JitCodeDecommitEnabled();
+
 // These are reference-counted. A new one starts with a count of 1.
 class ExecutablePool
 {
@@ -110,6 +114,12 @@ class ExecutablePool
     size_t m_regexpCodeBytes;
     size_t m_otherCodeBytes;
 
+    // Each allocation owns a reference to every OS page it touches. Retired
+    // code keeps these references until the deferred poison queue drains.
+    // The high bit records physical backing independently of policy changes.
+    static const uint16_t Decommitted = uint16_t(1) << 15;
+    uint16_t* m_pageUse;
+
   public:
     void release(bool willDestroy = false);
     void release(size_t n, CodeKind kind);
@@ -119,10 +129,14 @@ class ExecutablePool
     ExecutablePool(ExecutableAllocator* allocator, Allocation a)
       : m_allocator(allocator), m_freePtr(a.pages), m_end(m_freePtr + a.size), m_allocation(a),
         m_refCount(1), m_mark(false), m_ionCodeBytes(0), m_baselineCodeBytes(0),
-        m_regexpCodeBytes(0), m_otherCodeBytes(0)
+        m_regexpCodeBytes(0), m_otherCodeBytes(0), m_pageUse(nullptr)
     { }
 
     ~ExecutablePool();
+
+    // Does not release a pool reference or its code-kind accounting. Safe only
+    // after the allocation is inaccessible, including pending poison writes.
+    void retireCodeRange(void* start, size_t size);
 
     void mark() {
         MOZ_ASSERT(!m_mark);
@@ -143,6 +157,10 @@ class ExecutablePool
     void* alloc(size_t n, CodeKind kind);
 
     size_t available() const;
+    size_t pageCount() const;
+    bool initPageUse(bool initiallyCommitted);
+    bool ensureCommitted(size_t first, size_t last);
+    void decommitUnusedPages();
 };
 
 struct JitPoisonRange
@@ -150,9 +168,10 @@ struct JitPoisonRange
     jit::ExecutablePool* pool;
     void* start;
     size_t size;
+    bool retirePages;
 
-    JitPoisonRange(jit::ExecutablePool* pool, void* start, size_t size)
-      : pool(pool), start(start), size(size)
+    JitPoisonRange(jit::ExecutablePool* pool, void* start, size_t size, bool retirePages = false)
+      : pool(pool), start(start), size(size), retirePages(retirePages)
     {}
 };
 
@@ -160,6 +179,7 @@ typedef Vector<JitPoisonRange, 0, SystemAllocPolicy> JitPoisonRangeVector;
 
 class ExecutableAllocator
 {
+    friend class ExecutablePool;
     JSRuntime* rt_;
 
   public:
@@ -175,7 +195,7 @@ class ExecutableAllocator
 
     void releasePoolPages(ExecutablePool* pool);
 
-    void addSizeOfCode(JS::CodeSizes* sizes) const;
+    void addSizeOfCode(JS::CodeSizes* sizes, mozilla::MallocSizeOf mallocSizeOf) const;
 
   private:
     static const size_t OVERSIZE_ALLOCATION = size_t(-1);
@@ -183,7 +203,7 @@ class ExecutableAllocator
     static size_t roundUpAllocationSize(size_t request, size_t granularity);
 
     // On OOM, this will return an Allocation where pages is nullptr.
-    ExecutablePool::Allocation systemAlloc(size_t n);
+    ExecutablePool::Allocation systemAlloc(size_t n, bool initiallyCommitted);
     static void systemRelease(const ExecutablePool::Allocation& alloc);
 
     ExecutablePool* createPool(size_t n);

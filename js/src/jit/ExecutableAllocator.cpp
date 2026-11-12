@@ -26,10 +26,116 @@
 
 #include "jit/ExecutableAllocator.h"
 
+#include "mozilla/Atomics.h"
+
+#include "gc/Memory.h"
 #include "jit/JitCompartment.h"
 #include "js/MemoryMetrics.h"
 
 using namespace js::jit;
+
+// Embedders can override this process policy without touching worker runtimes.
+// The environment switch also permits a matched standalone-shell control/arm.
+static mozilla::Atomic<bool, mozilla::Relaxed> jitCodeDecommitEnabled(
+    getenv("MOZ_JIT_CODE_DECOMMIT") && atoi(getenv("MOZ_JIT_CODE_DECOMMIT")));
+
+void
+js::jit::SetJitCodeDecommitEnabled(bool enabled)
+{
+    jitCodeDecommitEnabled = enabled;
+}
+
+bool
+js::jit::JitCodeDecommitEnabled()
+{
+    return jitCodeDecommitEnabled;
+}
+
+size_t
+ExecutablePool::pageCount() const
+{
+    return m_allocation.size / js::gc::SystemPageSize();
+}
+
+bool
+ExecutablePool::initPageUse(bool initiallyCommitted)
+{
+    size_t count = pageCount();
+    m_pageUse = js_pod_calloc<uint16_t>(count);
+    if (!m_pageUse)
+        return false;
+    if (!initiallyCommitted) {
+        for (size_t i = 0; i < count; i++)
+            m_pageUse[i] = Decommitted;
+    }
+    return true;
+}
+
+bool
+ExecutablePool::ensureCommitted(size_t first, size_t last)
+{
+    MOZ_ASSERT(m_allocator->rt_->jitRuntime()->preventBackedgePatching());
+    size_t pageSize = js::gc::SystemPageSize();
+    for (size_t i = first; i <= last;) {
+        if (!(m_pageUse[i] & Decommitted)) {
+            i++;
+            continue;
+        }
+        size_t begin = i++;
+        while (i <= last && (m_pageUse[i] & Decommitted))
+            i++;
+        if (!CommitExecutableMemory(m_allocation.pages + begin * pageSize,
+                                    (i - begin) * pageSize, ProtectionSetting::Executable))
+        {
+            return false;
+        }
+        for (size_t page = begin; page < i; page++) {
+            MOZ_ASSERT(m_pageUse[page] == Decommitted);
+            m_pageUse[page] = 0;
+        }
+    }
+    return true;
+}
+
+void
+ExecutablePool::retireCodeRange(void* start, size_t size)
+{
+    MOZ_ASSERT(m_allocator->rt_->jitRuntime()->preventBackedgePatching());
+    MOZ_ASSERT(m_pageUse);
+    char* begin = static_cast<char*>(start);
+    MOZ_ASSERT(size && begin >= m_allocation.pages && begin + size <= m_freePtr);
+    size_t pageSize = js::gc::SystemPageSize();
+    size_t first = (begin - m_allocation.pages) / pageSize;
+    size_t last = (begin - m_allocation.pages + size - 1) / pageSize;
+    for (size_t i = first; i <= last; i++) {
+        MOZ_RELEASE_ASSERT(m_pageUse[i] && !(m_pageUse[i] & Decommitted));
+        m_pageUse[i]--;
+    }
+}
+
+void
+ExecutablePool::decommitUnusedPages()
+{
+    MOZ_ASSERT(m_allocator->rt_->jitRuntime()->preventBackedgePatching());
+    if (!JitCodeDecommitEnabled())
+        return;
+
+    size_t pageSize = js::gc::SystemPageSize();
+    size_t count = pageCount();
+    for (size_t i = 0; i < count;) {
+        if (m_pageUse[i] != 0) {
+            i++;
+            continue;
+        }
+        size_t begin = i++;
+        while (i < count && m_pageUse[i] == 0)
+            i++;
+        DecommitExecutableMemory(m_allocation.pages + begin * pageSize,
+                                 (i - begin) * pageSize);
+        for (size_t page = begin; page < i; page++)
+            m_pageUse[page] = Decommitted;
+    }
+}
 
 ExecutablePool::~ExecutablePool()
 {
@@ -41,6 +147,7 @@ ExecutablePool::~ExecutablePool()
     MOZ_ASSERT(!isMarked());
 
     m_allocator->releasePoolPages(this);
+    js_free(m_pageUse);
 }
 
 void
@@ -93,7 +200,19 @@ ExecutablePool::addRef()
 void*
 ExecutablePool::alloc(size_t n, CodeKind kind)
 {
+    MOZ_ASSERT(n);
     MOZ_ASSERT(n <= available());
+    size_t pageSize = js::gc::SystemPageSize();
+    size_t first = (m_freePtr - m_allocation.pages) / pageSize;
+    size_t last = (m_freePtr - m_allocation.pages + n - 1) / pageSize;
+    if (!ensureCommitted(first, last))
+        return nullptr;
+    for (size_t i = first; i <= last; i++) {
+        // At least a pointer-sized allocation is charged per reference, with
+        // at most one straddling allocation at each boundary.
+        MOZ_RELEASE_ASSERT(m_pageUse[i] < Decommitted - 1);
+        m_pageUse[i]++;
+    }
     void* result = m_freePtr;
     m_freePtr += n;
 
@@ -217,13 +336,19 @@ ExecutableAllocator::createPool(size_t n)
     if (!m_pools.initialized() && !m_pools.init())
         return nullptr;
 
-    ExecutablePool::Allocation a = systemAlloc(allocSize);
+    bool initiallyCommitted = !JitCodeDecommitEnabled();
+    ExecutablePool::Allocation a = systemAlloc(allocSize, initiallyCommitted);
     if (!a.pages)
         return nullptr;
 
     ExecutablePool* pool = js_new<ExecutablePool>(this, a);
     if (!pool) {
         systemRelease(a);
+        return nullptr;
+    }
+
+    if (!pool->initPageUse(initiallyCommitted)) {
+        js_delete(pool);
         return nullptr;
     }
 
@@ -256,10 +381,12 @@ ExecutableAllocator::alloc(size_t n, ExecutablePool** poolp, CodeKind type)
     if (!*poolp)
         return nullptr;
 
-    // This alloc is infallible because poolForSize() just obtained
-    // (found, or created if necessary) a pool that had enough space.
+    // The reservation fits, but committing its physical pages can still fail.
     void* result = (*poolp)->alloc(n, type);
-    MOZ_ASSERT(result);
+    if (!result) {
+        (*poolp)->release();
+        *poolp = nullptr;
+    }
     return result;
 }
 
@@ -291,16 +418,30 @@ ExecutableAllocator::purge()
 }
 
 void
-ExecutableAllocator::addSizeOfCode(JS::CodeSizes* sizes) const
+ExecutableAllocator::addSizeOfCode(JS::CodeSizes* sizes, mozilla::MallocSizeOf mallocSizeOf) const
 {
+    sizes->poolMetadata += m_smallPools.sizeOfExcludingThis(mallocSizeOf);
     if (m_pools.initialized()) {
+        sizes->poolMetadata += m_pools.sizeOfExcludingThis(mallocSizeOf);
         for (ExecPoolHashSet::Range r = m_pools.all(); !r.empty(); r.popFront()) {
             ExecutablePool* pool = r.front();
+            size_t decommitted = 0;
+            size_t pageSize = js::gc::SystemPageSize();
+            for (size_t i = 0; i < pool->pageCount(); i++) {
+                if (pool->m_pageUse[i] & ExecutablePool::Decommitted)
+                    decommitted += pageSize;
+                else if (pool->m_pageUse[i] == 0)
+                    sizes->reclaimable += pageSize;
+            }
+            sizes->pools++;
+            sizes->reserved += pool->m_allocation.size;
+            sizes->decommitted += decommitted;
+            sizes->poolMetadata += mallocSizeOf(pool) + mallocSizeOf(pool->m_pageUse);
             sizes->ion      += pool->m_ionCodeBytes;
             sizes->baseline += pool->m_baselineCodeBytes;
             sizes->regexp   += pool->m_regexpCodeBytes;
             sizes->other    += pool->m_otherCodeBytes;
-            sizes->unused   += pool->m_allocation.size - pool->m_ionCodeBytes
+            sizes->unused   += pool->m_allocation.size - decommitted - pool->m_ionCodeBytes
                                                        - pool->m_baselineCodeBytes
                                                        - pool->m_regexpCodeBytes
                                                        - pool->m_otherCodeBytes;
@@ -324,9 +465,22 @@ ExecutableAllocator::reprotectPool(JSRuntime* rt, ExecutablePool* pool, Protecti
     // Don't race with reprotectAll called from the signal handler.
     MOZ_ASSERT(rt->jitRuntime()->preventBackedgePatching() || rt->handlingJitInterrupt());
 
-    char* start = pool->m_allocation.pages;
-    if (!ReprotectRegion(start, pool->m_freePtr - start, protection))
-        MOZ_CRASH();
+    size_t pageSize = js::gc::SystemPageSize();
+    size_t count = (pool->m_freePtr - pool->m_allocation.pages + pageSize - 1) / pageSize;
+    for (size_t i = 0; i < count;) {
+        if (pool->m_pageUse[i] & ExecutablePool::Decommitted) {
+            i++;
+            continue;
+        }
+        size_t begin = i++;
+        while (i < count && !(pool->m_pageUse[i] & ExecutablePool::Decommitted))
+            i++;
+        if (!ReprotectRegion(pool->m_allocation.pages + begin * pageSize,
+                             (i - begin) * pageSize, protection))
+        {
+            MOZ_CRASH();
+        }
+    }
 }
 
 /* static */ void
@@ -363,11 +517,19 @@ ExecutableAllocator::poisonCode(JSRuntime* rt, JitPoisonRangeVector& ranges)
         memset(ranges[i].start, JS_SWEPT_CODE_PATTERN, ranges[i].size);
     }
 
-    // Make the pools executable again and drop references.
+    // All poison writes must finish before any page can lose backing. A range
+    // keeps page ownership even if its JitCode's pool reference was released.
+    for (size_t i = 0; i < ranges.length(); i++) {
+        if (ranges[i].retirePages)
+            ranges[i].pool->retireCodeRange(ranges[i].start, ranges[i].size);
+    }
+
+    // Make the pools executable again, reclaim empty pages, then drop refs.
     for (size_t i = 0; i < ranges.length(); i++) {
         ExecutablePool* pool = ranges[i].pool;
         if (pool->isMarked()) {
             reprotectPool(rt, pool, ProtectionSetting::Executable);
+            pool->decommitUnusedPages();
             pool->unmark();
         }
         pool->release();
@@ -375,9 +537,10 @@ ExecutableAllocator::poisonCode(JSRuntime* rt, JitPoisonRangeVector& ranges)
 }
 
 ExecutablePool::Allocation
-ExecutableAllocator::systemAlloc(size_t n)
+ExecutableAllocator::systemAlloc(size_t n, bool initiallyCommitted)
 {
-    void* allocation = AllocateExecutableMemory(n, ProtectionSetting::Executable);
+    void* allocation = AllocateExecutableMemory(n, ProtectionSetting::Executable,
+                                                initiallyCommitted);
     ExecutablePool::Allocation alloc = { reinterpret_cast<char*>(allocation), n };
     return alloc;
 }

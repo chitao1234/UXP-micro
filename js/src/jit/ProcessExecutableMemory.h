@@ -30,8 +30,15 @@ enum class ProtectionSetting {
 extern void ReleaseProcessExecutableMemory();
 
 // Allocate/deallocate executable pages.
-extern void* AllocateExecutableMemory(size_t bytes, ProtectionSetting protection);
+extern void* AllocateExecutableMemory(size_t bytes, ProtectionSetting protection,
+                                      bool initiallyCommitted = true);
 extern void DeallocateExecutableMemory(void* addr, size_t bytes);
+
+// Commit/decommit OS pages within an owned executable allocation, retaining its
+// process reservation and its code-spraying limit charge. Committing is fallible.
+[[nodiscard]] extern bool CommitExecutableMemory(void* addr, size_t bytes,
+                                                 ProtectionSetting protection);
+extern void DecommitExecutableMemory(void* addr, size_t bytes);
 
 // Returns true if we can allocate a few more MB of executable code without
 // hitting our code limit. This function can be used to stop compiling things

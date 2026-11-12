@@ -28,6 +28,7 @@
 #include "irregexp/RegExpEngine.h"
 #include "irregexp/RegExpParser.h"
 #endif
+#include "jit/ExecutableAllocator.h"
 #include "jit/InlinableNatives.h"
 #include "jit/JitFrameIterator.h"
 #include "js/Debug.h"
@@ -4292,6 +4293,16 @@ ShapeLookupCache(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+JitCodeDecommit(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length())
+        JS_SetJitCodeDecommitEnabled(ToBoolean(args[0]));
+    args.rval().setBoolean(jit::JitCodeDecommitEnabled());
+    return true;
+}
+
+static bool
 NurseryStrings(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4328,6 +4339,9 @@ IsNurseryAllocated(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
+    JS_FN_HELP("jitCodeDecommit", JitCodeDecommit, 1, 0,
+"jitCodeDecommit([enabled])",
+"  Select empty JIT pool page decommit process-wide; return the current policy."),
     JS_FN_HELP("shapeLookupCache", ShapeLookupCache, 1, 0,
 "shapeLookupCache([enabled])",
 "  Select bounded shape lookup caches process-wide; return the current policy."),

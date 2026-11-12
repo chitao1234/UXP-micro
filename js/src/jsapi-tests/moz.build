@@ -117,6 +117,7 @@ SOURCES += [
 
 if CONFIG['ENABLE_ION']:
     UNIFIED_SOURCES += [
+        'testJitCodePages.cpp',
         'testJitDCEinGVN.cpp',
         'testJitFoldsTo.cpp',
         'testJitGVN.cpp',

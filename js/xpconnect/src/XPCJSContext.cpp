@@ -1409,6 +1409,8 @@ GCDecommitPrefsCallback(const char*, void*)
         "javascript.options.mem.shape_lookup_cache", tier >= 0 && tier <= 1));
     JS_SetGCDecommitEnabled(Preferences::GetBool(
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
+    JS_SetJitCodeDecommitEnabled(Preferences::GetBool(
+        "javascript.options.mem.jit_code_decommit", false));
     JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
         "javascript.options.mem.nursery_lazy_commit", tier >= 0 && tier <= 1));
     // Shared dynamic-TLS code is the memory tier ABI. Higher tiers retain the
@@ -1588,6 +1590,8 @@ XPCJSContext::~XPCJSContext()
     Preferences::UnregisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.gc_decommit");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.mem.jit_code_decommit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.nursery_lazy_commit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
@@ -2488,8 +2492,28 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/code/unused"),
         KIND_NONHEAP, rtStats.runtime.code.unused,
-        "Memory allocated by one of the JITs to hold code, but which is "
-        "currently unused.");
+        "Committed memory allocated by one of the JITs to hold code, but which "
+        "is currently unused. Excludes decommitted pages in retained pools.");
+
+    RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/code/pool-metadata"),
+        KIND_HEAP, rtStats.runtime.code.poolMetadata,
+        "Executable pool descriptors, page ownership counts and pool indices.");
+
+    nsCString codeBacking(rtPath);
+    codeBacking.Replace(0, strlen("explicit/"), "js-jit-code/");
+    REPORT(codeBacking + NS_LITERAL_CSTRING("reserved"), KIND_OTHER, UNITS_BYTES,
+        rtStats.runtime.code.reserved,
+        "Virtual address space reserved for executable pools. Includes committed "
+        "and decommitted backing; this alternate view is excluded from explicit.");
+    REPORT(codeBacking + NS_LITERAL_CSTRING("decommitted"), KIND_OTHER, UNITS_BYTES,
+        rtStats.runtime.code.decommitted,
+        "OS pages in retained executable pools that have no physical backing.");
+    REPORT(codeBacking + NS_LITERAL_CSTRING("reclaimable"), KIND_OTHER, UNITS_BYTES,
+        rtStats.runtime.code.reclaimable,
+        "Committed OS pages in executable pools owned by no live or "
+        "pending-poison code allocation. A subset of runtime/code/unused.");
+    REPORT(codeBacking + NS_LITERAL_CSTRING("pools"), KIND_OTHER, UNITS_COUNT,
+        rtStats.runtime.code.pools, "Number of retained executable pools.");
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/marker"),
         KIND_HEAP, rtStats.runtime.gc.marker,
@@ -3467,6 +3491,8 @@ XPCJSContext::Initialize()
     Preferences::RegisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.gc_decommit");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.jit_code_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.nursery_lazy_commit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,

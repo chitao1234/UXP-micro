@@ -22,6 +22,7 @@
 #include "builtin/Promise.h"
 #include "builtin/TestingFunctions.h"
 #include "gc/Memory.h"
+#include "jit/ExecutableAllocator.h"
 #include "js/Proxy.h"
 #include "proxy/DeadObjectProxy.h"
 #include "vm/ArgumentsObject.h"
@@ -49,6 +50,12 @@ JS_FRIEND_API(void)
 JS_SetGCDecommitEnabled(bool enabled)
 {
     gc::SetGCDecommitEnabled(enabled);
+}
+
+JS_FRIEND_API(void)
+JS_SetJitCodeDecommitEnabled(bool enabled)
+{
+    jit::SetJitCodeDecommitEnabled(enabled);
 }
 
 JS_FRIEND_API(void)

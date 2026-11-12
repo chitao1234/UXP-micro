@@ -633,8 +633,8 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
         rtSizes->scriptData += mallocSizeOf(r.front());
 
     if (jitRuntime_) {
-        jitRuntime_->execAlloc().addSizeOfCode(&rtSizes->code);
-        jitRuntime_->backedgeExecAlloc().addSizeOfCode(&rtSizes->code);
+        jitRuntime_->execAlloc().addSizeOfCode(&rtSizes->code, mallocSizeOf);
+        jitRuntime_->backedgeExecAlloc().addSizeOfCode(&rtSizes->code, mallocSizeOf);
     }
 
     rtSizes->gc.marker += gc.marker.sizeOfExcludingThis(mallocSizeOf);

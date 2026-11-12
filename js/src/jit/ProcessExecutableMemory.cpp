@@ -243,11 +243,10 @@ ProtectionSettingToFlags(ProtectionSetting protection)
     MOZ_CRASH();
 }
 
-static void
+static bool
 CommitPages(void* addr, size_t bytes, ProtectionSetting protection)
 {
-    if (!VirtualAlloc(addr, bytes, MEM_COMMIT, ProtectionSettingToFlags(protection)))
-        MOZ_CRASH("CommitPages failed");
+    return VirtualAlloc(addr, bytes, MEM_COMMIT, ProtectionSettingToFlags(protection)) != nullptr;
 }
 
 static void
@@ -319,7 +318,7 @@ ProtectionSettingToFlags(ProtectionSetting protection)
     MOZ_CRASH();
 }
 
-static void
+static bool
 CommitPages(void* addr, size_t bytes, ProtectionSetting protection)
 {
     void* p = MozTaggedAnonymousMmap(addr, bytes,
@@ -331,7 +330,10 @@ CommitPages(void* addr, size_t bytes, ProtectionSetting protection)
 #endif
                                      MAP_FIXED | MAP_PRIVATE | MAP_ANON,
                                      -1, 0, "js-executable-memory");
+    if (p == MAP_FAILED)
+        return false;
     MOZ_RELEASE_ASSERT(addr == p);
+    return true;
 }
 
 static void
@@ -496,12 +498,12 @@ class ProcessExecutableMemory
                            uintptr_t(p) + bytes <= uintptr_t(base_) + MaxCodeBytesPerProcess);
     }
 
-    void* allocate(size_t bytes, ProtectionSetting protection);
+    void* allocate(size_t bytes, ProtectionSetting protection, bool initiallyCommitted);
     void deallocate(void* addr, size_t bytes);
 };
 
 void*
-ProcessExecutableMemory::allocate(size_t bytes, ProtectionSetting protection)
+ProcessExecutableMemory::allocate(size_t bytes, ProtectionSetting protection, bool initiallyCommitted)
 {
     MOZ_ASSERT(initialized());
     MOZ_ASSERT(bytes > 0);
@@ -562,7 +564,10 @@ ProcessExecutableMemory::allocate(size_t bytes, ProtectionSetting protection)
     }
 
     // Commit the pages after releasing the lock.
-    CommitPages(p, bytes, protection);
+    if (initiallyCommitted && !CommitPages(p, bytes, protection)) {
+        deallocate(p, bytes);
+        return nullptr;
+    }
     return p;
 }
 
@@ -599,7 +604,7 @@ ProcessExecutableMemory::deallocate(void* addr, size_t bytes)
 static ProcessExecutableMemory execMemory;
 
 void*
-js::jit::AllocateExecutableMemory(size_t bytes, ProtectionSetting protection)
+js::jit::AllocateExecutableMemory(size_t bytes, ProtectionSetting protection, bool initiallyCommitted)
 {
 #if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
     // On MIPS, j/jal instructions to branch within the current
@@ -607,7 +612,9 @@ js::jit::AllocateExecutableMemory(size_t bytes, ProtectionSetting protection)
     void* allocation = nullptr;
     js::Vector<void*, 8, SystemAllocPolicy> unused_maps;
     for (;;) {
-        allocation = execMemory.allocate(bytes, protection);
+        allocation = execMemory.allocate(bytes, protection, initiallyCommitted);
+        if (!allocation)
+            break;
         if ((uintptr_t(allocation) >> 28) == (uintptr_t(allocation + bytes) >> 28))
             break;
         unused_maps.append(allocation);
@@ -616,7 +623,7 @@ js::jit::AllocateExecutableMemory(size_t bytes, ProtectionSetting protection)
         DeallocateExecutableMemory(unused_maps[i], bytes);
     return allocation;
 #else
-    return execMemory.allocate(bytes, protection);
+    return execMemory.allocate(bytes, protection, initiallyCommitted);
 #endif
 }
 
@@ -624,6 +631,25 @@ void
 js::jit::DeallocateExecutableMemory(void* addr, size_t bytes)
 {
     execMemory.deallocate(addr, bytes);
+}
+
+bool
+js::jit::CommitExecutableMemory(void* addr, size_t bytes, ProtectionSetting protection)
+{
+    MOZ_ASSERT(bytes && uintptr_t(addr) % gc::SystemPageSize() == 0);
+    MOZ_ASSERT(bytes % gc::SystemPageSize() == 0);
+    execMemory.assertValidAddress(addr, bytes);
+    JS_OOM_POSSIBLY_FAIL_BOOL();
+    return CommitPages(addr, bytes, protection);
+}
+
+void
+js::jit::DecommitExecutableMemory(void* addr, size_t bytes)
+{
+    MOZ_ASSERT(bytes && uintptr_t(addr) % gc::SystemPageSize() == 0);
+    MOZ_ASSERT(bytes % gc::SystemPageSize() == 0);
+    execMemory.assertValidAddress(addr, bytes);
+    DecommitPages(addr, bytes);
 }
 
 bool

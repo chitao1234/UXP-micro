@@ -745,6 +745,8 @@ JitCode::New(JSContext* cx, uint8_t* code, uint32_t bufferSize, uint32_t headerS
 {
     JitCode* codeObj = Allocate<JitCode, allowGC>(cx);
     if (!codeObj) {
+        JitRuntime::AutoPreventBackedgePatching apbp(cx);
+        pool->retireCodeRange(code - headerSize, headerSize + bufferSize);
         pool->release(headerSize + bufferSize, kind);
         return nullptr;
     }
@@ -825,10 +827,17 @@ JitCode::finalize(FreeOp* fop)
     // With W^X JIT code, reprotecting memory for each JitCode instance is
     // slow, so we record the ranges and poison them later all at once. It's
     // safe to ignore OOM here, it just means we won't poison the code.
+    bool releaseCode = !PerfEnabled();
     if (fop->appendJitPoisonRange(JitPoisonRange(pool_, code_ - headerSize_,
-                                                 headerSize_ + bufferSize_)))
+                                                 headerSize_ + bufferSize_, releaseCode)))
     {
         pool_->addRef();
+    } else if (releaseCode) {
+        // Poisoning is optional on OOM. There will be no delayed writer, so
+        // page ownership can end now. Actual decommit still occurs at the
+        // runtime's batched poison/reprotection boundary.
+        JitRuntime::AutoPreventBackedgePatching apbp(fop->runtime());
+        pool_->retireCodeRange(code_ - headerSize_, headerSize_ + bufferSize_);
     }
     code_ = nullptr;
 
@@ -836,7 +845,7 @@ JitCode::finalize(FreeOp* fop)
     // Releasing the pool may free it. Horrible hack: if we are using perf
     // integration, we don't want to reuse code addresses, so we just leak the
     // memory instead.
-    if (!PerfEnabled())
+    if (releaseCode)
         pool_->release(headerSize_ + bufferSize_, CodeKind(kind_));
     pool_ = nullptr;
 }

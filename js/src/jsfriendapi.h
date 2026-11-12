@@ -51,6 +51,11 @@ JS_SetGrayGCRootsTracer(JSContext* cx, JSTraceDataOp traceOp, void* data);
 extern JS_FRIEND_API(void)
 JS_SetGCDecommitEnabled(bool enabled);
 
+// Reclaim physically empty OS pages inside retained JIT code pools. Live code,
+// IC feedback, and reservation limits are unchanged across policy transitions.
+extern JS_FRIEND_API(void)
+JS_SetJitCodeDecommitEnabled(bool enabled);
+
 // Select bounded shape lookup caches for future property-tree lookups. Full
 // dictionary tables and already allocated indices remain valid across changes.
 extern JS_FRIEND_API(void)
