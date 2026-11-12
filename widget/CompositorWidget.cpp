@@ -80,6 +80,19 @@ CompositorWidget::EndBackBufferDrawing()
   return surface.forget();
 }
 
+size_t
+CompositorWidget::ReleaseBackBuffer()
+{
+  if (!mLastBackBuffer) {
+    return 0;
+  }
+  gfx::IntSize size = mLastBackBuffer->GetSize();
+  size_t bytes = size_t(size.width) * size_t(size.height) *
+                 gfx::BytesPerPixel(mLastBackBuffer->GetFormat());
+  mLastBackBuffer = nullptr;
+  return bytes;
+}
+
 uint32_t
 CompositorWidget::GetGLFrameBufferFormat()
 {

@@ -21,11 +21,107 @@
 #include <algorithm>
 #include "ImageContainer.h"
 #include "gfxPrefs.h"
+#include "mozilla/Atomics.h"
+#include "mozilla/Preferences.h"
+#include "nsIMemoryReporter.h"
+#include "nsThreadUtils.h"
+#include "base/message_loop.h"
 
 namespace mozilla {
 using namespace mozilla::gfx;
 
 namespace layers {
+
+// Preferences publish one coherent delay on the main thread. All buffer and
+// delayed-task state stays on its compositor thread; reporting reads atomics.
+static Atomic<uint32_t, Relaxed> sIdlePresentationDelayMs(0);
+static Atomic<uint64_t, Relaxed> sPresentationCount(0);
+static Atomic<uint64_t, Relaxed> sPresentationReleases(0);
+static Atomic<uint64_t, Relaxed> sPresentationReleasedBytes(0);
+static Atomic<uint64_t, Relaxed> sIdleTaskScheduled(0);
+static Atomic<uint64_t, Relaxed> sIdleTaskRuns(0);
+static Atomic<uint64_t, Relaxed> sIdleTaskReschedules(0);
+static Atomic<uint64_t, Relaxed> sIdleReleaseAttempts(0);
+static Atomic<uint64_t, Relaxed> sIdleLastAgeMs(0);
+static bool sMemoryPolicyInitialized;
+
+static void
+PresentationPolicyChanged(const char*, void*)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+  bool enabled = Preferences::GetBool("browser.memory.releaseIdleCompositorBuffer",
+                                      tier >= 0 && tier <= 1);
+  uint32_t delay = Preferences::GetUint("browser.memory.idleCompositorBufferDelayMs", 1000);
+  sIdlePresentationDelayMs = enabled ? std::min(delay, uint32_t(60000)) : 0;
+}
+
+class PresentationBufferReporter final : public nsIMemoryReporter
+{
+  ~PresentationBufferReporter() = default;
+public:
+  NS_DECL_ISUPPORTS
+  NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
+                            nsISupports* aData, bool) override
+  {
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-delay-ms", KIND_OTHER, UNITS_COUNT,
+      sIdlePresentationDelayMs, "Current quiet interval in milliseconds; zero retains output scratch.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/completed", KIND_OTHER, UNITS_COUNT,
+      sPresentationCount, "Completed native Basic-compositor presentations.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-releases", KIND_OTHER, UNITS_COUNT,
+      sPresentationReleases, "Cached output scratch buffers released after presentation became idle.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/released-bytes", KIND_OTHER, UNITS_BYTES,
+      sPresentationReleasedBytes, "Cumulative estimate of released pixel backing, not live memory. "
+      "Live backing is charged to the existing surface owner.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-task-scheduled", KIND_OTHER, UNITS_COUNT,
+      sIdleTaskScheduled, "Idle-release tasks posted to compositor loops.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-task-runs", KIND_OTHER, UNITS_COUNT,
+      sIdleTaskRuns, "Idle-release tasks that began running.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-task-reschedules", KIND_OTHER, UNITS_COUNT,
+      sIdleTaskReschedules, "Idle-release callbacks postponed because another presentation was recent.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/idle-release-attempts", KIND_OTHER, UNITS_COUNT,
+      sIdleReleaseAttempts, "Widget release calls after an idle deadline.");
+    MOZ_COLLECT_REPORT("gfx-presentation-buffer/last-presentation-age-ms", KIND_OTHER, UNITS_COUNT,
+      sIdleLastAgeMs, "Most recent presentation age sampled by an idle callback; zero means recent/none.");
+    return NS_OK;
+  }
+};
+NS_IMPL_ISUPPORTS(PresentationBufferReporter, nsIMemoryReporter)
+
+void
+BasicCompositor::InitializeMemoryPolicy()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (sMemoryPolicyInitialized) {
+    return;
+  }
+  sMemoryPolicyInitialized = true;
+  Preferences::RegisterCallback(PresentationPolicyChanged, "browser.memoryTier");
+  Preferences::RegisterCallback(PresentationPolicyChanged, "browser.memory.releaseIdleCompositorBuffer");
+  Preferences::RegisterCallback(PresentationPolicyChanged, "browser.memory.idleCompositorBufferDelayMs");
+  PresentationPolicyChanged(nullptr, nullptr);
+  RegisterStrongMemoryReporter(new PresentationBufferReporter());
+}
+
+void
+BasicCompositor::ShutdownMemoryPolicy()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!sMemoryPolicyInitialized) {
+    return;
+  }
+  Preferences::UnregisterCallback(PresentationPolicyChanged, "browser.memoryTier");
+  Preferences::UnregisterCallback(PresentationPolicyChanged, "browser.memory.releaseIdleCompositorBuffer");
+  Preferences::UnregisterCallback(PresentationPolicyChanged, "browser.memory.idleCompositorBufferDelayMs");
+  sIdlePresentationDelayMs = 0;
+  sMemoryPolicyInitialized = false;
+}
+
+uint32_t
+BasicCompositor::IdleBackBufferReleaseDelayMs()
+{
+  return sIdlePresentationDelayMs;
+}
 
 class DataTextureSourceBasic : public DataTextureSource
                              , public TextureSourceBasic
@@ -210,7 +306,78 @@ BasicCompositor::BasicCompositor(CompositorBridgeParent* aParent, widget::Compos
 
 BasicCompositor::~BasicCompositor()
 {
+  MOZ_ASSERT(!mIdleBackBufferTask);
   MOZ_COUNT_DTOR(BasicCompositor);
+}
+
+void
+BasicCompositor::Destroy()
+{
+  CancelIdleBackBufferRelease();
+  Compositor::Destroy();
+}
+
+void
+BasicCompositor::CancelIdleBackBufferRelease()
+{
+  if (mIdleBackBufferTask) {
+    mIdleBackBufferTask->Cancel();
+    mIdleBackBufferTask = nullptr;
+  }
+}
+
+void
+BasicCompositor::ScheduleIdleBackBufferRelease(uint32_t aDelayMs)
+{
+  if (mIsDestroyed || !mWidget || !mWidget->SupportsIdleBackBufferRelease()) {
+    return;
+  }
+  if (!aDelayMs) {
+    CancelIdleBackBufferRelease();
+    return;
+  }
+  // A pending timer observes the latest mLastPresentation timestamp when it
+  // runs. Replacing it on every frame can starve its short retry indefinitely
+  // at display refresh rates; retain one timer for the entire quiet interval.
+  if (mIdleBackBufferTask) {
+    return;
+  }
+  // One outstanding timer per activity burst. Further frames only update the
+  // deadline; they do not allocate a new runnable for every presentation.
+  RefPtr<CancelableRunnable> task =
+    NewCancelableRunnableMethod(this, &BasicCompositor::DiscardIdleBackBuffer);
+  mIdleBackBufferTask = task;
+  ++sIdleTaskScheduled;
+  MessageLoop::current()->PostDelayedTask(task.forget(), aDelayMs);
+}
+
+void
+BasicCompositor::DiscardIdleBackBuffer()
+{
+  mIdleBackBufferTask = nullptr;
+  ++sIdleTaskRuns;
+  uint32_t delay = sIdlePresentationDelayMs;
+  if (!delay || mIsDestroyed || !mWidget || mLastPresentation.IsNull()) {
+    return;
+  }
+  double remaining = delay - (TimeStamp::Now() - mLastPresentation).ToMilliseconds();
+  sIdleLastAgeMs = uint64_t(std::max(0.0, delay - remaining));
+  if (mIsPendingEndRemoteDrawing || mRenderTarget || mDrawTarget) {
+    ++sIdleTaskReschedules;
+    ScheduleIdleBackBufferRelease(16);
+    return;
+  }
+  if (remaining > 0) {
+    ++sIdleTaskReschedules;
+    ScheduleIdleBackBufferRelease(uint32_t(ceil(remaining)));
+    return;
+  }
+  ++sIdleReleaseAttempts;
+  size_t bytes = mWidget->ReleaseBackBuffer();
+  if (bytes) {
+    ++sPresentationReleases;
+    sPresentationReleasedBytes += bytes;
+  }
 }
 
 bool
@@ -244,6 +411,7 @@ void BasicCompositor::DetachWidget()
     }
     mWidget->CleanupRemoteDrawing();
   }
+  CancelIdleBackBufferRelease();
   Compositor::DetachWidget();
 }
 
@@ -949,9 +1117,15 @@ BasicCompositor::TryToEndRemoteDrawing(bool aForceToEnd)
     mWidget->EndRemoteDrawingInRegion(mDrawTarget, mInvalidRegion);
   }
 
+  bool nativePresentation = !mTarget;
   mDrawTarget = nullptr;
   mRenderTarget = nullptr;
   mIsPendingEndRemoteDrawing = false;
+  if (nativePresentation) {
+    ++sPresentationCount;
+    mLastPresentation = TimeStamp::Now();
+    ScheduleIdleBackBufferRelease(sIdlePresentationDelayMs);
+  }
 }
 
 bool

@@ -10,6 +10,8 @@
 #include "mozilla/layers/TextureHost.h"
 #include "mozilla/gfx/2D.h"
 
+namespace mozilla { class CancelableRunnable; }
+
 namespace mozilla {
 namespace layers {
 
@@ -51,6 +53,13 @@ public:
   virtual BasicCompositor* AsBasicCompositor() override { return this; }
 
   virtual bool Initialize(nsCString* const out_failureReason) override;
+  virtual void Destroy() override;
+
+  // Preferences are read only on the main thread. Compositors consume an
+  // atomic policy and own their delayed release tasks on the compositor loop.
+  static void InitializeMemoryPolicy();
+  static void ShutdownMemoryPolicy();
+  static uint32_t IdleBackBufferReleaseDelayMs();
 
   virtual void DetachWidget() override;
 
@@ -140,6 +149,12 @@ private:
   void TryToEndRemoteDrawing(bool aForceToEnd = false);
 
   bool NeedsToDeferEndRemoteDrawing();
+
+  void ScheduleIdleBackBufferRelease(uint32_t aDelayMs);
+  void DiscardIdleBackBuffer();
+  void CancelIdleBackBufferRelease();
+  RefPtr<CancelableRunnable> mIdleBackBufferTask;
+  TimeStamp mLastPresentation;
 
   // The final destination surface
   RefPtr<gfx::DrawTarget> mDrawTarget;

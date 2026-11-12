@@ -242,6 +242,14 @@ public:
    */
   virtual already_AddRefed<gfx::SourceSurface> EndBackBufferDrawing();
 
+  // Release only cached composition scratch, after native presentation and
+  // all platform locks have ended. Persistent window/texture contents are not
+  // scratch. Returns an estimate of released pixel bytes, for diagnostics.
+  virtual size_t ReleaseBackBuffer();
+
+  // Platforms opt in after establishing the scratch/window lifetime boundary.
+  virtual bool SupportsIdleBackBufferRelease() const { return false; }
+
   /**
    * Observe or unobserve vsync.
    */

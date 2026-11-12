@@ -203,6 +203,18 @@ WinCompositorWidget::EndBackBufferDrawing()
   return CompositorWidget::EndBackBufferDrawing();
 }
 
+size_t
+WinCompositorWidget::ReleaseBackBuffer()
+{
+  // The wrapper DrawTarget borrows bits from mLastBackBuffer during drawing.
+  // Do not release backing during a deferred presentation or while locked.
+  if (mLockedBackBufferData || mCompositeDC) {
+    return 0;
+  }
+  // mTransparentSurface/mMemoryDC retain layered-window contents separately.
+  return CompositorWidget::ReleaseBackBuffer();
+}
+
 bool
 WinCompositorWidget::InitCompositor(layers::Compositor* aCompositor)
 {

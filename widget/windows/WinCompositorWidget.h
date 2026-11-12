@@ -56,6 +56,8 @@ public:
                                                             const LayoutDeviceIntRect& aRect,
                                                             const LayoutDeviceIntRect& aClearRect) override;
   already_AddRefed<gfx::SourceSurface> EndBackBufferDrawing() override;
+  size_t ReleaseBackBuffer() override;
+  bool SupportsIdleBackBufferRelease() const override { return true; }
   bool InitCompositor(layers::Compositor* aCompositor) override;
   uintptr_t GetWidgetKey() override;
   WinCompositorWidget* AsWindows() override {

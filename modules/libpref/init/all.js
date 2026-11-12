@@ -4289,6 +4289,9 @@ pref("image.mem.surfacecache.min_expiration_ms", 180000); // 180s
 pref("image.mem.surfacecache.max_size_kb", 1048576); // 1GB
 // Low-memory tiers additionally cap this at 8 MiB.
 pref("browser.memory.surfaceCacheMaxKB", 8192);
+// Tiers 0/1 release software-compositor output scratch after a quiet interval.
+// This does not discard painted textures or persistent transparent-window backing.
+pref("browser.memory.idleCompositorBufferDelayMs", 1000);
 
 // The surface cache's size, within the constraints of the maximum size set
 // above, is determined as a fraction of main memory size. The size factor is

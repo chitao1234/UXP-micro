@@ -19,6 +19,7 @@ UNIFIED_SOURCES += [
     'TestMatrix.cpp',
     'TestMoz2D.cpp',
     'TestPolygon.cpp',
+    'TestPresentationBuffer.cpp',
     'TestQcms.cpp',
     'TestRect.cpp',
     'TestRegion.cpp',

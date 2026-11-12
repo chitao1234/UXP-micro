@@ -22,6 +22,7 @@
 #include "gfxWindowsSurface.h"
 #endif
 #include "gfxPrefs.h"
+#include "mozilla/layers/BasicCompositor.h"
 #include "gfxEnv.h"
 #include "gfxTextRun.h"
 #include "gfxConfig.h"
@@ -539,6 +540,7 @@ gfxPlatform::Init()
 
     // Initialize the preferences by creating the singleton.
     gfxPrefs::GetSingleton();
+    layers::BasicCompositor::InitializeMemoryPolicy();
     MediaPrefs::GetSingleton();
     gfxVars::Initialize();
 
@@ -712,6 +714,7 @@ gfxPlatform::InitNullMetadata()
 void
 gfxPlatform::Shutdown()
 {
+    layers::BasicCompositor::ShutdownMemoryPolicy();
     // In some cases, gPlatform may not be created but Shutdown() called,
     // e.g., during xpcshell tests.
     if (!gPlatform) {
