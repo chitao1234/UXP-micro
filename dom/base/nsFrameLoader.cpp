@@ -268,7 +268,11 @@ nsFrameLoader::LoadFrame()
     return NS_OK;
   }
 
+  auto* iframe = HTMLIFrameElement::FromContent(mOwnerContent);
   nsCOMPtr<nsIURI> base_uri = mOwnerContent->GetBaseURI();
+  if (iframe && iframe->IsResumingLazyLoad()) {
+    base_uri = iframe->LazyLoadBaseURI();
+  }
   const nsAFlatCString &doc_charset = doc->GetDocumentCharacterSet();
   const char *charset = doc_charset.IsEmpty() ? nullptr : doc_charset.get();
 
@@ -321,10 +325,18 @@ nsFrameLoader::LoadURI(nsIURI* aURI, nsIPrincipal* aTriggeringPrincipal)
 
   mURIToLoad = aURI;
   mTriggeringPrincipal = aTriggeringPrincipal ? aTriggeringPrincipal : nullptr;
+  auto* iframe = HTMLIFrameElement::FromContent(mOwnerContent);
+  mIsLazyFrameLoad = iframe && iframe->IsResumingLazyLoad();
+  mLazyLoadBaseURI = mIsLazyFrameLoad ? iframe->LazyLoadBaseURI() : nullptr;
+  mLazyLoadReferrerPolicy = mIsLazyFrameLoad ?
+    iframe->LazyLoadReferrerPolicy() : net::RP_Unset;
   rv = doc->InitializeFrameLoader(this);
   if (NS_FAILED(rv)) {
     mURIToLoad = nullptr;
     mTriggeringPrincipal = nullptr;
+    mLazyLoadBaseURI = nullptr;
+    mLazyLoadReferrerPolicy = net::RP_Unset;
+    mIsLazyFrameLoad = false;
   }
   return rv;
 }
@@ -475,6 +487,29 @@ nsFrameLoader::RequestGroupedHistoryNavigation(uint32_t aGlobalIndex)
   return NS_OK;
 }
 
+void
+nsFrameLoader::InitializeLazyFrame()
+{
+  if (mDestroyCalled || !mOwnerContent || !mOwnerContent->IsInComposedDoc()) {
+    return;
+  }
+  auto* iframe = HTMLIFrameElement::FromContent(mOwnerContent);
+  if (!iframe || !iframe->IsLazyLoading()) {
+    return;
+  }
+  if (NS_SUCCEEDED(MaybeCreateDocShell()) && mDocShell) {
+    // Materialize initial about:blank without navigating the authored source.
+    nsCOMPtr<nsIDocument> document = mDocShell->GetDocument();
+    if (document && document->IsInitialDocument() &&
+        document->GetReadyStateEnum() == nsIDocument::READYSTATE_UNINITIALIZED) {
+      // This older docshell normally leaves the placeholder uninitialized
+      // until navigation starts. A lazy frame can expose it indefinitely;
+      // initial about:blank must be a complete document, as in modern Gecko.
+      document->SetReadyStateInternal(nsIDocument::READYSTATE_COMPLETE);
+    }
+  }
+}
+
 nsresult
 nsFrameLoader::ReallyStartLoading()
 {
@@ -551,7 +586,8 @@ nsFrameLoader::ReallyStartLoadingInternal()
     rv = NS_NewURI(getter_AddRefs(referrer), referrerStr);
 
     loadInfo->SetSrcdocData(srcdoc);
-    nsCOMPtr<nsIURI> baseURI = mOwnerContent->GetBaseURI();
+    nsCOMPtr<nsIURI> baseURI = mLazyLoadBaseURI ?
+      mLazyLoadBaseURI : mOwnerContent->GetBaseURI();
     loadInfo->SetBaseURI(baseURI);
   }
   else {
@@ -583,6 +619,9 @@ nsFrameLoader::ReallyStartLoadingInternal()
       referrerPolicy = iframeReferrerPolicy;
     }
   }
+  if (mIsLazyFrameLoad) {
+    referrerPolicy = mLazyLoadReferrerPolicy;
+  }
   loadInfo->SetReferrerPolicy(referrerPolicy);
 
   // Default flags:
@@ -601,9 +640,13 @@ nsFrameLoader::ReallyStartLoadingInternal()
   bool tmpState = mNeedsAsyncDestroy;
   mNeedsAsyncDestroy = true;
   nsCOMPtr<nsIURI> uriToLoad = mURIToLoad;
+  static_cast<nsDocShell*>(mDocShell.get())->SetBlockEmbedderLoadEvent(!mIsLazyFrameLoad);
   rv = mDocShell->LoadURI(uriToLoad, loadInfo, flags, false);
   mNeedsAsyncDestroy = tmpState;
   mURIToLoad = nullptr;
+  mLazyLoadBaseURI = nullptr;
+  mLazyLoadReferrerPolicy = net::RP_Unset;
+  mIsLazyFrameLoad = false;
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;

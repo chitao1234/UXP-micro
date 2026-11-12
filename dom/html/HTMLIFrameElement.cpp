@@ -12,6 +12,9 @@
 #include "nsStyleConsts.h"
 #include "nsContentUtils.h"
 #include "nsSandboxFlags.h"
+#include "mozilla/AutoRestore.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/dom/DOMIntersectionObserver.h"
 
 NS_IMPL_NS_NEW_HTML_ELEMENT_CHECK_PARSER(IFrame)
 
@@ -34,6 +37,131 @@ HTMLIFrameElement::HTMLIFrameElement(already_AddRefed<mozilla::dom::NodeInfo>& a
 
 HTMLIFrameElement::~HTMLIFrameElement()
 {
+  StopLazyLoading();
+}
+
+void
+HTMLIFrameElement::GetLoading(nsAString& aValue) const
+{
+  if (AttrValueIs(kNameSpaceID_None, nsGkAtoms::loading,
+                 NS_LITERAL_STRING("lazy"), eIgnoreCase)) {
+    aValue.AssignLiteral("lazy");
+  } else {
+    aValue.AssignLiteral("eager");
+  }
+}
+
+bool
+HTMLIFrameElement::HasLazyLoading() const
+{
+  return Preferences::GetBool("dom.iframe-lazy-loading.enabled", true) &&
+    AttrValueIs(kNameSpaceID_None, nsGkAtoms::loading,
+                NS_LITERAL_STRING("lazy"), eIgnoreCase) &&
+    !OwnerDoc()->IsStaticDocument() && OwnerDoc()->IsScriptEnabled() &&
+    !nsContentUtils::IsChromeDoc(OwnerDoc()) && !Mozbrowser();
+}
+
+void
+HTMLIFrameElement::PrepareLazyLoad()
+{
+  if (mResumingLazyLoad || !HasLazyLoading()) {
+    return;
+  }
+  if (!mLazyLoadState) {
+    mLazyLoadState = MakeUnique<LazyLoadState>();
+  }
+  // Snapshot each attribute-driven navigation, including parser attribute
+  // ordering. Later base/referrer mutations do not alter a deferred navigation.
+  mLazyLoadState->mBaseURI = GetBaseURI();
+  mLazyLoadState->mReferrerPolicy = GetReferrerPolicyAsEnum();
+  if (mLazyLoadState->mReferrerPolicy == net::RP_Unset) {
+    mLazyLoadState->mReferrerPolicy = OwnerDoc()->GetReferrerPolicy();
+  }
+  if (IsInComposedDoc()) {
+    OwnerDoc()->EnsureLazyLoadObserver().Observe(*this);
+  }
+}
+
+void
+HTMLIFrameElement::StopLazyLoading()
+{
+  if (!mLazyLoadState) {
+    return;
+  }
+  if (auto* observer = OwnerDoc()->GetLazyLoadObserver()) {
+    observer->Unobserve(*this);
+  }
+  mLazyLoadState = nullptr;
+}
+
+void
+HTMLIFrameElement::StartLazyFrameLoad()
+{
+  if (!mLazyLoadState || !IsInComposedDoc()) {
+    return;
+  }
+  // LoadFrame captures the frozen navigation inputs before they are cleared.
+  AutoRestore<bool> resuming(mResumingLazyLoad);
+  mResumingLazyLoad = true;
+  LoadSrc();
+  StopLazyLoading();
+}
+
+nsIURI*
+HTMLIFrameElement::LazyLoadBaseURI() const
+{
+  return mLazyLoadState ? mLazyLoadState->mBaseURI.get() : nullptr;
+}
+
+net::ReferrerPolicy
+HTMLIFrameElement::LazyLoadReferrerPolicy() const
+{
+  return mLazyLoadState ? mLazyLoadState->mReferrerPolicy : net::RP_Unset;
+}
+
+nsresult
+HTMLIFrameElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
+                             nsIContent* aBindingParent,
+                             bool aCompileEventHandlers)
+{
+  if (!HasLazyLoading()) {
+    StopLazyLoading();
+  }
+  nsresult rv = nsGenericHTMLFrameElement::BindToTree(aDocument, aParent,
+    aBindingParent, aCompileEventHandlers);
+  if (NS_SUCCEEDED(rv) && IsLazyLoading() && IsInComposedDoc()) {
+    OwnerDoc()->EnsureLazyLoadObserver().Observe(*this);
+  }
+  return rv;
+}
+
+void
+HTMLIFrameElement::UnbindFromTree(bool aDeep, bool aNullParent)
+{
+  StopLazyLoading();
+  nsGenericHTMLFrameElement::UnbindFromTree(aDeep, aNullParent);
+}
+
+void
+HTMLIFrameElement::NodeInfoChanged()
+{
+  // UnbindFromTree removes the old document's observation before adoption.
+  StopLazyLoading();
+  nsGenericHTMLFrameElement::NodeInfoChanged();
+}
+
+void
+HTMLIFrameElement::DestroyContent()
+{
+  StopLazyLoading();
+  nsGenericHTMLFrameElement::DestroyContent();
+}
+
+size_t
+HTMLIFrameElement::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
+{
+  return nsGenericHTMLFrameElement::SizeOfExcludingThis(aMallocSizeOf) +
+    (mLazyLoadState ? aMallocSizeOf(mLazyLoadState.get()) : 0);
 }
 
 NS_IMPL_ISUPPORTS_INHERITED(HTMLIFrameElement, nsGenericHTMLFrameElement,
@@ -190,6 +318,13 @@ HTMLIFrameElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
   AfterMaybeChangeAttr(aNameSpaceID, aName, aNotify);
 
   if (aNameSpaceID == kNameSpaceID_None) {
+    if (aName == nsGkAtoms::loading) {
+      // Adding lazy policy affects subsequent navigations; it must not create
+      // a new navigation for a document which has already loaded.
+      if (!HasLazyLoading()) {
+        StartLazyFrameLoad();
+      }
+    }
     if (aName == nsGkAtoms::sandbox) {
       if (mFrameLoader) {
         // If we have an nsFrameLoader, apply the new sandbox flags.

@@ -10,6 +10,8 @@
 #include "nsGenericHTMLFrameElement.h"
 #include "nsIDOMHTMLIFrameElement.h"
 #include "nsDOMTokenList.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/net/ReferrerPolicy.h"
 
 namespace mozilla {
 namespace dom {
@@ -179,6 +181,27 @@ public:
   bool FullscreenFlag() const { return mFullscreenFlag; }
   void SetFullscreenFlag(bool aValue) { mFullscreenFlag = aValue; }
 
+  void GetLoading(nsAString& aValue) const;
+  void SetLoading(const nsAString& aValue, ErrorResult& aError)
+  {
+    SetHTMLAttr(nsGkAtoms::loading, aValue, aError);
+  }
+  bool HasLazyLoading() const;
+  bool IsLazyLoading() const { return !!mLazyLoadState; }
+  bool IsResumingLazyLoad() const { return mResumingLazyLoad; }
+  void StartLazyFrameLoad();
+  void StopLazyLoading();
+  nsIURI* LazyLoadBaseURI() const;
+  net::ReferrerPolicy LazyLoadReferrerPolicy() const;
+  void PrepareLazyLoad();
+  virtual size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const override;
+  virtual nsresult BindToTree(nsIDocument* aDocument, nsIContent* aParent,
+                              nsIContent* aBindingParent,
+                              bool aCompileEventHandlers) override;
+  virtual void UnbindFromTree(bool aDeep = true, bool aNullParent = true) override;
+  virtual void NodeInfoChanged() override;
+  virtual void DestroyContent() override;
+
 protected:
   virtual ~HTMLIFrameElement();
 
@@ -194,6 +217,12 @@ protected:
                                           bool aNotify) override;
 
 private:
+  struct LazyLoadState {
+    nsCOMPtr<nsIURI> mBaseURI;
+    net::ReferrerPolicy mReferrerPolicy;
+  };
+  UniquePtr<LazyLoadState> mLazyLoadState;
+  bool mResumingLazyLoad = false;
   static void MapAttributesIntoRule(const nsMappedAttributes* aAttributes,
                                     nsRuleData* aData);
 

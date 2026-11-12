@@ -252,6 +252,17 @@ nsGenericHTMLFrameElement::LoadSrc()
     return NS_OK;
   }
 
+  if (auto* iframe = HTMLIFrameElement::FromContent(this)) {
+    iframe->PrepareLazyLoad();
+    if (iframe->IsLazyLoading() && !iframe->IsResumingLazyLoad()) {
+      // Keep the initial browsing context available to contentWindow, named
+      // targets and script navigation, but do not start the authored document.
+      nsContentUtils::AddScriptRunner(NewRunnableMethod(
+        mFrameLoader.get(), &nsFrameLoader::InitializeLazyFrame));
+      return NS_OK;
+    }
+  }
+
   nsresult rv = mFrameLoader->LoadFrame();
 #ifdef DEBUG
   if (NS_FAILED(rv)) {

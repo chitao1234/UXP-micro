@@ -316,7 +316,8 @@ nsDocLoader::IsBusy()
 
     // This is a safe cast, because we only put nsDocLoader objects into the
     // array
-    if (loader && static_cast<nsDocLoader*>(loader)->IsBusy())
+    if (loader && static_cast<nsDocLoader*>(loader)->mBlockEmbedderLoadEvent &&
+        static_cast<nsDocLoader*>(loader)->IsBusy())
       return true;
   }
 

@@ -20,6 +20,7 @@
 #include "nsFrameMessageManager.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/net/ReferrerPolicy.h"
 #include "nsStubMutationObserver.h"
 #include "Units.h"
 #include "nsIWebBrowserPersistable.h"
@@ -84,6 +85,7 @@ public:
   NS_DECL_NSIWEBBROWSERPERSISTABLE
   nsresult CheckForRecursiveLoad(nsIURI* aURI);
   nsresult ReallyStartLoading();
+  void InitializeLazyFrame();
   void StartDestroy();
   void DestroyDocShell();
   void DestroyComplete();
@@ -313,6 +315,9 @@ private:
   nsCOMPtr<nsIDocShell> mDocShell;
   nsCOMPtr<nsIURI> mURIToLoad;
   nsCOMPtr<nsIPrincipal> mTriggeringPrincipal;
+  nsCOMPtr<nsIURI> mLazyLoadBaseURI;
+  mozilla::net::ReferrerPolicy mLazyLoadReferrerPolicy = mozilla::net::RP_Unset;
+  bool mIsLazyFrameLoad = false;
   mozilla::dom::Element* mOwnerContent; // WEAK
 
   // After the frameloader has been removed from the DOM but before all of the

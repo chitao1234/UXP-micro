@@ -1,0 +1,231 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native lazy iframe navigation, context and policy lifetime</title>
+<link rel="help" href="https://html.spec.whatwg.org/#the-iframe-element">
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<style>iframe{width:400px;height:200px;border:0}</style>
+<div id="fixture"></div>
+<script>
+// Adapted from Firefox WPT iframe-loading-{lazy,lazy-load-event,lazy-base-url,
+// lazy-referrerpolicy-change,lazy-multiple-times,lazy-to-eager-srcdoc,
+// lazy-nav-location-replace,lazy-reload-location-reload,
+// lazy-in-script-disabled-iframe} and iframe_javascript_url_loading_lazy.
+SimpleTest.waitForExplicitFinish();
+const prefix = "iframe-lazy-" + Date.now() + "-";
+const endpoint = new URL("file_iframe_loading_lazy.sjs", location.href);
+const url = (id, extra = "") => endpoint.href + "?id=" + prefix + id + extra;
+const fixture = document.getElementById("fixture");
+const tick = () => new Promise(resolve => requestAnimationFrame(resolve));
+const turn = async () => { await tick(); await tick(); };
+async function status(id) { return (await fetch(url(id, "&action=status"))).json(); }
+async function waitFor(check, message) {
+  const end = performance.now() + 8000;
+  while (!check()) {
+    if (performance.now() > end) throw new Error(message);
+    await tick();
+  }
+}
+function loaded(frame) {
+  let complete = false;
+  frame.addEventListener("load", () => { complete = true; }, {once:true});
+  return waitFor(() => complete, "iframe load timeout: " + frame.src);
+}
+async function owner(src, sandbox) {
+  const frame = document.createElement("iframe");
+  if (sandbox !== undefined) frame.setAttribute("sandbox", sandbox);
+  const done = loaded(frame);
+  frame.src = src; fixture.appendChild(frame); await done;
+  return frame;
+}
+function deferred(doc, id) {
+  const frame = doc.createElement("iframe");
+  frame.loading = "lazy";
+  frame.style.cssText = "position:absolute;top:20000px;width:200px;height:100px";
+  frame.src = url(id);
+  doc.body.appendChild(frame);
+  return frame;
+}
+async function run() {
+  const probe = document.createElement("iframe");
+  is(probe.loading, "eager", "missing loading defaults to eager");
+  for (const value of ["", "invalid", " lazy "]) {
+    probe.loading = value;
+    is(probe.loading, "eager", "invalid loading defaults to eager: " + value);
+  }
+  probe.loading = "LaZy";
+  is(probe.loading, "lazy", "lazy keyword is ASCII case insensitive");
+  is(probe.getAttribute("loading"), "LaZy", "raw loading attribute is preserved");
+
+  const f = await owner(url("parser", "&action=page"));
+  const doc = f.contentDocument, win = f.contentWindow;
+  const near = doc.getElementById("near"), far = doc.getElementById("far");
+  ok(win.loaded, "parent load event fired with lazy child loads outstanding");
+  is(near.contentDocument.URL, "about:blank", "slow visible lazy child does not delay parent load");
+  is(await status("parser-far"), null, "parser did not navigate the offscreen iframe");
+  ok(far.contentWindow, "deferred iframe has a browsing context");
+  is(far.contentDocument.URL, "about:blank", "deferred iframe exposes initial about:blank");
+  is(far.contentDocument.readyState, "complete", "initial about:blank is a complete document");
+  is(win.frames["lazy-target"], far.contentWindow, "deferred browsing context is named");
+  await waitFor(() => near.contentWindow.executed, "visible lazy child did not load");
+  is((await status("parser-near")).count, 1, "visible lazy child fetched once");
+  const nearDocument = near.contentDocument;
+  near.loading = "eager";
+  near.loading = "lazy";
+  await turn();
+  is(near.contentDocument, nearDocument, "changing loading alone preserves an already loaded document");
+  is((await status("parser-near")).count, 1, "changing loading alone does not fetch the source again");
+  const farDone = loaded(far); far.scrollIntoView(); await farDone;
+  ok(far.contentWindow.executed, "scrolling starts navigation and child script");
+  is((await status("parser-far")).count, 1, "scrolled iframe fetched once");
+  win.scrollTo(0,0);
+  const oldDocument = far.contentDocument;
+  far.src = url("second");
+  await turn();
+  is(await status("second"), null, "subsequent src navigation is also deferred");
+  is(far.contentDocument, oldDocument, "deferral preserves the previous child document");
+  const secondDone = loaded(far); far.scrollIntoView(); await secondDone;
+  ok(far.contentDocument.URL.includes(prefix + "second"), "second navigation resumes correctly");
+  win.scrollTo(0,0);
+
+  for (const remove of [false, true]) {
+    const frame = deferred(doc, "eager-" + remove);
+    await turn();
+    is(await status("eager-" + remove), null, "offscreen child starts deferred");
+    const done = loaded(frame);
+    if (remove) frame.removeAttribute("loading"); else frame.loading = "eager";
+    await done;
+    ok(frame.contentWindow.executed, "eager/removal transition resumes child navigation");
+    frame.remove();
+  }
+
+  const frozen = deferred(doc, "frozen");
+  frozen.remove();
+  frozen.referrerPolicy = "unsafe-url";
+  frozen.src = "file_iframe_loading_lazy.sjs?id=" + prefix + "frozen";
+  doc.body.appendChild(frozen);
+  await turn();
+  const base = doc.createElement("base"); base.href = "/not-the-original-base/";
+  doc.head.appendChild(base);
+  frozen.referrerPolicy = "no-referrer";
+  const frozenDone = loaded(frozen); frozen.loading = "eager"; await frozenDone;
+  ok(frozen.contentDocument.URL.includes("/dom/html/test/file_iframe_loading_lazy.sjs"),
+     "resumption uses base URL saved at navigation deferral");
+  is((await status("frozen")).referrer, doc.URL,
+     "resumption uses referrer policy saved at navigation deferral");
+  base.remove(); frozen.remove();
+
+  for (const kind of ["srcdoc", "data", "blob", "javascript"]) {
+    const frame = doc.createElement("iframe");
+    frame.loading = "lazy";
+    frame.style.cssText = "position:absolute;top:20000px";
+    const content = "<p id='inline'>" + kind + "</p>";
+    if (kind === "srcdoc") frame.srcdoc = content;
+    if (kind === "data") frame.src = "data:text/html," + encodeURIComponent(content);
+    if (kind === "blob") frame.src = URL.createObjectURL(new Blob([content], {type:"text/html"}));
+    if (kind === "javascript") frame.src = "javascript:" + JSON.stringify(content);
+    doc.body.appendChild(frame); await turn();
+    is(frame.contentDocument.URL, "about:blank", kind + " stays at initial blank while deferred");
+    const done = loaded(frame); frame.loading = "eager"; await done;
+    is(frame.contentDocument.getElementById("inline").textContent, kind,
+       kind + " loads normally on eager transition");
+    if (kind === "blob") URL.revokeObjectURL(frame.src);
+    frame.remove();
+  }
+
+  const latest = deferred(doc, "obsolete");
+  latest.src = url("latest"); await turn();
+  is(await status("obsolete"), null, "superseded lazy navigation never starts");
+  const latestDone = loaded(latest); latest.loading = "eager"; await latestDone;
+  is((await status("latest")).count, 1, "only the latest source navigates");
+  latest.remove();
+
+  const navigated = deferred(doc, "cancelled"); await turn();
+  const directDone = loaded(navigated);
+  navigated.contentWindow.location.replace(url("direct")); await directDone;
+  ok(navigated.contentWindow.executed, "explicit window navigation executes while offscreen");
+  navigated.scrollIntoView(); await turn();
+  is(await status("cancelled"), null, "explicit navigation cancels pending lazy resumption");
+  navigated.remove(); win.scrollTo(0,0);
+
+  const scroller = doc.createElement("div");
+  scroller.style.cssText="position:absolute;top:0;width:250px;height:100px;overflow:auto";
+  scroller.innerHTML='<div style="height:20000px"></div>';
+  doc.body.appendChild(scroller);
+  const nested = doc.createElement("iframe"); nested.loading="lazy";
+  nested.src=url("nested"); scroller.appendChild(nested); await turn();
+  is(await status("nested"),null,"nested scroller does not navigate a far lazy iframe");
+  const nestedDone=loaded(nested); scroller.scrollTop=scroller.scrollHeight; await nestedDone;
+  is((await status("nested")).count,1,"nested scrolling resumes iframe navigation");
+  scroller.remove();
+
+  const original=deferred(doc,"clone"); await turn();
+  const clone=original.cloneNode(true); doc.body.appendChild(clone); await turn();
+  is(await status("clone"),null,"cloning a deferred iframe does not start either navigation");
+  original.remove();
+  const cloneDone=loaded(clone); clone.loading="eager"; await cloneDone;
+  is((await status("clone")).count,1,"cloned iframe has independent resumption state");
+  clone.remove();
+
+  const reloaded = deferred(doc, "after-reload"); await turn();
+  reloaded.contentWindow.location.reload(); await turn();
+  is(await status("after-reload"), null, "reloading initial blank does not start deferred src");
+  const reloadDone = loaded(reloaded); reloaded.scrollIntoView(); await reloadDone;
+  is((await status("after-reload")).count, 1, "lazy src still resumes after initial blank reload");
+  reloaded.remove(); win.scrollTo(0,0);
+
+  const removed = deferred(doc, "removed"); await turn(); removed.remove(); await turn();
+  is(await status("removed"), null, "removal cancels observation without navigating");
+  removed.style.top = "0";
+  const insertedDone = loaded(removed); doc.body.appendChild(removed); await insertedDone;
+  is((await status("removed")).count, 1, "reinsertion creates and loads a new context once");
+  removed.remove();
+
+  const secondOwner = await owner("about:blank");
+  const adopted = deferred(doc, "adopted"); await turn();
+  secondOwner.contentDocument.adoptNode(adopted); adopted.style.top="0";
+  const adoptDone = loaded(adopted); secondOwner.contentDocument.body.appendChild(adopted);
+  await adoptDone;
+  is((await status("adopted")).count, 1, "adoption rebinds lazy observation to the new document");
+  secondOwner.remove();
+
+  const sandboxed = deferred(doc, "sandbox"); sandboxed.setAttribute("sandbox", "allow-same-origin");
+  const sandboxDone = loaded(sandboxed); sandboxed.loading="eager"; await sandboxDone;
+  ok(!sandboxed.contentWindow.executed, "resumed navigation preserves sandbox script restriction");
+  ok(sandboxed.contentDocument.getElementById("value"), "sandbox document itself loaded");
+  sandboxed.remove();
+
+  const cross = deferred(doc, "cross");
+  const crossURL = new URL(url("cross"));
+  crossURL.hostname = "example.com"; crossURL.port = "";
+  cross.src = crossURL.href;
+  await turn();
+  is(await status("cross"), null, "cross-origin navigation is deferred too");
+  const crossDone = loaded(cross); cross.loading = "eager"; await crossDone;
+  is(cross.contentDocument, null, "resumed cross-origin document stays inaccessible");
+  is((await status("cross")).count, 1, "cross-origin navigation fetched exactly once");
+  cross.remove();
+
+  await SpecialPowers.pushPrefEnv({set:[["browser.memoryTier",0],["dom.lazy-loading.margin",-1]]});
+  const budget = deferred(doc, "tier-margin"); budget.style.top="1000px";
+  await turn();
+  is(await status("tier-margin"), null, "low-tier iframe lookahead defers nearby offscreen navigation");
+  const budgetDone = loaded(budget);
+  await SpecialPowers.pushPrefEnv({set:[["browser.memoryTier",3]]});
+  win.scrollBy(0,1); await budgetDone;
+  is((await status("tier-margin")).count,1,"high-tier iframe lookahead starts nearby navigation");
+  budget.remove(); win.scrollTo(0,0);
+  await SpecialPowers.popPrefEnv(); await SpecialPowers.popPrefEnv();
+  await SpecialPowers.pushPrefEnv({set:[["dom.iframe-lazy-loading.enabled",false]]});
+  const disabledPref = deferred(doc, "disabled-pref");
+  await waitFor(() => disabledPref.contentWindow.executed,"disabled lazy-load pref did not load eagerly");
+  is((await status("disabled-pref")).count,1,"explicit pref override preserves eager behavior");
+  disabledPref.remove(); await SpecialPowers.popPrefEnv(); f.remove();
+
+  const disabled = await owner(url("disabled", "&action=page"), "allow-same-origin");
+  is((await status("disabled-far")).count, 1,
+     "script-disabled embedding document loads offscreen lazy child eagerly");
+  disabled.remove();
+}
+addEventListener("load", () => run().catch(error => ok(false,error+"\n"+error.stack))
+  .then(() => { fixture.textContent=""; SimpleTest.finish(); }), {once:true});
+</script>

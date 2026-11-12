@@ -296,6 +296,7 @@ pref("browser.display.show_loading_image_placeholder", false);
 // Honor author-requested lazy image loading at every memory tier. The distance
 // is a scheduling tradeoff: low tiers start less offscreen work in advance.
 pref("dom.image-lazy-loading.enabled", true);
+pref("dom.iframe-lazy-loading.enabled", true);
 // Negative selects 300 CSS px on tiers 0/1, 1250 CSS px on higher tiers.
 pref("dom.lazy-loading.margin", -1);
 // min font device pixel size at which to turn on high quality

@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsDocShell.h"
+#include "mozilla/dom/HTMLIFrameElement.h"
 
 #include <algorithm>
 
@@ -10208,6 +10209,17 @@ nsDocShell::InternalLoad(nsIURI* aURI,
   mAllowKeywordFixup =
     (aFlags & INTERNAL_LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP) != 0;
   mURIResultedInDocument = false;  // reset the clock...
+
+  if (!aIsFromProcessingFrameAttributes && !(aLoadType & LOAD_CMD_RELOAD)) {
+    if (mScriptGlobal) {
+      if (Element* frameElement = mScriptGlobal->AsOuter()->GetFrameElementInternal()) {
+        if (auto* iframe = HTMLIFrameElement::FromContent(frameElement)) {
+          iframe->StopLazyLoading();
+        }
+      }
+    }
+    SetBlockEmbedderLoadEvent(true);
+  }
 
   if (aLoadType == LOAD_NORMAL ||
       aLoadType == LOAD_STOP_CONTENT ||

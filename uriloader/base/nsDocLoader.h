@@ -110,6 +110,9 @@ public:
     };
 
     void SetDocumentOpenedButNotLoaded() { mDocumentOpenedButNotLoaded = true; }
+    // Lazy iframe navigations fire their own load event but do not delay the
+    // embedding document's load event, including in-viewport lazy frames.
+    void SetBlockEmbedderLoadEvent(bool aBlock) { mBlockEmbedderLoadEvent = aBlock; }
 
 protected:
     virtual ~nsDocLoader();
@@ -289,6 +292,7 @@ protected:
      * notification is fired...
      */
     bool mIsLoadingDocument;
+    bool mBlockEmbedderLoadEvent = true;
 
     /* Flag to indicate that we're in the process of restoring a document. */
     bool mIsRestoringDocument;

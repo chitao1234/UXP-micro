@@ -11,6 +11,7 @@
 #include "nsLayoutUtils.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/HTMLImageElement.h"
+#include "mozilla/dom/HTMLIFrameElement.h"
 
 namespace mozilla {
 namespace dom {
@@ -68,6 +69,8 @@ LazyLoadCallback(nsIDocument& aDocument, Element& aTarget)
   }
   if (auto* image = HTMLImageElement::FromContent(&aTarget)) {
     image->StartLazyImageLoad();
+  } else if (auto* iframe = HTMLIFrameElement::FromContent(&aTarget)) {
+    iframe->StartLazyFrameLoad();
   }
 }
 

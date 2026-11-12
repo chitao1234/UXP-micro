@@ -13,6 +13,8 @@
 
 [HTMLConstructor]
 interface HTMLIFrameElement : HTMLElement {
+  [CEReactions, SetterThrows]
+           attribute DOMString loading;
   [CEReactions, NeedsSubjectPrincipal, SetterThrows, Pure]
            attribute DOMString src;
   [CEReactions, SetterThrows, Pure]

@@ -5,7 +5,7 @@
   <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
   <script src="printpreview_test_utils.js"/>
   <body xmlns="http://www.w3.org/1999/xhtml"/>
-  <iframe id="source" src="file_printpreview_lazy_image.html" type="content" width="600" height="200"/>
+  <iframe id="source" src="http://mochi.test:8888/chrome/layout/base/tests/chrome/file_printpreview_lazy_image.html" type="content" width="600" height="200"/>
   <iframe id="preview" type="content" width="600" height="400"/>
   <iframe id="lazy-preview" type="content" width="600" height="400"/>
   <script><![CDATA[
@@ -69,9 +69,19 @@ async function run() {
       '@media print{img{position:static}}</style>' +
       '<img width="32" height="32" src="blue-32x32.png">';
     const shadowImage = shadow.querySelector("img");
+    const frameStyle = sourceDoc.createElement("style");
+    frameStyle.textContent = "iframe{position:absolute;top:20000px;border:0}" +
+      "@media print{iframe{position:static}}";
+    sourceDoc.head.appendChild(frameStyle);
+    const childFrame = sourceDoc.createElement("iframe");
+    childFrame.width = childFrame.height = "32";
+    const childMarkup = marker => '<body style="margin:0;background:blue" id="' + marker + '">';
+    childFrame.srcdoc = childMarkup("eager-child");
+    sourceDoc.body.appendChild(childFrame);
     image.loading = "eager";
     await waitFor(() => image.complete && image.naturalWidth &&
-                       shadowImage.complete && shadowImage.naturalWidth,
+                       shadowImage.complete && shadowImage.naturalWidth &&
+                       childFrame.contentDocument.getElementById("eager-child"),
                   "eager baseline image did not load");
     printer = printInterface(preview.contentWindow);
     const settings = createTestPrintPreviewSettings();
@@ -84,6 +94,20 @@ async function run() {
     const eager = snapshot(preview);
     ok(eager.blue > 100, "eager print preview paints the image");
     printer.exitPrintPreview();
+
+    childFrame.loading = "lazy";
+    childFrame.srcdoc = childMarkup("lazy-child");
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    ok(childFrame.contentDocument.getElementById("eager-child"),
+       "deferred iframe navigation preserves its previous document");
+    // Scrolling is exercised in test_iframe_loading_lazy.html. This XUL
+    // fixture has no implicit content intersection root, so explicitly resume
+    // its pending navigation before testing static-document cloning.
+    childFrame.loading = "eager";
+    await waitFor(() => childFrame.contentDocument.getElementById("lazy-child") &&
+                       childFrame.contentDocument.readyState === "complete",
+                  "lazy iframe did not resume before print");
+    childFrame.loading = "lazy";
 
     image.loading = "lazy";
     image.src = "blue-32x32.png?lazy-print=" + Date.now();
@@ -130,6 +154,8 @@ async function run() {
     const shadowRect = printedShadowImage.getBoundingClientRect();
     is(shadowRect.width, 32, "shadow print image has its reflowed width");
     is(shadowRect.height, 32, "shadow print image has its reflowed height");
+    ok(lazyPreview.contentDocument.querySelector("iframe").contentDocument
+       .getElementById("lazy-child"), "print clones the resumed lazy iframe document");
     lazyPreview.contentDocument.documentElement.getBoundingClientRect();
     lazyPreview.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
       .getInterface(Ci.nsIDOMWindowUtils).redraw(1);
