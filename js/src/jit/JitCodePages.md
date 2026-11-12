@@ -1,15 +1,15 @@
 # Executable pool backing experiment
 
-This opt-in architecture keeps compiler thresholds, generated code, IC feedback,
+This architecture keeps compiler thresholds, generated code, IC feedback,
 code addresses and the process executable-reservation limit unchanged. It tracks
 OS-page owners inside bump-allocated executable pools. New pools reserve their
 usual address range but commit pages on allocation; a natural JIT poison batch
 decommits complete pages with no surviving or pending-poison allocation.
 
-`javascript.options.mem.jit_code_decommit` is **false by default**. The standalone
+`javascript.options.mem.jit_code_decommit` defaults on for memory tiers 0/1 and
+off for tiers 2/3. An explicit preference overrides tier transitions. The standalone
 shell accepts `MOZ_JIT_CODE_DECOMMIT=1`; `jitCodeDecommit([bool])` supports live
-policy checks. A future tier default requires real-page memory and performance
-qualification. Already decommitted pools remain valid if the policy is disabled.
+policy checks. Already decommitted pools remain valid if the policy is disabled.
 
 Page ownership includes the complete JitCode header and allocation padding.
 Foreground JITCODE finalization queues ownership retirement with the existing
@@ -48,3 +48,14 @@ do not attribute GC population changes or reservation-only deltas to this code.
 No functional differences or live-code/feedback loss are allowed. Investigate a
 repeatable >=3% CPU/throughput or >=10% p95 interaction/compilation latency cost.
 If real pages have less than 4 MiB reclaimable backing, stop before a campaign.
+
+Nov 12 acceptance used one optimized tests-enabled binary with cold AB/warm BA
+profiles and all four WordPress embeds initialized. At 90 seconds, the arm
+decommitted 7.14/7.61 MiB; private commit fell 12.12/7.70 MiB and attributed
+explicit fell 11.81/8.76 MiB. The greater net deltas include population/capacity
+variation and are not all attributable to executable backing. GitHub was neutral
+(0.18 MiB less private commit, 0.40 MiB more explicit). Early 45-second samples
+varied with natural GC timing; no early peak-memory reduction is claimed.
+Four 512-round compilation/IC/natural-GC runs verified 5.28 million calls each,
+with no CPU regression and identical 10 ms p95 round latency. Protocol, binary
+identities and per-runtime reports: external tests/perf/memory/jit-code-backing.

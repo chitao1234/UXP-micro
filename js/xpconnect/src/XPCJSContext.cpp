@@ -1410,7 +1410,7 @@ GCDecommitPrefsCallback(const char*, void*)
     JS_SetGCDecommitEnabled(Preferences::GetBool(
         "javascript.options.mem.gc_decommit", tier >= 0 && tier <= 1));
     JS_SetJitCodeDecommitEnabled(Preferences::GetBool(
-        "javascript.options.mem.jit_code_decommit", false));
+        "javascript.options.mem.jit_code_decommit", tier >= 0 && tier <= 1));
     JS_SetNurseryLazyCommitEnabled(Preferences::GetBool(
         "javascript.options.mem.nursery_lazy_commit", tier >= 0 && tier <= 1));
     // Shared dynamic-TLS code is the memory tier ABI. Higher tiers retain the

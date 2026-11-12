@@ -34,17 +34,18 @@ add_task(function* test_process_policy_and_worker_lifetimes() {
   }
   try {
     if (prefs.prefHasUserValue(policy)) prefs.clearUserPref(policy);
-    // This experiment is deliberately opt-in at every tier. Tier transitions
-    // must neither enable it nor defeat an explicit preference override.
+    // Low tiers reclaim dead backing; higher tiers retain it. Explicit
+    // preference overrides survive transitions in either direction.
     for (const value of [0, 1, 2, 3, 0]) {
       prefs.setIntPref(tier, value);
-      equal(testing.jitCodeDecommit(), false, 'default remains off at tier ' + value);
+      const expected = value <= 1;
+      equal(testing.jitCodeDecommit(), expected, 'default follows tier ' + value);
       prefs.setBoolPref(policy, true);
       equal(testing.jitCodeDecommit(), true, 'explicit enable at tier ' + value);
       prefs.setBoolPref(policy, false);
       equal(testing.jitCodeDecommit(), false, 'explicit disable at tier ' + value);
       prefs.clearUserPref(policy);
-      equal(testing.jitCodeDecommit(), false, 'clearing override restores default');
+      equal(testing.jitCodeDecommit(), expected, 'clearing override restores tier default');
     }
 
     workers.push(new Worker(uri), new ChromeWorker(uri));
@@ -70,8 +71,9 @@ add_task(function* test_process_policy_and_worker_lifetimes() {
     const enabled = yield round(fresh, 6);
     equal(enabled.retained, 1, 'fresh runtime compiled its first functions');
     equal(testing.jitCodeDecommit(), true, 'new runtime retained explicit enable');
+    prefs.setIntPref(tier, 3);
     prefs.clearUserPref(policy);
-    equal(testing.jitCodeDecommit(), false, 'clearing policy while workers live restores off');
+    equal(testing.jitCodeDecommit(), false, 'clearing policy while workers live restores high-tier default');
     const disabled = yield round(fresh, 7);
     equal(disabled.retained, 2, 'fresh runtime code survives disabling backing reclamation');
   } finally {
