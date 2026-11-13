@@ -700,6 +700,10 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_AS)
 
     void disableSyntaxParser() {
     }
+
+    Parser<SyntaxParseHandler>** syntaxParserAddress() {
+        return nullptr;
+    }
 };
 
 } // namespace frontend

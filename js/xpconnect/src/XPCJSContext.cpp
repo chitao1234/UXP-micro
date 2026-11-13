@@ -38,6 +38,7 @@
 #include "jsapi.h"
 #include "jsprf.h"
 #include "js/MemoryMetrics.h"
+#include "js/FrontendPolicy.h"
 #include "mozilla/dom/GeneratedAtomList.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/Element.h"
@@ -1405,6 +1406,10 @@ GCDecommitPrefsCallback(const char*, void*)
     // Preferences are read only on the main thread. SpiderMonkey publishes the
     // process policy atomically for worker and background GC threads as well.
     int32_t tier = Preferences::GetInt("browser.memoryTier", 3);
+    // Low tiers avoid compiling unused exported functions. First calls use
+    // normal delazification; an explicit preference overrides the tier.
+    JS::SetLazyModuleExportsEnabled(Preferences::GetBool(
+        "javascript.options.mem.lazy_module_exports", tier >= 0 && tier <= 1));
     JS_SetShapeLookupCacheEnabled(Preferences::GetBool(
         "javascript.options.mem.shape_lookup_cache", tier >= 0 && tier <= 1));
     JS_SetGCDecommitEnabled(Preferences::GetBool(
@@ -1588,6 +1593,8 @@ XPCJSContext::~XPCJSContext()
 
     Preferences::UnregisterCallback(ReloadPrefsCallback, JS_OPTIONS_DOT_STR, this);
     Preferences::UnregisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.mem.lazy_module_exports");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.gc_decommit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
@@ -3576,6 +3583,8 @@ XPCJSContext::Initialize()
     Preferences::RegisterCallback(ReloadPrefsCallback, JS_OPTIONS_DOT_STR, this);
     GCDecommitPrefsCallback(nullptr, nullptr);
     Preferences::RegisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.lazy_module_exports");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.gc_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,

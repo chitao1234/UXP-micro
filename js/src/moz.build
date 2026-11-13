@@ -73,6 +73,7 @@ EXPORTS.js += [
     '../public/Date.h',
     '../public/Debug.h',
     '../public/Equality.h',
+    '../public/FrontendPolicy.h',
     '../public/GCAnnotations.h',
     '../public/GCAPI.h',
     '../public/GCHashTable.h',

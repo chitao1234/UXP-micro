@@ -32,6 +32,7 @@
 #include "jit/InlinableNatives.h"
 #include "jit/JitFrameIterator.h"
 #include "js/Debug.h"
+#include "js/FrontendPolicy.h"
 #include "js/HashTable.h"
 #include "js/StructuredClone.h"
 #include "js/UbiNode.h"
@@ -4293,6 +4294,16 @@ ShapeLookupCache(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+LazyModuleExports(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length())
+        JS::SetLazyModuleExportsEnabled(ToBoolean(args[0]));
+    args.rval().setBoolean(JS::LazyModuleExportsEnabled());
+    return true;
+}
+
+static bool
 JitCodeDecommit(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4342,6 +4353,10 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("jitCodeDecommit", JitCodeDecommit, 1, 0,
 "jitCodeDecommit([enabled])",
 "  Select empty JIT pool page decommit process-wide; return the current policy."),
+    JS_FN_HELP("lazyModuleExports", LazyModuleExports, 1, 0,
+"lazyModuleExports([enabled])",
+"  Get/set syntax-only parsing of functions within/after module exports."),
+
     JS_FN_HELP("shapeLookupCache", ShapeLookupCache, 1, 0,
 "shapeLookupCache([enabled])",
 "  Select bounded shape lookup caches process-wide; return the current policy."),

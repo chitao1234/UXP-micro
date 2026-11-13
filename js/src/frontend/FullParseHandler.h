@@ -1025,6 +1025,10 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_AS)
         syntaxParser = nullptr;
     }
 
+    Parser<SyntaxParseHandler>** syntaxParserAddress() {
+        return &syntaxParser;
+    }
+
     bool canSkipLazyInnerFunctions() {
         return !!lazyOuterFunction_;
     }

@@ -805,6 +805,7 @@ class ParserBase : public StrictModeGetter
 
     /* Perform constant-folding; must be true when interfacing with the emitter. */
     const bool          foldConstants:1;
+    const bool          lazyModuleExports_:1;
 
   protected:
 #if DEBUG
@@ -1223,6 +1224,7 @@ FOR_EACH_PARSENODE_SUBCLASS(DECLARE_TYPE)
     inline NameNodeType newName(PropertyName* name, TokenPos pos);
 
     inline bool abortIfSyntaxParser();
+    inline bool requireFullParseForExport();
 
   public:
     /* Public entry points for parsing. */

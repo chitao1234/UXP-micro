@@ -19,6 +19,8 @@
 #include "frontend/Parser.h"
 
 #include "mozilla/ArrayUtils.h"  // mozilla::ArrayLength
+#include "mozilla/Atomics.h"
+#include "mozilla/ScopeExit.h"
 #include "mozilla/Sprintf.h"
 
 #include <new>
@@ -30,6 +32,7 @@
 #include "jsopcode.h"
 #include "jsscript.h"
 #include "jstypes.h"
+#include "js/FrontendPolicy.h"
 
 #include "builtin/ModuleObject.h"
 #include "builtin/SelfHostingDefines.h"
@@ -57,6 +60,20 @@ using mozilla::Some;
 
 using JS::AutoGCRooter;
 using JS::ReadOnlyCompileOptions;
+
+static mozilla::Atomic<bool, mozilla::Relaxed> sLazyModuleExports(false);
+
+JS_PUBLIC_API(void)
+JS::SetLazyModuleExportsEnabled(bool enabled)
+{
+    sLazyModuleExports = enabled;
+}
+
+JS_PUBLIC_API(bool)
+JS::LazyModuleExportsEnabled()
+{
+    return sLazyModuleExports;
+}
 
 namespace js {
 namespace frontend {
@@ -788,6 +805,25 @@ Parser<SyntaxParseHandler>::abortIfSyntaxParser()
     return false;
 }
 
+template <>
+inline bool
+Parser<FullParseHandler>::requireFullParseForExport()
+{
+    // Module declarations require real nodes for the export tables, but the
+    // function bodies they contain can use ordinary syntax-only parsing.
+    // Other unsupported constructs still take abortIfSyntaxParser's fallback.
+    if (!lazyModuleExports_)
+        handler.disableSyntaxParser();
+    return true;
+}
+
+template <>
+inline bool
+Parser<SyntaxParseHandler>::requireFullParseForExport()
+{
+    return abortIfSyntaxParser();
+}
+
 ParserBase::ParserBase(ExclusiveContext* cx, LifoAlloc& alloc,
                        const ReadOnlyCompileOptions& options,
                        const char16_t* chars, size_t length,
@@ -805,6 +841,7 @@ ParserBase::ParserBase(ExclusiveContext* cx, LifoAlloc& alloc,
     ss(nullptr),
     keepAtoms(cx->perThreadData),
     foldConstants(foldConstants),
+    lazyModuleExports_(JS::LazyModuleExportsEnabled()),
 #ifdef DEBUG
     checkOptionsCalled(false),
 #endif
@@ -5579,12 +5616,12 @@ template <typename ParseHandler>
 typename ParseHandler::BinaryNodeType
 Parser<ParseHandler>::exportFrom(uint32_t begin, Node specList)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_FROM));
 
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     if (!mustMatchToken(TOK_STRING, JSMSG_MODULE_SPEC_AFTER_FROM)) {
@@ -5612,7 +5649,7 @@ template <typename ParseHandler>
 typename ParseHandler::BinaryNodeType
 Parser<ParseHandler>::exportBatch(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_MUL));
@@ -5665,7 +5702,7 @@ template <typename ParseHandler>
 typename ParseHandler::Node
 Parser<ParseHandler>::exportClause(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_LC));
@@ -5768,7 +5805,7 @@ template <typename ParseHandler>
 typename ParseHandler::UnaryNodeType
 Parser<ParseHandler>::exportVariableStatement(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_VAR));
@@ -5796,7 +5833,7 @@ typename ParseHandler::UnaryNodeType
 Parser<ParseHandler>::exportFunctionDeclaration(uint32_t begin,
                                                 FunctionAsyncKind asyncKind /* = SyncFunction */)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_FUNCTION));
@@ -5822,7 +5859,7 @@ template <typename ParseHandler>
 typename ParseHandler::UnaryNodeType
 Parser<ParseHandler>::exportClassDeclaration(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_CLASS));
@@ -5848,7 +5885,7 @@ template <typename ParseHandler>
 typename ParseHandler::UnaryNodeType
 Parser<ParseHandler>::exportLexicalDeclaration(uint32_t begin, DeclarationKind kind)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(kind == DeclarationKind::Const || kind == DeclarationKind::Let);
@@ -5877,7 +5914,7 @@ Parser<ParseHandler>::exportDefaultFunctionDeclaration(uint32_t begin,
                                                            FunctionAsyncKind asyncKind
                                                            /* = SyncFunction */)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_FUNCTION));
@@ -5900,7 +5937,7 @@ template <typename ParseHandler>
 typename ParseHandler::BinaryNodeType
 Parser<ParseHandler>::exportDefaultClassDeclaration(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_CLASS));
@@ -5923,7 +5960,7 @@ template <typename ParseHandler>
 typename ParseHandler::BinaryNodeType
 Parser<ParseHandler>::exportDefaultAssignExpr(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     RootedPropertyName name(context, context->names().starDefaultStar);
@@ -5953,7 +5990,7 @@ template <typename ParseHandler>
 typename ParseHandler::BinaryNodeType
 Parser<ParseHandler>::exportDefault(uint32_t begin)
 {
-    if (!abortIfSyntaxParser())
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_DEFAULT));
@@ -5996,7 +6033,17 @@ template <typename ParseHandler>
 typename ParseHandler::Node
 Parser<ParseHandler>::exportDeclaration()
 {
-    if (!abortIfSyntaxParser())
+    // A class field/static block within an export can still require a full
+    // parse. Restore only the entry parser after this entire export finishes;
+    // never enable parsing when the enclosing compilation supplied no parser.
+    auto syntaxSlot = lazyModuleExports_ ? handler.syntaxParserAddress() : nullptr;
+    auto previousSyntaxParser = syntaxSlot ? *syntaxSlot : nullptr;
+    auto restoreSyntax = mozilla::MakeScopeExit([=] {
+        if (syntaxSlot)
+            *syntaxSlot = previousSyntaxParser;
+    });
+
+    if (!requireFullParseForExport())
         return null();
 
     MOZ_ASSERT(tokenStream.currentToken().type == TOK_EXPORT);
