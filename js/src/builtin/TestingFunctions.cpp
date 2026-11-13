@@ -4304,6 +4304,16 @@ LazyModuleExports(JSContext* cx, unsigned argc, Value* vp)
 }
 
 static bool
+ScopedClassParsing(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    if (args.length())
+        JS::SetScopedClassParsingEnabled(ToBoolean(args[0]));
+    args.rval().setBoolean(JS::ScopedClassParsingEnabled());
+    return true;
+}
+
+static bool
 JitCodeDecommit(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
@@ -4356,6 +4366,9 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("lazyModuleExports", LazyModuleExports, 1, 0,
 "lazyModuleExports([enabled])",
 "  Get/set syntax-only parsing of functions within/after module exports."),
+    JS_FN_HELP("scopedClassParsing", ScopedClassParsing, 1, 0,
+"scopedClassParsing([enabled])",
+"  Get/set class-local syntax-parser fallback for future parses."),
 
     JS_FN_HELP("shapeLookupCache", ShapeLookupCache, 1, 0,
 "shapeLookupCache([enabled])",

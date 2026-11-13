@@ -17,5 +17,11 @@ SetLazyModuleExportsEnabled(bool enabled);
 extern JS_PUBLIC_API(bool)
 LazyModuleExportsEnabled();
 
+extern JS_PUBLIC_API(void)
+SetScopedClassParsingEnabled(bool enabled);
+
+extern JS_PUBLIC_API(bool)
+ScopedClassParsingEnabled();
+
 } // namespace JS
 #endif

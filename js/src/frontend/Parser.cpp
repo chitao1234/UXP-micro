@@ -62,6 +62,19 @@ using JS::AutoGCRooter;
 using JS::ReadOnlyCompileOptions;
 
 static mozilla::Atomic<bool, mozilla::Relaxed> sLazyModuleExports(false);
+static mozilla::Atomic<bool, mozilla::Relaxed> sScopedClassParsing(false);
+
+JS_PUBLIC_API(void)
+JS::SetScopedClassParsingEnabled(bool enabled)
+{
+    sScopedClassParsing = enabled;
+}
+
+JS_PUBLIC_API(bool)
+JS::ScopedClassParsingEnabled()
+{
+    return sScopedClassParsing;
+}
 
 JS_PUBLIC_API(void)
 JS::SetLazyModuleExportsEnabled(bool enabled)
@@ -842,6 +855,7 @@ ParserBase::ParserBase(ExclusiveContext* cx, LifoAlloc& alloc,
     keepAtoms(cx->perThreadData),
     foldConstants(foldConstants),
     lazyModuleExports_(JS::LazyModuleExportsEnabled()),
+    scopedClassParsing_(JS::ScopedClassParsingEnabled()),
 #ifdef DEBUG
     checkOptionsCalled(false),
 #endif
@@ -7793,6 +7807,16 @@ Parser<ParseHandler>::classDefinition(YieldHandling yieldHandling,
                                       DefaultHandling defaultHandling)
 {
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_CLASS));
+
+    // Keep the existing full parse of field/static-block initializers, but
+    // limit its fallback to this class. An absent entry parser stays absent;
+    // syntax-only parsing still propagates its abort to the full parser.
+    auto syntaxSlot = scopedClassParsing_ ? handler.syntaxParserAddress() : nullptr;
+    auto previousSyntaxParser = syntaxSlot ? *syntaxSlot : nullptr;
+    auto syntaxScope = mozilla::MakeScopeExit([=] {
+        if (syntaxSlot)
+            *syntaxSlot = previousSyntaxParser;
+    });
 
     uint32_t classStartOffset = pos().begin;
     bool savedStrictness = setLocalStrictMode(true);

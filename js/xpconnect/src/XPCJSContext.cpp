@@ -1410,6 +1410,8 @@ GCDecommitPrefsCallback(const char*, void*)
     // normal delazification; an explicit preference overrides the tier.
     JS::SetLazyModuleExportsEnabled(Preferences::GetBool(
         "javascript.options.mem.lazy_module_exports", tier >= 0 && tier <= 1));
+    JS::SetScopedClassParsingEnabled(Preferences::GetBool(
+        "javascript.options.mem.scoped_class_parsing", tier >= 0 && tier <= 1));
     JS_SetShapeLookupCacheEnabled(Preferences::GetBool(
         "javascript.options.mem.shape_lookup_cache", tier >= 0 && tier <= 1));
     JS_SetGCDecommitEnabled(Preferences::GetBool(
@@ -1595,6 +1597,8 @@ XPCJSContext::~XPCJSContext()
     Preferences::UnregisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.lazy_module_exports");
+    Preferences::UnregisterCallback(GCDecommitPrefsCallback,
+                                    "javascript.options.mem.scoped_class_parsing");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
                                     "javascript.options.mem.gc_decommit");
     Preferences::UnregisterCallback(GCDecommitPrefsCallback,
@@ -3585,6 +3589,8 @@ XPCJSContext::Initialize()
     Preferences::RegisterCallback(GCDecommitPrefsCallback, "browser.memoryTier");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.lazy_module_exports");
+    Preferences::RegisterCallback(GCDecommitPrefsCallback,
+                                  "javascript.options.mem.scoped_class_parsing");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
                                   "javascript.options.mem.gc_decommit");
     Preferences::RegisterCallback(GCDecommitPrefsCallback,
