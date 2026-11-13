@@ -518,10 +518,25 @@ struct NotableScriptSourceInfo : public ScriptSourceInfo
     NotableScriptSourceInfo(const NotableScriptSourceInfo& info) = delete;
 };
 
-/**
- * These measurements relate directly to the JSRuntime, and not to zones and
- * compartments within it.
- */
+// Alternate partition of runtime/script-data. These counters overlap the
+// owning measurement and must not be added to explicit or Servo sizes.
+struct ScriptDataInfo
+{
+    size_t entries = 0;
+    size_t scriptReferences = 0;
+    size_t bytecode = 0;
+    size_t notes = 0;
+    size_t atoms = 0;
+    size_t headers = 0;
+    size_t allocationSlop = 0;
+    size_t table = 0;
+    size_t tableOnlyEntries = 0;
+    size_t tableOnlyBytes = 0;
+    size_t singleOwnerBytes = 0;
+    size_t sharedBytes = 0;
+};
+
+/** Measurements for the JSRuntime, rather than individual zones/compartments. */
 struct RuntimeSizes
 {
 #define FOR_EACH_SIZE(macro) \
@@ -568,6 +583,7 @@ struct RuntimeSizes
     // and move them into |notableScriptSources|.
     FOR_EACH_SIZE(DECL_SIZE)
     ScriptSourceInfo scriptSourceInfo;
+    ScriptDataInfo scriptDataInfo;
     CodeSizes code;
     GCSizes gc;
 

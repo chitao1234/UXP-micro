@@ -628,9 +628,35 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
         cx->caches.uncompressedSourceCache.sizeOfExcludingThis(mallocSizeOf);
 
 
-    rtSizes->scriptData += scriptDataTable(lock).sizeOfExcludingThis(mallocSizeOf);
-    for (ScriptDataTable::Range r = scriptDataTable(lock).all(); !r.empty(); r.popFront())
-        rtSizes->scriptData += mallocSizeOf(r.front());
+    auto& scriptInfo = rtSizes->scriptDataInfo;
+    scriptInfo.table = scriptDataTable(lock).sizeOfExcludingThis(mallocSizeOf);
+    rtSizes->scriptData += scriptInfo.table;
+    for (ScriptDataTable::Range r = scriptDataTable(lock).all(); !r.empty(); r.popFront()) {
+        auto* entry = r.front();
+        size_t allocated = mallocSizeOf(entry);
+        size_t atoms = entry->natoms() * sizeof(GCPtrAtom);
+        // data() points directly after the fixed header. This remains correct
+        // if its size/alignment changes, unlike sizeof including data_[1].
+        size_t header = entry->data() - reinterpret_cast<uint8_t*>(entry);
+        size_t requested = header + entry->dataLength();
+        scriptInfo.entries++;
+        scriptInfo.scriptReferences += entry->refCount() - 1;
+        scriptInfo.bytecode += entry->codeLength();
+        scriptInfo.notes += entry->dataLength() - atoms - entry->codeLength();
+        scriptInfo.atoms += atoms;
+        scriptInfo.headers += header;
+        // Tests may supply a zero-size callback rather than an allocator.
+        scriptInfo.allocationSlop += allocated > requested ? allocated - requested : 0;
+        if (entry->refCount() == 1) {
+            scriptInfo.tableOnlyEntries++;
+            scriptInfo.tableOnlyBytes += allocated;
+        } else if (entry->refCount() == 2) {
+            scriptInfo.singleOwnerBytes += allocated;
+        } else {
+            scriptInfo.sharedBytes += allocated;
+        }
+        rtSizes->scriptData += allocated;
+    }
 
     if (jitRuntime_) {
         jitRuntime_->execAlloc().addSizeOfCode(&rtSizes->code, mallocSizeOf);

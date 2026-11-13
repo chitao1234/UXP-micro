@@ -7,6 +7,7 @@
 #include "js/MemoryMetrics.h"
 #include "jsfun.h"
 #include "jsscript.h"
+#include "vm/Runtime.h"
 
 // Primary sizes need not use a real allocator here: the native test checks
 // classification, GC cell bytes and non-mutating traversal. The browser probe
@@ -110,3 +111,47 @@ BEGIN_TEST(testLazyFunctionMetrics)
     return true;
 }
 END_TEST(testLazyFunctionMetrics)
+
+BEGIN_TEST(testScriptDataMetrics)
+{
+    // Compiling the same global source twice creates two JSScripts sharing one
+    // record. The census must count the payload once, expose both owners and
+    // leave the scripts and the sharing table unchanged when called again.
+    JS::CompileOptions options(cx);
+    options.setFileAndLine(__FILE__, 1);
+    const char source[] = "var scriptDataCensusUnique = 'script-data-metrics';";
+    JS::RootedScript first(cx);
+    CHECK(JS_CompileScript(cx, source, sizeof(source) - 1, options, &first));
+    CHECK(first->scriptData());
+    uint32_t firstRefs = first->scriptData()->refCount();
+    JS::RuntimeSizes before;
+    cx->addSizeOfIncludingThis(LazyGraphNoMallocSizeOf, &before);
+
+    JS::RootedScript second(cx);
+    CHECK(JS_CompileScript(cx, source, sizeof(source) - 1, options, &second));
+    CHECK(first != second);
+    CHECK(first->scriptData() == second->scriptData());
+    CHECK_EQUAL(first->scriptData()->refCount(), firstRefs + 1);
+    JS::RuntimeSizes after;
+    cx->addSizeOfIncludingThis(LazyGraphNoMallocSizeOf, &after);
+    CHECK_EQUAL(after.scriptDataInfo.entries, before.scriptDataInfo.entries);
+    CHECK_EQUAL(after.scriptDataInfo.scriptReferences, before.scriptDataInfo.scriptReferences + 1);
+    CHECK_EQUAL(after.scriptDataInfo.bytecode, before.scriptDataInfo.bytecode);
+    CHECK_EQUAL(after.scriptDataInfo.notes, before.scriptDataInfo.notes);
+    CHECK_EQUAL(after.scriptDataInfo.atoms, before.scriptDataInfo.atoms);
+    CHECK(after.scriptDataInfo.bytecode >= first->length());
+    CHECK(after.scriptDataInfo.atoms >= first->scriptData()->natoms() * sizeof(js::GCPtrAtom));
+    CHECK_EQUAL(after.scriptDataInfo.headers, after.scriptDataInfo.entries *
+        size_t(first->scriptData()->data() - reinterpret_cast<uint8_t*>(first->scriptData())));
+
+    JS::RuntimeSizes again;
+    cx->addSizeOfIncludingThis(LazyGraphNoMallocSizeOf, &again);
+    CHECK_EQUAL(again.scriptDataInfo.entries, after.scriptDataInfo.entries);
+    CHECK_EQUAL(again.scriptDataInfo.scriptReferences, after.scriptDataInfo.scriptReferences);
+    CHECK_EQUAL(first->scriptData()->refCount(), firstRefs + 1);
+    JS::RootedValue value(cx);
+    CHECK(JS_ExecuteScript(cx, first, &value));
+    CHECK(JS_ExecuteScript(cx, second, &value));
+    return true;
+}
+END_TEST(testScriptDataMetrics)

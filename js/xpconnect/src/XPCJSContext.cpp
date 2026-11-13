@@ -2484,6 +2484,29 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
         KIND_HEAP, rtStats.runtime.scriptData,
         "The table holding script data shared in the runtime.");
 
+    nsCString scriptDataPath(rtPath);
+    scriptDataPath.Replace(0, strlen("explicit/"), "js-script-data/");
+    const auto& scriptInfo = rtStats.runtime.scriptDataInfo;
+#define SCRIPT_DATA_BYTES(name, field, description) \
+    REPORT(scriptDataPath + NS_LITERAL_CSTRING(name), KIND_OTHER, UNITS_BYTES, \
+        scriptInfo.field, description " Alternate view of runtime/script-data; excluded from explicit.")
+    SCRIPT_DATA_BYTES("payload/bytecode", bytecode, "Unique bytecode bytes.");
+    SCRIPT_DATA_BYTES("payload/source-notes", notes, "Unique source-note bytes, including padding.");
+    SCRIPT_DATA_BYTES("payload/atom-pointers", atoms, "Unique script atom-pointer array bytes; excludes atom cells.");
+    SCRIPT_DATA_BYTES("overhead/headers", headers, "Shared-script-data fixed headers.");
+    SCRIPT_DATA_BYTES("overhead/allocation-slop", allocationSlop, "Rounding of script-data allocations.");
+    SCRIPT_DATA_BYTES("overhead/table", table, "Script-data sharing hash-table storage.");
+    SCRIPT_DATA_BYTES("ownership/table-only", tableOnlyBytes, "Records without a script owner, pending the normal table sweep.");
+    SCRIPT_DATA_BYTES("ownership/single-script", singleOwnerBytes, "Records referenced by exactly one script plus the table.");
+    SCRIPT_DATA_BYTES("ownership/shared", sharedBytes, "Records shared by multiple scripts.");
+#undef SCRIPT_DATA_BYTES
+    REPORT(scriptDataPath + NS_LITERAL_CSTRING("entries"), KIND_OTHER, UNITS_COUNT,
+        scriptInfo.entries, "Number of unique records in the script-data table.");
+    REPORT(scriptDataPath + NS_LITERAL_CSTRING("script-references"), KIND_OTHER, UNITS_COUNT,
+        scriptInfo.scriptReferences, "Script references to table records, excluding the table's own reference.");
+    REPORT(scriptDataPath + NS_LITERAL_CSTRING("table-only-entries"), KIND_OTHER, UNITS_COUNT,
+        scriptInfo.tableOnlyEntries, "Records with no script owner, pending normal sweep. Reporting does not collect them.");
+
     nsCString nonNotablePath =
         rtPath + nsPrintfCString("runtime/script-sources/source(scripts=%d, <non-notable files>)/",
                                  rtStats.runtime.scriptSourceInfo.numScripts);
