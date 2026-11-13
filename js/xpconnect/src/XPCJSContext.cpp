@@ -1879,11 +1879,54 @@ ReportZoneStats(const JS::ZoneStats& zStats,
 
     ZCREPORT_GC_BYTES(pathPrefix + NS_LITERAL_CSTRING("lazy-scripts/gc-heap"),
         zStats.lazyScriptsGCHeap,
-        "Scripts that haven't executed yet.");
+        "Lazily parsed script records, including metadata retained for compiled functions.");
 
     ZCREPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("lazy-scripts/malloc-heap"),
         zStats.lazyScriptsMallocHeap,
         "Lazy script tables containing closed-over bindings or inner functions.");
+
+    // Alternate view only: ownership stays in lazy-scripts and object classes.
+    // Per-zone paths also cover workers through the shared zone reporter.
+    if (!zStats.isTotals && zStats.lazyFunctions.functionCount) {
+        nsCString graphPath(pathPrefix);
+        graphPath.Replace(0, strlen("explicit/"), "js-lazy-function-graph/");
+        const auto& graph = zStats.lazyFunctions;
+#define REPORT_LAZY_GRAPH(name, unit, amount, desc) \
+        REPORT(graphPath + NS_LITERAL_CSTRING(name), KIND_OTHER, unit, \
+               amount, desc " Overlaps existing ownership; do not add to explicit memory.")
+        REPORT_LAZY_GRAPH("functions/count", UNITS_COUNT, graph.functionCount,
+                          "Allocated function objects.");
+        REPORT_LAZY_GRAPH("functions/gc-heap", UNITS_BYTES, graph.functionGCHeap,
+                          "Function object cells.");
+        REPORT_LAZY_GRAPH("functions/slots", UNITS_BYTES, graph.functionMallocHeap,
+                          "External function slots.");
+        REPORT_LAZY_GRAPH("lazy-scripts/count", UNITS_COUNT, graph.lazyScriptCount,
+                          "Allocated lazy-script records, including compiled caches.");
+        REPORT_LAZY_GRAPH("lazy-scripts/compiled", UNITS_COUNT, graph.compiledLazyScriptCount,
+                          "Lazy-script records with an associated compiled script.");
+        REPORT_LAZY_GRAPH("nested/functions", UNITS_COUNT, graph.nestedFunctionCount,
+                          "Lazy function objects whose lazy script has no compiled parent scope/source. "
+                          "Candidate upper bound, not an incoming-edge or root census.");
+        REPORT_LAZY_GRAPH("nested/function-gc-heap", UNITS_BYTES, graph.nestedFunctionGCHeap,
+                          "Cells of candidate nested lazy functions; no saving is implied.");
+        REPORT_LAZY_GRAPH("nested/function-slots", UNITS_BYTES, graph.nestedFunctionMallocHeap,
+                          "External slots of candidate nested lazy functions.");
+        REPORT_LAZY_GRAPH("nested/lazy-scripts", UNITS_COUNT, graph.nestedLazyScriptCount,
+                          "Lazy-script records without a compiled script, enclosing scope or source object.");
+        REPORT_LAZY_GRAPH("nested/lazy-script-gc-heap", UNITS_BYTES, graph.nestedLazyScriptGCHeap,
+                          "Candidate nested lazy-script cells; replacement descriptors would still cost memory.");
+        REPORT_LAZY_GRAPH("nested/lazy-script-tables", UNITS_BYTES, graph.nestedLazyScriptMallocHeap,
+                          "Candidate nested lazy-script binding and inner-function tables.");
+        REPORT_LAZY_GRAPH("nested/closed-over-bindings", UNITS_COUNT, graph.nestedClosedOverBindings,
+                          "Binding entries that replacement descriptors must preserve.");
+        REPORT_LAZY_GRAPH("nested/inner-function-edges", UNITS_COUNT, graph.nestedInnerFunctions,
+                          "Inner-function entries retained by candidate nested lazy scripts.");
+        REPORT_LAZY_GRAPH("nested/direct-eval", UNITS_COUNT, graph.nestedDirectEvalCount,
+                          "Candidate nested lazy-script records containing direct eval.");
+        REPORT_LAZY_GRAPH("nested/cloned-functions", UNITS_COUNT, graph.nestedCloneCount,
+                          "Candidate functions other than their lazy script's original function.");
+#undef REPORT_LAZY_GRAPH
+    }
 
     ZCREPORT_GC_BYTES(pathPrefix + NS_LITERAL_CSTRING("jit-codes-gc-heap"),
         zStats.jitCodesGCHeap,

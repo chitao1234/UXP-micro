@@ -9,6 +9,7 @@
 
 #include "jsapi.h"
 #include "jscompartment.h"
+#include "jsfun.h"
 #include "jsgc.h"
 #include "jsobj.h"
 #include "jsscript.h"
@@ -446,6 +447,12 @@ CollectScriptSourceStats(StatsClosure* closure, ScriptSource* ss)
 }
 
 
+static bool
+IsUnmaterializedLazyDescendant(LazyScript* lazy)
+{
+    return !lazy->sourceObject() && !lazy->enclosingScope() && !lazy->hasScript();
+}
+
 // The various kinds of hashing are expensive, and the results are unused when
 // doing coarse-grained measurements. Skipping them more than doubles the
 // profile speed for complex pages such as gmail.com.
@@ -465,6 +472,24 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
         info.objectsGCHeap += thingSize;
 
         obj->addSizeOfExcludingThis(rtStats->mallocSizeOf_, &info);
+
+        if (granularity == FineGrained && obj->is<JSFunction>()) {
+            JSFunction* fun = &obj->as<JSFunction>();
+            auto& graph = zStats->lazyFunctions;
+            graph.functionCount++;
+            graph.functionGCHeap += thingSize;
+            graph.functionMallocHeap += info.objectsMallocHeapSlots;
+            if (fun->isInterpretedLazy()) {
+                LazyScript* lazy = fun->lazyScriptOrNull();
+                if (lazy && IsUnmaterializedLazyDescendant(lazy)) {
+                    graph.nestedFunctionCount++;
+                    graph.nestedFunctionGCHeap += thingSize;
+                    graph.nestedFunctionMallocHeap += info.objectsMallocHeapSlots;
+                    if (lazy->functionNonDelazifying() != fun)
+                        graph.nestedCloneCount++;
+                }
+            }
+        }
 
         // These classes require special handling due to shared resources which
         // we must be careful not to report twice.
@@ -578,8 +603,24 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
 
       case JS::TraceKind::LazyScript: {
         LazyScript* lazy = static_cast<LazyScript*>(thing);
+        size_t tableBytes = lazy->sizeOfExcludingThis(rtStats->mallocSizeOf_);
         zStats->lazyScriptsGCHeap += thingSize;
-        zStats->lazyScriptsMallocHeap += lazy->sizeOfExcludingThis(rtStats->mallocSizeOf_);
+        zStats->lazyScriptsMallocHeap += tableBytes;
+        if (granularity == FineGrained) {
+            auto& graph = zStats->lazyFunctions;
+            graph.lazyScriptCount++;
+            if (lazy->hasScript())
+                graph.compiledLazyScriptCount++;
+            if (IsUnmaterializedLazyDescendant(lazy)) {
+                graph.nestedLazyScriptCount++;
+                graph.nestedLazyScriptGCHeap += thingSize;
+                graph.nestedLazyScriptMallocHeap += tableBytes;
+                graph.nestedClosedOverBindings += lazy->numClosedOverBindings();
+                graph.nestedInnerFunctions += lazy->numInnerFunctions();
+                if (lazy->hasDirectEval())
+                    graph.nestedDirectEvalCount++;
+            }
+        }
         break;
       }
 

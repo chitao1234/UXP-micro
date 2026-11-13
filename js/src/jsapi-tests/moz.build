@@ -63,6 +63,7 @@ UNIFIED_SOURCES += [
     'testIsInsideNursery.cpp',
     'testIteratorObject.cpp',
     'testJSEvaluateScript.cpp',
+    'testLazyFunctionMetrics.cpp',
     'testLookup.cpp',
     'testLooselyEqual.cpp',
     'testMappedArrayBuffer.cpp',

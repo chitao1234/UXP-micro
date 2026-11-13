@@ -654,6 +654,41 @@ struct UnusedGCThingSizes
 #undef FOR_EACH_SIZE
 };
 
+// An overlapping census, not additional owned memory. A lazy script without
+// an enclosing scope or source object belongs to a still-uncompiled parent.
+// This is an upper bound on deferred-function candidates, not proof that no
+// debugger, root, or other heap edge refers to its function.
+struct LazyFunctionInfo
+{
+#define FOR_EACH_LAZY_FIELD(macro) \
+    macro(functionCount) \
+    macro(functionGCHeap) \
+    macro(functionMallocHeap) \
+    macro(nestedFunctionCount) \
+    macro(nestedFunctionGCHeap) \
+    macro(nestedFunctionMallocHeap) \
+    macro(lazyScriptCount) \
+    macro(compiledLazyScriptCount) \
+    macro(nestedLazyScriptCount) \
+    macro(nestedLazyScriptGCHeap) \
+    macro(nestedLazyScriptMallocHeap) \
+    macro(nestedClosedOverBindings) \
+    macro(nestedInnerFunctions) \
+    macro(nestedDirectEvalCount) \
+    macro(nestedCloneCount)
+
+#define DECL_LAZY_FIELD(name) size_t name = 0;
+    FOR_EACH_LAZY_FIELD(DECL_LAZY_FIELD)
+#undef DECL_LAZY_FIELD
+
+    void add(const LazyFunctionInfo& other) {
+#define ADD_LAZY_FIELD(name) name += other.name;
+        FOR_EACH_LAZY_FIELD(ADD_LAZY_FIELD)
+#undef ADD_LAZY_FIELD
+    }
+#undef FOR_EACH_LAZY_FIELD
+};
+
 struct ZoneStats
 {
 #define FOR_EACH_SIZE(macro) \
@@ -680,6 +715,7 @@ struct ZoneStats
         unusedGCThings(),
         stringInfo(),
         shapeInfo(),
+        lazyFunctions(),
         extra(),
         allStrings(nullptr),
         notableStrings(),
@@ -691,6 +727,7 @@ struct ZoneStats
         unusedGCThings(mozilla::Move(other.unusedGCThings)),
         stringInfo(mozilla::Move(other.stringInfo)),
         shapeInfo(mozilla::Move(other.shapeInfo)),
+        lazyFunctions(other.lazyFunctions),
         extra(other.extra),
         allStrings(other.allStrings),
         notableStrings(mozilla::Move(other.notableStrings)),
@@ -715,6 +752,7 @@ struct ZoneStats
         unusedGCThings.addSizes(other.unusedGCThings);
         stringInfo.add(other.stringInfo);
         shapeInfo.add(other.shapeInfo);
+        lazyFunctions.add(other.lazyFunctions);
     }
 
     size_t sizeOfLiveGCThings() const {
@@ -750,6 +788,7 @@ struct ZoneStats
     UnusedGCThingSizes unusedGCThings;
     StringInfo stringInfo;
     ShapeInfo shapeInfo;
+    LazyFunctionInfo lazyFunctions;
     void* extra;    // This field can be used by embedders.
 
     typedef js::HashMap<JSString*, StringInfo,
