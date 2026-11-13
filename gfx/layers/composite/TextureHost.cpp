@@ -1156,6 +1156,8 @@ TextureParent::Destroy()
     return;
   }
 
+  mTextureHost->NotifyActorDestroyed();
+
   // ReadUnlock here to make sure the ReadLock's shmem does not outlive the
   // protocol that created it.
   mTextureHost->ReadUnlock();

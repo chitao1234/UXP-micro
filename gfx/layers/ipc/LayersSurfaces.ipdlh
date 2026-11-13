@@ -37,8 +37,10 @@ struct SurfaceDescriptorFileMapping {
 };
 
 struct SurfaceDescriptorDIB {
-  // gfxWindowsSurface*
+  // gfxWindowsSurface*, or DIBTextureStorage* when coldStorage is true.
+  // Both are same-process pointers with one transferred reference.
   uintptr_t surface;
+  bool coldStorage;
 };
 
 struct SurfaceDescriptorD3D10 {

@@ -9,6 +9,8 @@
 #include "mozilla/layers/ISurfaceAllocator.h"
 #include "mozilla/layers/TextureForwarder.h"
 #include "mozilla/ipc/ProtocolUtils.h"
+#include "nsThreadUtils.h"
+#include "base/message_loop.h"
 
 
 namespace mozilla {
@@ -24,6 +26,21 @@ namespace layers {
 class MemoryDIBTextureData : public DIBTextureData
 {
 public:
+  bool Lock(OpenMode) override {
+    if (!mStorage) return true;
+    MOZ_ASSERT(!mSurface);
+    mSurface = mStorage->Pin();
+    return !!mSurface;
+  }
+
+  void Unlock() override {
+    if (!mStorage) return;
+    // GDI batching is per-thread. Finish producer writes before another
+    // thread can compress an unpinned backing.
+    ::GdiFlush();
+    mSurface = nullptr;
+    mStorage->Unpin();
+  }
   virtual bool Serialize(SurfaceDescriptor& aOutDescriptor) override;
 
   virtual TextureData*
@@ -40,12 +57,15 @@ public:
   virtual void Deallocate(LayersIPCChannel* aAllocator) override
   {
     mSurface = nullptr;
+    mStorage = nullptr;
   }
 
   MemoryDIBTextureData(gfx::IntSize aSize, gfx::SurfaceFormat aFormat,
                        gfxWindowsSurface* aSurface)
   : DIBTextureData(aSize, aFormat, aSurface)
+  , mStorage(DIBTextureStorage::QuietDelayMs() ? new DIBTextureStorage(aSurface) : nullptr)
   {
+    if (mStorage) mSurface = nullptr;
     MOZ_COUNT_CTOR(MemoryDIBTextureData);
   }
 
@@ -53,6 +73,8 @@ public:
   {
     MOZ_COUNT_DTOR(MemoryDIBTextureData);
   }
+private:
+  RefPtr<DIBTextureStorage> mStorage;
 };
 
 /**
@@ -171,11 +193,15 @@ MemoryDIBTextureData::CreateSimilar(LayersIPCChannel* aAllocator,
 bool
 MemoryDIBTextureData::Serialize(SurfaceDescriptor& aOutDescriptor)
 {
-  MOZ_ASSERT(mSurface);
   // The host will release this ref when it receives the surface descriptor.
   // We AddRef in case we die before the host receives the pointer.
-  aOutDescriptor = SurfaceDescriptorDIB(reinterpret_cast<uintptr_t>(mSurface.get()));
-  mSurface->AddRef();
+  if (mStorage) {
+    aOutDescriptor = SurfaceDescriptorDIB(reinterpret_cast<uintptr_t>(mStorage.get()), true);
+    mStorage->AddRef();
+  } else {
+    aOutDescriptor = SurfaceDescriptorDIB(reinterpret_cast<uintptr_t>(mSurface.get()), false);
+    mSurface->AddRef();
+  }
   return true;
 }
 
@@ -412,41 +438,202 @@ DIBTextureHost::DIBTextureHost(TextureFlags aFlags,
   : TextureHostDirectUpload(aFlags, SurfaceFormat::B8G8R8X8, IntSize())
 {
   // We added an extra ref for transport, so we shouldn't AddRef now.
-  mSurface =
-    dont_AddRef(reinterpret_cast<gfxWindowsSurface*>(aDescriptor.surface()));
-  MOZ_ASSERT(mSurface);
-
-  mSize = mSurface->GetSize();
-  mFormat = mSurface->GetSurfaceFormat();
+  if (aDescriptor.coldStorage()) {
+    mStorage = dont_AddRef(reinterpret_cast<DIBTextureStorage*>(aDescriptor.surface()));
+    mSize = mStorage->Size();
+    mFormat = mStorage->Format();
+  } else {
+    mLegacySurface = dont_AddRef(reinterpret_cast<gfxWindowsSurface*>(aDescriptor.surface()));
+    mSize = mLegacySurface->GetSize();
+    mFormat = mLegacySurface->GetSurfaceFormat();
+  }
 }
 
-void
-DIBTextureHost::UpdatedInternal(const nsIntRegion* aRegion)
+DIBTextureHost::~DIBTextureHost()
 {
-  if (!mCompositor) {
-    // This can happen if we send textures to a compositable that isn't yet
-    // attached to a layer.
-    return;
+  CancelColdTask();
+  MOZ_ASSERT(!mPinnedSurface);
+}
+
+void DIBTextureHost::CancelColdTask()
+{
+  if (mColdTask) {
+    mColdTask->Cancel();
+    mColdTask = nullptr;
   }
+}
+
+void DIBTextureHost::SetCompositor(Compositor* aCompositor)
+{
+  if (mCompositor != aCompositor) {
+    CancelColdTask();
+    if (mStorage) {
+      mStorage->CancelCompression();
+      mTextureSource = nullptr;
+      mSourceValid = false;
+    }
+  }
+  TextureHostDirectUpload::SetCompositor(aCompositor);
+}
+
+void DIBTextureHost::DeallocateDeviceData()
+{
+  CancelColdTask();
+  if (mStorage) mStorage->CancelCompression();
+  TextureHostDirectUpload::DeallocateDeviceData();
+  mSourceValid = false;
+}
+
+void DIBTextureHost::NotifyActorDestroyed()
+{
+  mActorDestroyed = true;
+  CancelColdTask();
+  if (mStorage) mStorage->CancelCompression();
+}
+
+void DIBTextureHost::UnbindTextureSource()
+{
+  CancelColdTask();
+  if (mStorage) mStorage->CancelCompression();
+  TextureHostDirectUpload::UnbindTextureSource();
+}
+
+static UserDataKey sDIBSourceLease;
+static void ReleaseDIBSourceLease(void* aSurface)
+{
+  static_cast<gfxWindowsSurface*>(aSurface)->Release();
+}
+
+bool DIBTextureHost::UpdateSource(gfxWindowsSurface* aSurface, const nsIntRegion* aRegion)
+{
+  if (!mCompositor || !aSurface || aSurface->CairoStatus()) return false;
 
   if (!mTextureSource) {
     mTextureSource = mCompositor->CreateDataTextureSource(mFlags);
   }
 
-  if (mSurface->CairoStatus()) {
-      gfxWarning() << "Bad Cairo surface internal update " << mSurface->CairoStatus();
-      mTextureSource = nullptr;
-      return;
-  }
-  RefPtr<gfxImageSurface> imgSurf = mSurface->GetAsImageSurface();
+  if (!mTextureSource) return false;
+  RefPtr<gfxImageSurface> imgSurf = aSurface->GetAsImageSurface();
+  if (!imgSurf) return false;
 
   RefPtr<DataSourceSurface> surf = Factory::CreateWrappingDataSourceSurface(imgSurf->Data(), imgSurf->Stride(), mSize, mFormat);
-
+  // A source may escape into a backend cache. Its lease keeps the DIB alive;
+  // the compression reference-count check refuses to release such aliases.
+  if (surf && mStorage) {
+    aSurface->AddRef();
+    surf->AddUserData(&sDIBSourceLease, aSurface, ReleaseDIBSourceLease);
+  }
   if (!surf || !mTextureSource->Update(surf, const_cast<nsIntRegion*>(aRegion))) {
     mTextureSource = nullptr;
+    return false;
   }
+  mSourceValid = true;
+  return true;
+}
 
+void DIBTextureHost::UpdatedInternal(const nsIntRegion* aRegion)
+{
+  if (!mCompositor) return;
+  RefPtr<gfxWindowsSurface> surface = mStorage ? mStorage->Pin() : do_AddRef(mLegacySurface);
+  mSourceValid = false;
+  if (surface) {
+    mSourceValid = UpdateSource(surface, aRegion);
+    surface = nullptr;
+    if (mStorage) mStorage->Unpin();
+  }
   ReadUnlock();
+  ArmColdTask(DIBTextureStorage::QuietDelayMs());
+}
+
+bool DIBTextureHost::Lock()
+{
+  if (!mStorage) return TextureHostDirectUpload::Lock();
+  MOZ_ASSERT(!mIsLocked);
+  mPinnedSurface = mStorage->Pin();
+  if (!mPinnedSurface) return false;
+  if (!mSourceValid && !UpdateSource(mPinnedSurface, nullptr)) {
+    mPinnedSurface = nullptr;
+    mStorage->Unpin();
+    return false;
+  }
+  mIsLocked = true;
+  return true;
+}
+
+bool DIBTextureHost::BindTextureSource(CompositableTextureSourceRef& aTexture)
+{
+  // GenEffect can bind without a Lock/Unlock pair. Its source view owns a DIB
+  // reference and must be restored before returning it, too.
+  if (mStorage && !mSourceValid) {
+    RefPtr<gfxWindowsSurface> surface = mStorage->Pin();
+    if (!surface) return false;
+    bool valid = UpdateSource(surface, nullptr);
+    surface = nullptr;
+    mStorage->Unpin();
+    if (!valid) return false;
+    ArmColdTask(DIBTextureStorage::QuietDelayMs());
+  }
+  return TextureHostDirectUpload::BindTextureSource(aTexture);
+}
+
+void DIBTextureHost::Unlock()
+{
+  if (!mStorage) {
+    TextureHostDirectUpload::Unlock();
+    return;
+  }
+  MOZ_ASSERT(mIsLocked && mPinnedSurface);
+  mIsLocked = false;
+  mPinnedSurface = nullptr;
+  mStorage->Unpin();
+  ArmColdTask(DIBTextureStorage::QuietDelayMs());
+}
+
+void DIBTextureHost::ArmColdTask(uint32_t aDelayMs)
+{
+  if (!mStorage || !aDelayMs || mColdTask || mActorDestroyed ||
+      !mCompositor || !mCompositor->AsBasicCompositor()) return;
+  if (mStorage->IdleWaitMs(DIBTextureStorage::QuietDelayMs()) < 0) return;
+  // Hold a reference across the callback: TextureHost uses atomic refcounting
+  // and its final external reference can disappear on another thread. A dead
+  // host is retained only until this outstanding quiet deadline completes.
+  RefPtr<CancelableRunnable> task =
+    NewCancelableRunnableMethod(this, &DIBTextureHost::RunColdTask);
+  mColdTask = task;
+  MessageLoop::current()->PostDelayedTask(task.forget(), aDelayMs);
+}
+
+void DIBTextureHost::RunColdTask()
+{
+  mColdTask = nullptr;
+  uint32_t delay = DIBTextureStorage::QuietDelayMs();
+  if (!delay || !mCompositor || !mCompositor->AsBasicCompositor()) {
+    mStorage->CancelCompression();
+    return;
+  }
+  int32_t wait = mStorage->IdleWaitMs(delay);
+  if (wait < 0) return;
+  if (wait || mIsLocked) {
+    ArmColdTask(wait ? uint32_t(wait) : 100);
+    return;
+  }
+  // One process/compositor-thread compression slice every 16 ms. Each slice
+  // ends after one millisecond or eight 64 KiB blocks, whichever comes first.
+  static TimeStamp lastSlice;
+  TimeStamp now = TimeStamp::Now();
+  if (!lastSlice.IsNull() && (now - lastSlice).ToMilliseconds() < 16) {
+    ArmColdTask(16);
+    return;
+  }
+  lastSlice = now;
+  if (mTextureSource) mTextureSource->DeallocateDeviceData();
+  mSourceValid = false;
+  for (unsigned block = 0; block < 8; ++block) {
+    auto result = mStorage->CompressOneBlock();
+    if (result != DIBTextureStorage::Result::More) return;
+    if ((TimeStamp::Now() - now).ToMilliseconds() >= 1) break;
+  }
+  ArmColdTask(16);
 }
 
 TextureHostFileMapping::TextureHostFileMapping(TextureFlags aFlags,

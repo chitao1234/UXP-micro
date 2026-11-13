@@ -396,6 +396,10 @@ public:
    */
   virtual void Unlock() {}
 
+  // Cancel asynchronous backing work before the actor releases its reference.
+  // Implementations must not use the actor after this notification.
+  virtual void NotifyActorDestroyed() {}
+
   /**
    * Lock the texture host for compositing without using compositor.
    */

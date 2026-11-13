@@ -35,6 +35,11 @@ UNIFIED_SOURCES += [
     'TestVsync.cpp',
 ]
 
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
+    # Windows RPC headers conflict with std::byte imported by other tests in
+    # the unified translation unit. Compile the native backing test separately.
+    SOURCES += ['TestColdDIB.cpp']
+
 UNIFIED_SOURCES += [ '/gfx/2d/unittest/%s' % p for p in [
     'TestBase.cpp',
     'TestBugs.cpp',

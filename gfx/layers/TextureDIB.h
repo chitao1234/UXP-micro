@@ -11,6 +11,9 @@
 #include "mozilla/layers/TextureHost.h"
 #include "mozilla/GfxMessageUtils.h"
 #include "gfxWindowsPlatform.h"
+#include "mozilla/layers/DIBTextureStorage.h"
+
+namespace mozilla { class CancelableRunnable; }
 
 namespace mozilla {
 namespace layers {
@@ -93,6 +96,14 @@ class DIBTextureHost : public TextureHostDirectUpload
 public:
   DIBTextureHost(TextureFlags aFlags,
                  const SurfaceDescriptorDIB& aDescriptor);
+  ~DIBTextureHost();
+  bool Lock() override;
+  void Unlock() override;
+  void SetCompositor(Compositor* aCompositor) override;
+  void DeallocateDeviceData() override;
+  void NotifyActorDestroyed() override;
+  void UnbindTextureSource() override;
+  bool BindTextureSource(CompositableTextureSourceRef& aTexture) override;
 
   virtual already_AddRefed<gfx::DataSourceSurface> GetAsSurface() override
   {
@@ -102,7 +113,16 @@ public:
 protected:
   virtual void UpdatedInternal(const nsIntRegion* aRegion = nullptr) override;
 
-  RefPtr<gfxWindowsSurface> mSurface;
+  bool UpdateSource(gfxWindowsSurface* aSurface, const nsIntRegion* aRegion);
+  void ArmColdTask(uint32_t aDelayMs);
+  void RunColdTask();
+  void CancelColdTask();
+  RefPtr<DIBTextureStorage> mStorage;
+  RefPtr<gfxWindowsSurface> mLegacySurface;
+  RefPtr<gfxWindowsSurface> mPinnedSurface;
+  RefPtr<CancelableRunnable> mColdTask;
+  bool mSourceValid = false;
+  bool mActorDestroyed = false;
 };
 
 class TextureHostFileMapping : public TextureHostDirectUpload

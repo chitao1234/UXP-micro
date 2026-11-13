@@ -20,6 +20,7 @@
 #include "gfxPlatform.h"
 #ifdef XP_WIN
 #include "gfxWindowsSurface.h"
+#include "mozilla/layers/DIBTextureStorage.h"
 #endif
 #include "gfxPrefs.h"
 #include "mozilla/layers/BasicCompositor.h"
@@ -541,6 +542,9 @@ gfxPlatform::Init()
     // Initialize the preferences by creating the singleton.
     gfxPrefs::GetSingleton();
     layers::BasicCompositor::InitializeMemoryPolicy();
+#ifdef XP_WIN
+    layers::DIBTextureStorage::InitializePolicy();
+#endif
     MediaPrefs::GetSingleton();
     gfxVars::Initialize();
 
@@ -715,6 +719,9 @@ void
 gfxPlatform::Shutdown()
 {
     layers::BasicCompositor::ShutdownMemoryPolicy();
+#ifdef XP_WIN
+    layers::DIBTextureStorage::ShutdownPolicy();
+#endif
     // In some cases, gPlatform may not be created but Shutdown() called,
     // e.g., during xpcshell tests.
     if (!gPlatform) {
