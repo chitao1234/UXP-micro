@@ -502,6 +502,7 @@ Statistics::formatDetailedDescription()
 
     const char* format =
 "=================================================================\n\
+  Runtime: %p\n\
   Invocation Kind: %s\n\
   Reason: %s\n\
   Incremental: %s%s\n\
@@ -517,6 +518,7 @@ Statistics::formatDetailedDescription()
 ";
     char buffer[1024];
     SprintfLiteral(buffer, format,
+                   runtime,
                    ExplainInvocationKind(gckind),
                    ExplainReason(slices[0].reason),
                    nonincremental() ? "no - " : "yes",
