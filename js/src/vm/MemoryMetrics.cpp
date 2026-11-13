@@ -41,6 +41,22 @@ using JS::ObjectPrivateVisitor;
 using JS::ZoneStats;
 using JS::CompartmentStats;
 
+static_assert(size_t(gc::AllocKind::LIMIT) <= JS::GCArenaOccupancyKindLimit,
+              "GCArenaOccupancyStats must cover every GC allocation kind");
+
+static const char*
+AllocKindName(gc::AllocKind kind)
+{
+    switch (kind) {
+#define ALLOC_KIND_NAME(name, traceKind, typeName, sizedType) \
+      case gc::AllocKind::name: return #name;
+      FOR_EACH_ALLOCKIND(ALLOC_KIND_NAME)
+#undef ALLOC_KIND_NAME
+      default:
+        MOZ_CRASH("invalid GC allocation kind");
+    }
+}
+
 namespace js {
 
 JS_FRIEND_API(size_t)
@@ -277,11 +293,14 @@ struct StatsClosure
     wasm::ShareableBytes::SeenSet wasmSeenBytes;
     wasm::Table::SeenSet wasmSeenTables;
     bool anonymize;
+    bool collectGCArenaOccupancy;
 
-    StatsClosure(RuntimeStats* rt, ObjectPrivateVisitor* v, bool anon)
+    StatsClosure(RuntimeStats* rt, ObjectPrivateVisitor* v, bool anon,
+                 bool collectGCArenaOccupancy = false)
       : rtStats(rt),
         opv(v),
-        anonymize(anon)
+        anonymize(anon),
+        collectGCArenaOccupancy(collectGCArenaOccupancy)
     {}
 
     bool init() {
@@ -369,12 +388,23 @@ static void
 StatsArenaCallback(JSRuntime* rt, void* data, gc::Arena* arena,
                    JS::TraceKind traceKind, size_t thingSize)
 {
-    RuntimeStats* rtStats = static_cast<StatsClosure*>(data)->rtStats;
+    StatsClosure* closure = static_cast<StatsClosure*>(data);
+    RuntimeStats* rtStats = closure->rtStats;
 
     // The admin space includes (a) the header fields and (b) the padding
     // between the end of the header fields and the first GC thing.
     size_t allocationSpace = gc::Arena::thingsSpan(arena->getAllocKind());
     rtStats->currZoneStats->gcHeapArenaAdmin += gc::ArenaSize - allocationSpace;
+
+    if (closure->collectGCArenaOccupancy) {
+        size_t kind = size_t(arena->getAllocKind());
+        MOZ_ASSERT(kind < JS::GCArenaOccupancyKindLimit);
+        JS::GCArenaOccupancyStats& occupancy = rtStats->gcArenaOccupancy[kind];
+        occupancy.name = AllocKindName(arena->getAllocKind());
+        occupancy.arenas++;
+        occupancy.cellCapacity += arena->getThingsPerArena();
+        occupancy.cellSize = thingSize;
+    }
 
     // We don't call the callback on unused things.  So we compute the
     // unused space like this:  arenaUnused = maxArenaUnused - arenaUsed.
@@ -464,6 +494,12 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
     StatsClosure* closure = static_cast<StatsClosure*>(data);
     RuntimeStats* rtStats = closure->rtStats;
     ZoneStats* zStats = rtStats->currZoneStats;
+    if (closure->collectGCArenaOccupancy) {
+        gc::AllocKind allocKind = gc::TenuredCell::fromPointer(thing)->getAllocKind();
+        size_t kind = size_t(allocKind);
+        MOZ_ASSERT(kind < JS::GCArenaOccupancyKindLimit);
+        rtStats->gcArenaOccupancy[kind].liveCells++;
+    }
     switch (traceKind) {
       case JS::TraceKind::Object: {
         JSObject* obj = static_cast<JSObject*>(thing);
@@ -796,7 +832,8 @@ FindNotableScriptSources(JS::RuntimeSizes& runtime)
 
 static bool
 CollectRuntimeStatsHelper(JSContext* cx, RuntimeStats* rtStats, ObjectPrivateVisitor* opv,
-                          bool anonymize, IterateCellCallback statsCellCallback)
+                          bool anonymize, IterateCellCallback statsCellCallback,
+                          bool collectGCArenaOccupancy = false)
 {
     JSRuntime* rt = cx;
     if (!rtStats->compartmentStatsVector.reserve(rt->numCompartments))
@@ -815,7 +852,7 @@ CollectRuntimeStatsHelper(JSContext* cx, RuntimeStats* rtStats, ObjectPrivateVis
                   DecommittedArenasChunkCallback);
 
     // Take the per-compartment measurements.
-    StatsClosure closure(rtStats, opv, anonymize);
+    StatsClosure closure(rtStats, opv, anonymize, collectGCArenaOccupancy);
     if (!closure.init())
         return false;
     IterateHeapUnbarriered(cx, &closure,
@@ -896,7 +933,9 @@ JS_PUBLIC_API(bool)
 JS::CollectRuntimeStats(JSContext* cx, RuntimeStats *rtStats, ObjectPrivateVisitor *opv,
                         bool anonymize)
 {
-    return CollectRuntimeStatsHelper(cx, rtStats, opv, anonymize, StatsCellCallback<FineGrained>);
+    return CollectRuntimeStatsHelper(cx, rtStats, opv, anonymize,
+                                     StatsCellCallback<FineGrained>,
+                                     /* collectGCArenaOccupancy = */ true);
 }
 
 JS_PUBLIC_API(size_t)

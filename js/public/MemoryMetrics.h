@@ -932,6 +932,19 @@ struct CompartmentStats
 typedef js::Vector<CompartmentStats, 0, js::SystemAllocPolicy> CompartmentStatsVector;
 typedef js::Vector<ZoneStats, 0, js::SystemAllocPolicy> ZoneStatsVector;
 
+// Overlapping diagnostic view of occupancy in non-empty tenured GC arenas.
+// The array is indexed by gc::AllocKind; keep spare slots for enum growth.
+static const size_t GCArenaOccupancyKindLimit = 32;
+
+struct GCArenaOccupancyStats
+{
+    const char* name = nullptr;
+    size_t arenas = 0;
+    size_t cellCapacity = 0;
+    size_t liveCells = 0;
+    size_t cellSize = 0;
+};
+
 struct RuntimeStats
 {
     // |gcHeapChunkTotal| is ignored because it's the sum of all the other
@@ -994,6 +1007,10 @@ struct RuntimeStats
     ZoneStatsVector zoneStatsVector;
 
     ZoneStats* currZoneStats;
+
+    // Diagnostic only. These values overlap the normal GC heap ownership
+    // reports and are excluded from the runtime's explicit-byte totals.
+    GCArenaOccupancyStats gcArenaOccupancy[GCArenaOccupancyKindLimit] = {};
 
     mozilla::MallocSizeOf mallocSizeOf_;
 

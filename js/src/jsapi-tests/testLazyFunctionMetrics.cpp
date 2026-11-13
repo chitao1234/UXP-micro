@@ -155,3 +155,44 @@ BEGIN_TEST(testScriptDataMetrics)
     return true;
 }
 END_TEST(testScriptDataMetrics)
+
+BEGIN_TEST(testGCArenaOccupancyMetrics)
+{
+    LazyGraphRuntimeStats first;
+    CHECK(JS::CollectRuntimeStats(cx, &first, nullptr, true));
+
+    size_t arenas = 0;
+    size_t freeCellBytes = 0;
+    for (size_t i = 0; i < JS::GCArenaOccupancyKindLimit; i++) {
+        const auto& stats = first.gcArenaOccupancy[i];
+        CHECK(stats.liveCells <= stats.cellCapacity);
+        if (stats.arenas) {
+            CHECK(stats.name);
+            CHECK(stats.cellSize > 0);
+            CHECK(stats.cellCapacity >= stats.arenas);
+            arenas += stats.arenas;
+            freeCellBytes += (stats.cellCapacity - stats.liveCells) * stats.cellSize;
+        } else {
+            CHECK_EQUAL(stats.cellCapacity, size_t(0));
+            CHECK_EQUAL(stats.liveCells, size_t(0));
+        }
+    }
+    CHECK(arenas > 0);
+    CHECK_EQUAL(freeCellBytes, first.zTotals.unusedGCThings.totalSize());
+
+    LazyGraphRuntimeStats second;
+    CHECK(JS::CollectRuntimeStats(cx, &second, nullptr, true));
+    CHECK_EQUAL(second.gcHeapChunkTotal, first.gcHeapChunkTotal);
+    CHECK_EQUAL(second.gcHeapGCThings, first.gcHeapGCThings);
+    CHECK_EQUAL(second.zTotals.unusedGCThings.totalSize(),
+                first.zTotals.unusedGCThings.totalSize());
+    for (size_t i = 0; i < JS::GCArenaOccupancyKindLimit; i++) {
+        const auto& before = first.gcArenaOccupancy[i];
+        const auto& after = second.gcArenaOccupancy[i];
+        CHECK_EQUAL(after.arenas, before.arenas);
+        CHECK_EQUAL(after.cellCapacity, before.cellCapacity);
+        CHECK_EQUAL(after.liveCells, before.liveCells);
+    }
+    return true;
+}
+END_TEST(testGCArenaOccupancyMetrics)

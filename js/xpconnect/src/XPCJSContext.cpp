@@ -2661,6 +2661,27 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
         rtStats.gcHeapChunkAdmin,
         "Bookkeeping information within GC chunks.");
 
+    for (size_t i = 0; i < JS::GCArenaOccupancyKindLimit; i++) {
+        const JS::GCArenaOccupancyStats& occupancy = rtStats.gcArenaOccupancy[i];
+        if (!occupancy.arenas)
+            continue;
+
+        size_t freeCells = occupancy.cellCapacity - occupancy.liveCells;
+        nsCString path(rtPath);
+        path.Replace(0, strlen("explicit/"),
+                     NS_LITERAL_CSTRING("js-gc-arena-occupancy/"));
+        path.Append(occupancy.name);
+        REPORT(path + NS_LITERAL_CSTRING("/arenas"), KIND_OTHER, UNITS_COUNT,
+            occupancy.arenas,
+            "Non-empty tenured arenas for this GC allocation kind; diagnostic view only.");
+        REPORT(path + NS_LITERAL_CSTRING("/live-cell-bytes"), KIND_OTHER, UNITS_BYTES,
+            occupancy.liveCells * occupancy.cellSize,
+            "Live cell bytes in non-empty arenas; overlaps normal GC heap ownership reports.");
+        REPORT(path + NS_LITERAL_CSTRING("/free-cell-bytes"), KIND_OTHER, UNITS_BYTES,
+            freeCells * occupancy.cellSize,
+            "Free cell bytes in non-empty arenas; theoretical occupancy only, not reclaimable bytes.");
+    }
+
     // gcTotal is the sum of everything we've reported for the GC heap.  It
     // should equal rtStats.gcHeapChunkTotal.
     NS_WARN_IF(gcTotal != rtStats.gcHeapChunkTotal);
