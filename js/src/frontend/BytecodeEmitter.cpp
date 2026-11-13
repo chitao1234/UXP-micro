@@ -9057,8 +9057,12 @@ BytecodeEmitter::emitClass(ClassNode* classNode)
 
     //                [stack]
 
-    ClassEmitter ce(this);
     RootedAtom innerName(cx);
+    // This tree's NameOpEmitter owns a RootedAtom (newer Firefox uses a
+    // Handle). ClassEmitter can create that member after construction and
+    // retain it on failure. Destroy the emitter before this local root so
+    // allocation failures preserve the root stack's reverse-creation order.
+    ClassEmitter ce(this);
     ClassEmitter::Kind kind = ClassEmitter::Kind::Expression;
     if (names) {
         innerName = names->innerBinding()->as<NameNode>().atom();

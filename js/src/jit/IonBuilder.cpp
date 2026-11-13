@@ -7969,7 +7969,10 @@ IonBuilder::jsop_initprop(PropertyName* name)
             useSlowPath = true;
         }
     } else {
-        MOZ_ASSERT(obj->isNullarySharedStub());
+        // A class static initializer's receiver can be a parameter, not a
+        // freshly allocated object or shared stub. Only the proven template
+        // cases above can use direct slot stores; all other receivers need
+        // the normal own-property initialization path.
         useSlowPath = true;
     }
 

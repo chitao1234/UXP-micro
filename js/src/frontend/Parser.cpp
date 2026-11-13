@@ -7708,6 +7708,8 @@ Parser<ParseHandler>::finishClassConstructor(const ParseContext::ClassStatement&
             return false;
 
         LexicalScopeNodeType scope = finishLexicalScope(dotInitializersScope, method);
+        if (!scope)
+            return false;
 
         if (!handler.addClassMemberDefinition(classMembers, scope)) {
             return false;
