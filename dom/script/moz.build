@@ -19,6 +19,7 @@ EXPORTS.mozilla.dom += [
 ]
 
 SOURCES += [
+    'ImportMap.cpp',
     'ModuleLoadRequest.cpp',
     'ModuleScript.cpp',
     'ScriptElement.cpp',

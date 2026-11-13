@@ -33,6 +33,15 @@ HTMLScriptElement::WrapNode(JSContext *aCx, JS::Handle<JSObject*> aGivenProto)
   return HTMLScriptElementBinding::Wrap(aCx, this, aGivenProto);
 }
 
+bool HTMLScriptElement::Supports(const GlobalObject& aGlobal, const nsAString& aType)
+{
+  if (aType.EqualsLiteral("classic")) return true;
+  nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(aGlobal.GetAsSupports());
+  nsIDocument* document = window ? window->GetExtantDoc() : nullptr;
+  return document && document->ModuleScriptsEnabled() &&
+         (aType.EqualsLiteral("module") || aType.EqualsLiteral("importmap"));
+}
+
 HTMLScriptElement::HTMLScriptElement(already_AddRefed<mozilla::dom::NodeInfo>& aNodeInfo,
                                      FromParser aFromParser)
   : nsGenericHTMLElement(aNodeInfo)

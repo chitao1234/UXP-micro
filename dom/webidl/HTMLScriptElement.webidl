@@ -10,6 +10,7 @@
 
 [HTMLConstructor]
 interface HTMLScriptElement : HTMLElement {
+  static boolean supports(DOMString type);
   [CEReactions, NeedsSubjectPrincipal, SetterThrows]
   attribute DOMString src;
   [CEReactions, SetterThrows]

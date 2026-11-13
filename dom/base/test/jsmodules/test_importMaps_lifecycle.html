@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native import maps: fetching, merging, security and document lifetime</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script src="importmaps/test-helpers.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+// Behavioral cases adapted from Firefox WPT import-maps/{multiple-import-maps,
+// external-import-map-errors.html,type-whitespace.html} and import-map SRI tests.
+// Additional assertions exercise this loader's source-only speculative preloads.
+async function testPreloadsAndLifecycle() {
+  const blocker = '<script src="' + root + 'preload.sjs">' + endScript;
+  await withFrame(blocker +
+    mapTag({imports:{mapped:moduleURL, "pkg/":root}}) +
+    '<script type="module" src="' + root + 'static.js">' + endScript, async f => {
+      is(f.contentWindow.moduleEvaluations, 1, "preload ahead of parser does not cache a missing-map error");
+      is((await dynamic(f, "./static.js")).value, 42, "preloaded graph uses registered mappings");
+    });
+  await withFrame(blocker + '<script type="module" src="' + moduleURL + '">' + endScript, async f => {
+    is(f.contentWindow.moduleEvaluations, 1, "completed source preload is adopted without an import map");
+    is((await dynamic(f, moduleURL)).value, 42, "adopted preload enters the normal module cache");
+  });
+  await withFrame(blocker + mapTag({integrity:{[moduleURL]:
+    "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}) +
+    '<script type="module" src="' + moduleURL + '">' + endScript, async f => {
+      ok(!f.contentWindow.moduleEvaluations, "map integrity cannot be bypassed by an earlier preload");
+  });
+  await withFrame('<script src="' + root + 'preload.sjs?steal">' + endScript +
+    '<script type="module" src="' + root + 'preload.sjs?module" ' +
+    'onerror="window.parserModuleError=true">' + endScript, async f => {
+      is(f.contentWindow.slowEvaluations, 1, "mismatched speculative request is replaced, module evaluates once");
+      ok(f.contentWindow.stealLoaded && !f.contentWindow.stealError && !f.contentWindow.parserModuleError,
+         "cancelled preload completion does not poison replacement fetch or its waiters");
+      is((await dynamic(f, root + "preload.sjs?module")).value, 42, "replacement remains in module cache");
+  });
+  await withFrame(mapTag({imports:{old:moduleURL}}), async f => {
+    is((await dynamic(f, "old")).value, 42, "old document populated");
+    // This loader resets the module map on document.open. Its import map and
+    // resolution records must follow that same document lifetime.
+    f.contentDocument.open();
+    f.contentDocument.write('<!doctype html><base href="' + root + '">');
+    f.contentDocument.close();
+    await nextTurn();
+    is((await dynamic(f, "old")).error, "TypeError", "document.open clears old global's map");
+    map(f, {imports:{old:otherURL}});
+    is((await dynamic(f, "old")).value, 99, "document.open installs an independent map");
+  });
+}
+
+addEventListener("load", async () => {
+  try {
+    await testPreloadsAndLifecycle();
+  } catch(e) { ok(false, e.stack || String(e)); }
+  SimpleTest.finish();
+});
+</script>
+<body></body>

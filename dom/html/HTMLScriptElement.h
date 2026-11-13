@@ -63,6 +63,7 @@ public:
                                 bool aNotify) override;
 
   // WebIDL
+  static bool Supports(const GlobalObject& aGlobal, const nsAString& aType);
   void SetText(const nsAString& aValue, ErrorResult& rv);
   void SetCharset(const nsAString& aCharset, ErrorResult& rv);
   void SetDefer(bool aDefer, ErrorResult& rv);

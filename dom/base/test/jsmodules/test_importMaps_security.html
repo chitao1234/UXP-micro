@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native import maps: fetching, merging, security and document lifetime</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script src="importmaps/test-helpers.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+// Behavioral cases adapted from Firefox WPT import-maps/{multiple-import-maps,
+// external-import-map-errors.html,type-whitespace.html} and import-map SRI tests.
+// Additional assertions exercise this loader's source-only speculative preloads.
+async function testSecurity() {
+  // Use a separately served CSP document, like the upstream security tests.
+  // A meta CSP in srcdoc mutates its inherited principal's CSP in this tree.
+  await withFrame("", async f => {
+    map(f, {imports:{denied:moduleURL}});
+    map(f, {imports:{allowed:moduleURL}}, "importmap", "allowed");
+    is((await dynamic(f, "denied", "allowed")).error, "TypeError", "CSP blocks map without nonce");
+    is((await dynamic(f, "allowed", "allowed")).value, 42, "CSP accepts map with nonce");
+  }, root + "csp.html");
+  // Derive a valid digest from the checked-in fixture; no generated source or
+  // machine-specific paths. Wrong hashes must reach the existing SRI verifier.
+  info("Fetch SRI fixture bytes");
+  const bytes = await (await fetch(moduleURL)).arrayBuffer();
+  info("Compute SRI fixture digest");
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  info("Verify import-map integrity fetches");
+  const good = "sha256-" + btoa(String.fromCharCode.apply(null, digest));
+  const bad = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  await withFrame(mapTag({imports:{good:moduleURL+"?good", bad:moduleURL+"?bad"}, integrity:{
+    [moduleURL+"?good"]:good, [moduleURL+"?bad"]:bad}}), async f => {
+    info("Integrity map frame loaded; import matching module");
+    is((await dynamic(f, "good")).value, 42, "import-map integrity accepts a matching module");
+    is((await dynamic(f, "bad")).error, "TypeError", "import-map integrity rejects a changed module");
+    map(f, {integrity:{[moduleURL+"?good"]:bad}});
+    is((await dynamic(f, "good")).value, 42, "first integrity entry persists and module stays cached");
+  });
+  await withFrame(mapTag({imports:{mapped:moduleURL, "pkg/":root}, integrity:{[moduleURL]:bad}}), async f => {
+    is((await dynamic(f, "./static.js")).error, "TypeError", "integrity also applies to static dependencies");
+    ok(!f.contentWindow.moduleEvaluations, "failed dependency is never executed");
+  });
+  // An explicit script integrity attribute takes precedence over map integrity.
+  await withFrame(mapTag({integrity:{[moduleURL]:bad}}) +
+    '<script type="module" src="' + moduleURL + '" integrity="' + good + '">' + endScript,
+    async f => is(f.contentWindow.moduleEvaluations, 1, "explicit integrity overrides the map"));
+  for (const integrity of ["", " ", "sha999-unsupported"]) {
+    await withFrame(mapTag({integrity:{[moduleURL]:bad}}) +
+      '<script type="module" src="' + moduleURL + '" integrity="' + integrity + '">' + endScript,
+      async f => is(f.contentWindow.moduleEvaluations, 1,
+        "an explicit integrity attribute overrides the map even when empty or unrecognized"));
+  }
+  await withFrame(mapTag({integrity:{[moduleURL]:bad}}), async f => {
+    const result = await run(f, 'import("./module.js").then(m=>moduleDone({value:m.value}),' +
+      'e=>moduleDone({error:e.name}));', "", good);
+    is(result.error, "TypeError", "dynamic imports do not inherit the parent element's integrity");
+  });
+  const cross = new URL(moduleURL);
+  cross.hostname = "example.com";
+  cross.port = ""; // The harness proxies its registered example.com:80 origin.
+  await withFrame(mapTag({imports:{cross:cross.href}}), async f => {
+    is((await dynamic(f, "cross")).error, "TypeError", "mapping does not bypass module CORS checks");
+  });
+}
+
+addEventListener("load", async () => {
+  try {
+    await testSecurity();
+  } catch(e) { ok(false, e.stack || String(e)); }
+  SimpleTest.finish();
+});
+</script>
+<body></body>

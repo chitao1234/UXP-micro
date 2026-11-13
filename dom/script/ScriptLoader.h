@@ -23,6 +23,7 @@
 #include "mozilla/MozPromise.h"
 #include "mozilla/net/ReferrerPolicy.h"
 #include "mozilla/Vector.h"
+#include "mozilla/UniquePtr.h"
 
 class nsIURI;
 
@@ -34,6 +35,7 @@ namespace mozilla {
 namespace dom {
 
 class AutoJSAPI;
+class ImportMap;
 class LoadedScript;
 class ModuleLoadRequest;
 class ModuleScript;
@@ -136,6 +138,7 @@ public:
 
   enum class Progress {
     Loading,
+    Preloaded, // Module source fetched; resolution waits for the real element.
     Compiling,
     FetchingImports,
     Ready
@@ -252,7 +255,7 @@ public:
   nsCOMPtr<nsIPrincipal> mOriginPrincipal;
   nsAutoCString mURL;     // Keep the URI's filename alive during off thread parsing.
   int32_t mLineNo;
-  const SRIMetadata mIntegrity;
+  SRIMetadata mIntegrity;
   const nsCOMPtr<nsIURI> mReferrer;
 
   RefPtr<ScriptFetchOptions> mFetchOptions;
@@ -396,6 +399,10 @@ public:
    *        evaluated.
    */
   bool ProcessScriptElement(nsIScriptElement* aElement);
+
+  already_AddRefed<nsIURI> ResolveSpecifier(const nsAString& aSpecifier, nsIURI* aBase);
+  size_t SizeOfImportMaps(MallocSizeOf aMallocSizeOf) const;
+  void StartPreloadedModule(ModuleLoadRequest* aRequest);
 
   /**
    * Gets the currently executing script. This is useful if you want to
@@ -792,6 +799,7 @@ private:
   // Module map
   nsRefPtrHashtable<nsURIHashKey, mozilla::GenericPromise::Private> mFetchingModules;
   nsRefPtrHashtable<nsURIHashKey, ModuleScript> mFetchedModules;
+  UniquePtr<ImportMap> mImportMap;
 
   nsCOMPtr<nsIConsoleReportCollector> mReporter;
 };

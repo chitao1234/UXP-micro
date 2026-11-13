@@ -7,6 +7,7 @@
 #include "ScriptLoadHandler.h"
 #include "ModuleLoadRequest.h"
 #include "ModuleScript.h"
+#include "ImportMap.h"
 
 #include "prsystem.h"
 #include "jsapi.h"
@@ -488,7 +489,8 @@ ScriptLoader::SetModuleFetchStarted(ModuleLoadRequest *aRequest)
 {
   // Update the module map to indicate that a module is currently being fetched.
 
-  MOZ_ASSERT(aRequest->IsLoading());
+  MOZ_ASSERT(aRequest->IsLoading() ||
+             aRequest->mProgress == ScriptLoadRequest::Progress::Preloaded);
   MOZ_ASSERT(!ModuleMapContainsURL(aRequest->mURI));
   mFetchingModules.Put(aRequest->mURI, nullptr);
 }
@@ -554,6 +556,7 @@ ScriptLoader::GetFetchedModule(nsIURI* aURL) const
 }
 
 void ScriptLoader::ClearModuleMap() {
+  mImportMap = nullptr;
   MOZ_ASSERT(mFetchingModules.IsEmpty());
   mFetchedModules.Clear();
 }
@@ -711,30 +714,6 @@ HandleResolveFailure(JSContext* aCx, ModuleScript* aScript,
 static already_AddRefed<nsIURI>
 ResolveModuleSpecifier(ScriptLoader* aLoader, LoadedScript* aScript, const nsAString& aSpecifier)
 {
-  // The following module specifiers are allowed by the spec:
-  //  - a valid absolute URL
-  //  - a valid relative URL that starts with "/", "./" or "../"
-  //
-  // Bareword module specifiers are currently disallowed as these may be given
-  // special meanings in the future.
-
-  nsCOMPtr<nsIURI> uri;
-  nsresult rv = NS_NewURI(getter_AddRefs(uri), aSpecifier);
-  if (NS_SUCCEEDED(rv)) {
-    return uri.forget();
-  }
-
-  if (rv != NS_ERROR_MALFORMED_URI) {
-    return nullptr;
-  }
-
-  if (!StringBeginsWith(aSpecifier, NS_LITERAL_STRING("/")) &&
-      !StringBeginsWith(aSpecifier, NS_LITERAL_STRING("./")) &&
-      !StringBeginsWith(aSpecifier, NS_LITERAL_STRING("../"))) {
-    return nullptr;
-  }
-
-  // Get the document's base URL if we don't have a referencing script here.
   nsCOMPtr<nsIURI> baseURL;
   if (aScript) {
     baseURL = aScript->BaseURL();
@@ -742,12 +721,21 @@ ResolveModuleSpecifier(ScriptLoader* aLoader, LoadedScript* aScript, const nsASt
     baseURL = aLoader->GetDocument()->GetDocBaseURI();
   }
 
-  rv = NS_NewURI(getter_AddRefs(uri), aSpecifier, nullptr, baseURL);
-  if (NS_SUCCEEDED(rv)) {
-    return uri.forget();
-  }
+  return aLoader->ResolveSpecifier(aSpecifier, baseURL);
+}
 
-  return nullptr;
+already_AddRefed<nsIURI>
+ScriptLoader::ResolveSpecifier(const nsAString& aSpecifier, nsIURI* aBase)
+{
+  // Record successful resolutions even before the first map. A later map
+  // must not retroactively alter the dependencies of a compiled module.
+  if (!mImportMap) mImportMap.reset(new ImportMap());
+  return mImportMap->Resolve(aSpecifier, aBase);
+}
+
+size_t ScriptLoader::SizeOfImportMaps(MallocSizeOf aMallocSizeOf) const
+{
+  return mImportMap ? mImportMap->SizeOfIncludingThis(aMallocSizeOf) : 0;
 }
 
 static nsresult
@@ -971,6 +959,37 @@ HostResolveImportedModule(JSContext* aCx,
   aModuleOut.set(ms->ModuleRecord());
 }
 
+static bool ImportMetaResolve(JSContext* aCx, unsigned aArgc, JS::Value* aVp)
+{
+  JS::CallArgs args = JS::CallArgsFromVp(aArgc, aVp);
+  JS::RootedString specifier(aCx, JS::ToString(aCx, args.get(0)));
+  if (!specifier) return false;
+  nsAutoJSString text;
+  if (!text.init(aCx, specifier)) return false;
+  RefPtr<ScriptLoader> loader = GetCurrentScriptLoader(aCx);
+  if (!loader) {
+    JS_ReportErrorASCII(aCx, "Module document is no longer available");
+    return false;
+  }
+  JS::RootedValue savedBase(aCx, js::GetFunctionNativeReserved(&args.callee(), 0));
+  nsAutoJSString baseText;
+  if (!baseText.init(aCx, savedBase)) return false;
+  nsCOMPtr<nsIURI> base;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(base), baseText))) return false;
+  nsCOMPtr<nsIURI> uri = loader->ResolveSpecifier(text, base);
+  if (!uri) {
+    JS_ReportErrorNumberUC(aCx, js::GetErrorMessage, nullptr,
+                           JSMSG_BAD_MODULE_SPECIFIER, text.get());
+    return false;
+  }
+  nsAutoCString url;
+  uri->GetAsciiSpec(url);
+  JS::RootedString result(aCx, JS_NewStringCopyN(aCx, url.get(), url.Length()));
+  if (!result) return false;
+  args.rval().setString(result);
+  return true;
+}
+
 bool
 HostPopulateImportMeta(JSContext* aCx, JS::Handle<JSObject*> aModule,
                        JS::Handle<JSObject*> aMetaObject)
@@ -996,7 +1015,12 @@ HostPopulateImportMeta(JSContext* aCx, JS::Handle<JSObject*> aModule,
     return false;
   }
 
-  return JS_DefineProperty(aCx, aMetaObject, "url", urlString, JSPROP_ENUMERATE);
+  if (!JS_DefineProperty(aCx, aMetaObject, "url", urlString, JSPROP_ENUMERATE)) return false;
+  JSFunction* resolve = js::DefineFunctionWithReserved(aCx, aMetaObject, "resolve",
+                                                       ImportMetaResolve, 1, JSPROP_ENUMERATE);
+  if (!resolve) return false;
+  js::SetFunctionNativeReserved(JS_GetFunctionObject(resolve), 0, JS::StringValue(urlString));
+  return true;
 }
 
 bool HostImportModuleDynamically(JSContext* aCx,
@@ -1284,12 +1308,30 @@ ScriptLoader::StartLoad(ScriptLoadRequest *aRequest, const nsAString &aType,
     // Check whether the module has been fetched or is currently being fetched,
     // and if so wait for it rather than starting a new fetch.
     ModuleLoadRequest* request = aRequest->AsModuleRequest();
-    if (ModuleMapContainsURL(request->mURI)) {
+    if (!aRequest->IsPreload() && ModuleMapContainsURL(request->mURI)) {
       WaitForModuleFetch(request->mURI)
         ->Then(AbstractThread::GetCurrent(), __func__, request,
                &ModuleLoadRequest::ModuleLoaded,
                &ModuleLoadRequest::LoadFailed);
       return NS_OK;
+    }
+    bool hasIntegrityAttribute = false;
+    if (request->IsTopLevel() && !request->IsDynamicImport() && request->Element()) {
+      nsCOMPtr<nsIContent> element = do_QueryInterface(request->Element());
+      hasIntegrityAttribute = element->HasAttr(kNameSpaceID_None, nsGkAtoms::integrity);
+    }
+    // The attribute's presence, even when empty or unrecognized, overrides
+    // map integrity. Imports do not inherit the referring element's attribute.
+    // Speculative requests do not know whether an empty attribute was present;
+    // their integrity is checked against the actual element before adoption.
+    if (!aRequest->IsPreload() && !hasIntegrityAttribute && mImportMap &&
+        aRequest->mIntegrity.IsEmpty()) {
+      nsAutoString integrity;
+      if (mImportMap->GetIntegrity(aRequest->mURI, integrity)) {
+        nsAutoCString source;
+        mDocument->GetDocumentURI()->GetAsciiSpec(source);
+        SRICheck::IntegrityMetadata(integrity, source, mReporter, &aRequest->mIntegrity);
+      }
     }
   }
 
@@ -1406,7 +1448,7 @@ ScriptLoader::StartLoad(ScriptLoadRequest *aRequest, const nsAString &aType,
   rv = channel->AsyncOpen2(loader);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (aRequest->IsModuleRequest()) {
+  if (aRequest->IsModuleRequest() && !aRequest->IsPreload()) {
     // We successfully started fetching a module so put its URL in the module
     // map and mark it as fetching.
     SetModuleFetchStarted(aRequest->AsModuleRequest());
@@ -1526,6 +1568,39 @@ ScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
   nsAutoString type;
   bool hasType = aElement->GetScriptType(type);
 
+  if (mDocument->ModuleScriptsEnabled() && scriptContent->IsHTMLElement() &&
+      type.LowerCaseEqualsASCII("importmap")) {
+    // Import maps are inline, synchronous, and independent of async/defer and
+    // stylesheet blockers. They remain subject to the script CSP and sandbox.
+    if (aElement->GetScriptExternal()) {
+      NS_DispatchToCurrentThread(NewRunnableMethod(aElement, &nsIScriptElement::FireErrorEvent));
+      return false;
+    }
+    if (mDocument->HasScriptsBlockedBySandbox() || !CSPAllowsInlineScript(aElement, mDocument))
+      return false;
+    nsCOMPtr<nsIScriptGlobalObject> global = GetScriptGlobalObject();
+    AutoJSAPI jsapi;
+    if (!global || !jsapi.Init(global->GetGlobalJSObject())) return false;
+    nsAutoString text;
+    aElement->GetScriptText(text);
+    UniquePtr<ImportMap> map = ImportMap::Parse(jsapi.cx(), text, mDocument->GetDocBaseURI(), mDocument);
+    // AutoJSAPI reports parse exceptions to the page; a failed map cannot
+    // partially change the previously installed map.
+    if (!map) return false;
+    // Speculative module sources are not registered in the module map and
+    // have not resolved dependencies. Drop them so a newly registered
+    // integrity rule also applies to the eventual fetch.
+    for (size_t i = mPreloads.Length(); i > 0; --i) {
+      if (mPreloads[i - 1].mRequest->IsModuleRequest()) {
+        mPreloads[i - 1].mRequest->Cancel();
+        mPreloads.RemoveElementAt(i - 1);
+      }
+    }
+    if (!mImportMap) mImportMap.reset(new ImportMap());
+    mImportMap->Merge(*map, mDocument);
+    return false;
+  }
+
   ScriptKind scriptKind = aElement->GetScriptIsModule() ?
                           ScriptKind::Module :
                           ScriptKind::Classic;
@@ -1592,7 +1667,6 @@ ScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       // preloaded
       // note that a script-inserted script can steal a preload!
       request = mPreloads[i].mRequest;
-      request->SetIsLoadRequest(aElement);
       nsString preloadCharset(mPreloads[i].mCharset);
       mPreloads.RemoveElementAt(i);
 
@@ -1600,10 +1674,17 @@ ScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
       // the charset we have now.
       nsAutoString elementCharset;
       aElement->GetScriptCharset(elementCharset);
+      nsAutoString integrity;
+      bool hasIntegrity = scriptContent->GetAttr(kNameSpaceID_None, nsGkAtoms::integrity, integrity);
+      if (scriptKind == ScriptKind::Module && !hasIntegrity && mImportMap) {
+        mImportMap->GetIntegrity(scriptURI, integrity);
+      }
       if (elementCharset.Equals(preloadCharset) &&
           ourCORSMode == request->CORSMode() &&
           referrerPolicy == request->ReferrerPolicy() &&
-          scriptKind == request->mKind) {
+          scriptKind == request->mKind &&
+          integrity.Equals(request->mIntegrity.GetIntegrityString()) &&
+          !(request->IsModuleRequest() && ModuleMapContainsURL(scriptURI))) {
         rv = CheckContentPolicy(mDocument, aElement, request->mURI, type, false);
         if (NS_FAILED(rv)) {
           // probably plans have changed; even though the preload was allowed seems
@@ -1613,17 +1694,30 @@ ScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
         }
       } else {
         // Drop the preload
+        request->Cancel();
         request = nullptr;
       }
     }
 
     if (request) {
       // Use a preload request.
+      // Keep speculative ownership until validation succeeds. A rejected
+      // request's late completion must not finish a different real module
+      // fetch for the same URL in mFetchingModules.
+      request->SetIsLoadRequest(aElement);
 
       // It's possible these attributes changed since we started the preload, so
       // update them here.
       request->SetScriptMode(aElement->GetScriptDeferred(),
                              aElement->GetScriptAsync());
+      if (request->IsModuleRequest()) {
+        SetModuleFetchStarted(request->AsModuleRequest());
+        if (request->mProgress == ScriptLoadRequest::Progress::Preloaded) {
+          // Queue this after the request has been added to its execution list.
+          NS_DispatchToCurrentThread(NewRunnableMethod<RefPtr<ModuleLoadRequest>>(
+            this, &ScriptLoader::StartPreloadedModule, request->AsModuleRequest()));
+        }
+      }
     } else {    
       // No usable preload found.
 
@@ -2738,7 +2832,10 @@ ScriptLoader::VerifySRI(ScriptLoadRequest* aRequest,
 
 void
 ScriptLoader::HandleLoadError(ScriptLoadRequest *aRequest, nsresult aResult) {
-  if (aRequest->IsModuleRequest() && !aRequest->mIsInline) {
+  if (aRequest->IsCanceled() && aRequest->IsPreload()) {
+    return;
+  }
+  if (aRequest->IsModuleRequest() && !aRequest->mIsInline && !aRequest->IsPreload()) {
     auto request = aRequest->AsModuleRequest();
     SetModuleFetchFinishedAndResumeWaitingRequests(request, aResult);
   }
@@ -2953,6 +3050,15 @@ ScriptLoader::PrepareLoadedRequest(ScriptLoadRequest* aRequest,
       return NS_ERROR_FAILURE;
     }
 
+    if (request->IsPreload()) {
+      // Keep the useful early network fetch, but do not freeze dependency
+      // resolution (or a missing-map parse error) before the parser reaches
+      // the module element. Compilation still uses the off-thread path after
+      // adoption and is performed only once.
+      request->mProgress = ScriptLoadRequest::Progress::Preloaded;
+      return NS_OK;
+    }
+
     // Attempt to compile off main thread.
     rv = AttemptAsyncScriptCompile(request);
     if (NS_SUCCEEDED(rv)) {
@@ -3027,6 +3133,28 @@ ScriptLoader::ParsingComplete(bool aTerminated)
 }
 
 void
+ScriptLoader::StartPreloadedModule(ModuleLoadRequest* aRequest)
+{
+  if (aRequest->IsCanceled()) {
+    return;
+  }
+  MOZ_ASSERT(!aRequest->IsPreload());
+  MOZ_ASSERT(aRequest->mProgress == ScriptLoadRequest::Progress::Preloaded);
+  if (!mDocument) {
+    HandleLoadError(aRequest, NS_ERROR_NOT_AVAILABLE);
+    return;
+  }
+  nsresult rv = AttemptAsyncScriptCompile(aRequest);
+  if (NS_FAILED(rv)) {
+    rv = ProcessFetchedModuleSource(aRequest);
+  }
+  if (NS_FAILED(rv)) {
+    HandleLoadError(aRequest, rv);
+  }
+  ProcessPendingRequests();
+}
+
+void
 ScriptLoader::PreloadURI(nsIURI *aURI,
                          const nsAString &aCharset,
                          const nsAString &aType,
@@ -3066,6 +3194,10 @@ ScriptLoader::PreloadURI(nsIURI *aURI,
       !aType.IsEmpty() && !nsContentUtils::IsJavascriptMIMEType(aType)) {
     // Unknown type (not type = module and not type = JS MIME type).
     // Don't load it.
+    return;
+  }
+
+  if (scriptKind == ScriptKind::Module && ModuleMapContainsURL(aURI)) {
     return;
   }
 

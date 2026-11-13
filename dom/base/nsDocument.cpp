@@ -11693,6 +11693,10 @@ void
 nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
 {
   nsIDocument::DocAddSizeOfExcludingThis(aWindowSizes);
+  if (mScriptLoader) {
+    aWindowSizes->mDOMOtherSize +=
+      mScriptLoader->SizeOfImportMaps(aWindowSizes->mMallocSizeOf);
+  }
 
   for (nsIContent* node = nsINode::GetFirstChild();
        node;

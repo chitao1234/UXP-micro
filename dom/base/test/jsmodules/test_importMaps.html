@@ -1,0 +1,110 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native import maps: fetching, merging, security and document lifetime</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script src="importmaps/test-helpers.js"></script>
+<script>
+SimpleTest.waitForExplicitFinish();
+// Behavioral cases adapted from Firefox WPT import-maps/{multiple-import-maps,
+// external-import-map-errors.html,type-whitespace.html} and import-map SRI tests.
+// Additional assertions exercise this loader's source-only speculative preloads.
+async function testLoadingAndMerging() {
+  await withFrame(mapTag({imports:{mapped:moduleURL, "pkg/":root, blocked:null}}), async f => {
+    const result = await run(f, 'import {value, identity, prefixIdentity} from "./static.js";' +
+      'moduleDone({value, shared:identity === prefixIdentity});');
+    is(result.value, 42, "static bare and prefix imports execute");
+    ok(result.shared, "same mapped URL has one module namespace/identity");
+    is((await dynamic(f, "mapped")).value, 42, "dynamic bare import executes");
+    is(f.contentWindow.moduleEvaluations, 1, "static and dynamic imports evaluate once");
+    is((await dynamic(f, "blocked")).error, "TypeError", "null entry blocks fetch");
+    map(f, {imports:{mapped:otherURL, added:otherURL}});
+    is((await dynamic(f, "mapped")).value, 42, "first mapping survives later maps");
+    is((await dynamic(f, "added")).value, 99, "later map adds new specifiers");
+    const detached = await run(f, 'import {resolve, url} from "mapped";' +
+      'const fn=resolve; moduleDone({url:fn("./other.js"), original:url});');
+    is(detached.url, otherURL, "detached import.meta.resolve uses original module base");
+    is(detached.original, moduleURL, "import.meta.url is unchanged");
+    const descriptor = await run(f, 'moduleDone(Object.getOwnPropertyDescriptor(import.meta,"resolve"));');
+    ok(descriptor.enumerable && descriptor.writable && descriptor.configurable, "resolve property attributes");
+  });
+  await withFrame("", async f => {
+    is((await resolve(f, moduleURL)).url, moduleURL, "ordinary URL resolves before a map");
+    map(f, {imports:{[moduleURL]:otherURL, fresh:moduleURL}});
+    is((await resolve(f, moduleURL)).url, moduleURL, "later map cannot change a resolved URL");
+    is((await dynamic(f, "fresh")).value, 42, "unrelated new entry remains usable");
+    map(f, {scopes:{[root]:{fresh:otherURL, scoped:otherURL}}});
+    is((await dynamic(f, "fresh")).value, 42, "new scope cannot change an earlier resolution");
+    is((await dynamic(f, "scoped")).value, 99, "new scope can add an unresolved specifier");
+  });
+  await withFrame("", async f => {
+    is((await dynamic(f, "mapped")).error, "TypeError", "maps do not leak across documents");
+  });
+  // Upstream multiple-import-maps/exact-url-scope-immutability.html: the
+  // scope need not end in '/' to protect an already-resolved (base, key) pair.
+  await withFrame(mapTag({imports:{mapped:moduleURL, target:moduleURL}}), async f => {
+    const code = 'import {load} from "mapped"; load("target").then(m=>moduleDone(m.value));';
+    is(await run(f, code), 42, "resolve target from an external referring module");
+    map(f, {scopes:{[moduleURL]:{target:otherURL}}});
+    is(await run(f, code), 42, "exact URL scope cannot remap a resolved import");
+  });
+}
+
+async function testParsingAndTypes() {
+  await withFrame("", async f => {
+    for (const invalid of ['null', '[]', '1', '"x"', '{',
+      '{"imports":null}', '{"imports":[]}', '{"scopes":[]}',
+      '{"imports":{"partial":"./module.js"},"scopes":{"/":null}}',
+      '{"integrity":[]}', '{"integrity":null}']) {
+      const before = f.contentWindow.errors.length;
+      map(f, invalid);
+      await nextTurn();
+      is(f.contentWindow.errors.length, before + 1, "invalid map reports one error: " + invalid);
+    }
+    is((await dynamic(f, "partial")).error, "TypeError", "invalid map never partially registers");
+    // JSON objects inherit from this realm's Object.prototype. Only own map
+    // properties may participate in parsing or the top-level type checks.
+    f.contentWindow.Object.prototype.imports = {polluted:moduleURL};
+    f.contentWindow.Object.prototype.scopes = null;
+    f.contentWindow.Object.prototype.integrity = null;
+    try { map(f, {}); } finally {
+      delete f.contentWindow.Object.prototype.imports;
+      delete f.contentWindow.Object.prototype.scopes;
+      delete f.contentWindow.Object.prototype.integrity;
+    }
+    is((await dynamic(f, "polluted")).error, "TypeError", "prototype map members ignored");
+    for (const type of [" importmap", "importmap ", " importmap "])
+      map(f, {imports:{[type]:moduleURL}}, type);
+    for (const type of [" importmap", "importmap ", " importmap "])
+      is((await dynamic(f, type)).error, "TypeError", "whitespace type is unsupported");
+    map(f, {imports:{mixed:moduleURL}}, "ImPoRtMaP");
+    is((await dynamic(f, "mixed")).value, 42, "element type is ASCII case insensitive");
+    const s = map(f, {imports:{first:moduleURL}});
+    s.textContent = JSON.stringify({imports:{second:moduleURL}});
+    s.remove(); f.contentDocument.head.appendChild(s);
+    is((await dynamic(f, "second")).error, "TypeError", "started maps are not reapplied after mutation/reinsertion");
+    for (const srcFirst of [true, false]) {
+      const externalURL = moduleURL + "?external=" + srcFirst;
+      const event = await new Promise(done => {
+        const external = f.contentDocument.createElement("script");
+        external.onload = () => done("load"); external.onerror = () => done("error");
+        if (srcFirst) { external.src = externalURL; external.type = "importmap"; }
+        else { external.type = "importmap"; external.src = externalURL; }
+        f.contentDocument.head.appendChild(external);
+      });
+      is(event, "error", "external import map errors regardless of attribute order");
+      is(f.contentWindow.performance.getEntriesByName(externalURL).length, 0,
+         "unsupported external import map is not fetched");
+    }
+  });
+}
+
+addEventListener("load", async () => {
+  try {
+    await testLoadingAndMerging();
+    await testParsingAndTypes();
+  } catch(e) { ok(false, e.stack || String(e)); }
+  SimpleTest.finish();
+});
+</script>
+<body></body>

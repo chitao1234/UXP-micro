@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WPT import-map resolution fixtures through native module scripts</title>
+<script src="/tests/SimpleTest/SimpleTest.js"></script>
+<link rel="stylesheet" href="/tests/SimpleTest/test.css">
+<script>
+SimpleTest.waitForExplicitFinish();
+const files = ["data-url-prefix", "empty-import-map", "empty-scopes", "overlapping-entries",
+  "packages-via-trailing-slashes", "resolving-null", "scopes-exact-vs-prefix", "scopes",
+  "tricky-specifiers", "url-specifiers-schemes", "url-specifiers"];
+
+function newFrame(map, base) {
+  return new Promise(resolve => {
+    const frame = document.createElement("iframe");
+    frame.onload = () => {
+      frame.onload = null;
+      const doc = frame.contentDocument;
+      frame.contentWindow.mapErrors = [];
+      frame.contentWindow.onerror = (m, u, l, c, e) => {
+        frame.contentWindow.mapErrors.push(e.name);
+        return true;
+      };
+      const element = doc.createElement("base"); element.href = base; doc.head.appendChild(element);
+      const script = doc.createElement("script"); script.type = "importmap";
+      script.textContent = JSON.stringify(map); doc.head.appendChild(script);
+      resolve(frame);
+    };
+    frame.src = "about:blank";
+    document.body.appendChild(frame);
+  });
+}
+
+function resolveInModule(frame, specifier, base) {
+  return new Promise((resolve, reject) => {
+    frame.contentWindow.mapDone = resolve;
+    frame.contentDocument.querySelector("base").href = base;
+    const script = frame.contentDocument.createElement("script"); script.type = "module";
+    script.onerror = () => reject(new Error("inline resolver did not run"));
+    script.textContent = "try { mapDone({url:import.meta.resolve(" + JSON.stringify(specifier) +
+      ")}); } catch(e) { mapDone({error:e.name}); }";
+    frame.contentDocument.head.appendChild(script);
+  });
+}
+
+async function visit(node, inherited = {}) {
+  const current = Object.assign({}, inherited, node);
+  let owned = null;
+  if (Object.prototype.hasOwnProperty.call(node, "importMap")) {
+    current.frame = owned = await newFrame(node.importMap, current.importMapBaseURL);
+    is(current.frame.contentWindow.mapErrors.length, 0, "map parsed: " + (current.name || ""));
+  }
+  try {
+    if (node.tests) {
+      for (const [name, child] of Object.entries(node.tests))
+        await visit(child, Object.assign({}, current, {name:(current.name || "") + ": " + name}));
+    } else {
+      for (const [specifier, expected] of Object.entries(current.expectedResults)) {
+        const actual = await resolveInModule(current.frame, specifier, current.baseURL);
+        const label = current.name + ": " + specifier;
+        if (expected === null) is(actual.error, "TypeError", label);
+        else is(actual.url, expected, label);
+      }
+    }
+  } finally { if (owned) owned.remove(); }
+}
+
+addEventListener("load", async () => {
+  try {
+    ok(HTMLScriptElement.supports("importmap"), "importmap support advertised");
+    ok(HTMLScriptElement.supports("module"), "module support advertised");
+    ok(HTMLScriptElement.supports("classic"), "classic support advertised");
+    for (const invalid of [" importmap", "importmap ", "Importmap", "ImportMap", "importMap", "import-map"])
+      ok(!HTMLScriptElement.supports(invalid), "supports is exact: " + invalid);
+    for (const file of files) {
+      const data = await (await fetch("importmaps/" + file + ".json")).json();
+      await visit(data);
+    }
+  } catch(e) { ok(false, e.stack || String(e)); }
+  SimpleTest.finish();
+});
+</script>
+<body></body>
