@@ -269,7 +269,9 @@ function arrayAlloc2(i) {
 function build(l) { var arr = []; for (var i = 0; i < l; i++) arr.push(i); return arr }
 var uceFault_arrayAlloc3 = eval(uneval(uceFault).replace('uceFault', 'uceFault_arrayAlloc3'));
 function arrayAlloc3(i) {
-    var a = [0,1,2,3];
+    // Keep this above MinElementsForCopyOnWrite, as in current Firefox's
+    // fixture. A four-element literal is an ordinary, recoverable NewArray.
+    var a = [0,1,2,3,4,5,6,7,8];
     if (uceFault_arrayAlloc3(i) || uceFault_arrayAlloc3(i)) {
         assertEq(a[0], 0);
         assertEq(a[3], 3);
