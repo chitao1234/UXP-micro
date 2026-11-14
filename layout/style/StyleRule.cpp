@@ -1509,9 +1509,13 @@ StyleRule::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t ruleObjects = aMallocSizeOf(this);
   size_t selectors = mSelector ? mSelector->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  size_t declarations = mDeclaration ? mDeclaration->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  size_t metadata = 0, blocks = 0, nested = 0;
+  size_t declarations = mDeclaration
+    ? mDeclaration->SizeOfIncludingThis(aMallocSizeOf, &metadata, &blocks, &nested)
+    : 0;
 
-  AutoStyleRuleSizeOfInfo::Add(ruleObjects, selectors, declarations);
+  AutoStyleRuleSizeOfInfo::Add(ruleObjects, selectors, declarations,
+                              metadata, blocks, nested);
 
   // Measurement of the following members may be added later if DMD finds it is
   // worthwhile:
@@ -1524,11 +1528,17 @@ static thread_local AutoStyleRuleSizeOfInfo* sCurrentStyleRuleSizeOfInfo = nullp
 
 AutoStyleRuleSizeOfInfo::AutoStyleRuleSizeOfInfo(size_t* aRuleObjects,
                                                  size_t* aSelectors,
-                                                 size_t* aDeclarations)
+                                                 size_t* aDeclarations,
+                                                 size_t* aDeclarationMetadata,
+                                                 size_t* aCompressedBlocks,
+                                                 size_t* aNestedValues)
   : mPrevious(sCurrentStyleRuleSizeOfInfo),
     mRuleObjects(aRuleObjects),
     mSelectors(aSelectors),
-    mDeclarations(aDeclarations)
+    mDeclarations(aDeclarations),
+    mDeclarationMetadata(aDeclarationMetadata),
+    mCompressedBlocks(aCompressedBlocks),
+    mNestedValues(aNestedValues)
 {
   sCurrentStyleRuleSizeOfInfo = this;
 }
@@ -1541,7 +1551,8 @@ AutoStyleRuleSizeOfInfo::~AutoStyleRuleSizeOfInfo()
 
 void
 AutoStyleRuleSizeOfInfo::Add(size_t aRuleObjects, size_t aSelectors,
-                             size_t aDeclarations)
+                             size_t aDeclarations, size_t aDeclarationMetadata,
+                             size_t aCompressedBlocks, size_t aNestedValues)
 {
   if (!sCurrentStyleRuleSizeOfInfo)
     return;
@@ -1553,6 +1564,12 @@ AutoStyleRuleSizeOfInfo::Add(size_t aRuleObjects, size_t aSelectors,
     *info->mSelectors += aSelectors;
   if (info->mDeclarations)
     *info->mDeclarations += aDeclarations;
+  if (info->mDeclarationMetadata)
+    *info->mDeclarationMetadata += aDeclarationMetadata;
+  if (info->mCompressedBlocks)
+    *info->mCompressedBlocks += aCompressedBlocks;
+  if (info->mNestedValues)
+    *info->mNestedValues += aNestedValues;
 }
 
 } // namespace css

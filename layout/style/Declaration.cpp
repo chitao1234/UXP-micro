@@ -1952,18 +1952,42 @@ Declaration::EnsureMutable()
 size_t
 Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
-  size_t n = aMallocSizeOf(this);
-  n += mOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  n += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  n += mData          ? mData         ->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  n += mImportantData ? mImportantData->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  if (mVariables) {
-    n += mVariables->SizeOfIncludingThis(aMallocSizeOf);
+  return SizeOfIncludingThis(aMallocSizeOf, nullptr, nullptr, nullptr);
+}
+
+size_t
+Declaration::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                                 size_t* aMetadata, size_t* aCompressedBlocks,
+                                 size_t* aNestedValues) const
+{
+  size_t metadata = aMallocSizeOf(this);
+  metadata += mOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  metadata += mVariableOrder.ShallowSizeOfExcludingThis(aMallocSizeOf);
+  size_t compressedBlocks = 0;
+  size_t nestedValues = 0;
+  if (mData) {
+    size_t nested = 0;
+    size_t total = mData->SizeOfIncludingThis(aMallocSizeOf, &nested);
+    compressedBlocks += total - nested;
+    nestedValues += nested;
   }
-  if (mImportantVariables) {
-    n += mImportantVariables->SizeOfIncludingThis(aMallocSizeOf);
+  if (mImportantData) {
+    size_t nested = 0;
+    size_t total = mImportantData->SizeOfIncludingThis(aMallocSizeOf, &nested);
+    compressedBlocks += total - nested;
+    nestedValues += nested;
   }
-  return n;
+  metadata += mVariables ? mVariables->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  metadata += mImportantVariables
+    ? mImportantVariables->SizeOfIncludingThis(aMallocSizeOf) : 0;
+
+  if (aMetadata)
+    *aMetadata = metadata;
+  if (aCompressedBlocks)
+    *aCompressedBlocks = compressedBlocks;
+  if (aNestedValues)
+    *aNestedValues = nestedValues;
+  return metadata + compressedBlocks + nestedValues;
 }
 
 void

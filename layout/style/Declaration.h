@@ -434,6 +434,9 @@ public:
   }
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                            size_t* aMetadata, size_t* aCompressedBlocks,
+                            size_t* aNestedValues) const;
 
 private:
   union {

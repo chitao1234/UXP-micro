@@ -87,6 +87,8 @@ public:
   static nsCSSCompressedDataBlock* CreateEmptyBlock();
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
+                             size_t* aNestedValueBytes) const;
 
   bool HasDefaultBorderImageSlice() const;
   bool HasDefaultBorderImageWidth() const;

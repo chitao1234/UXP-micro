@@ -349,17 +349,27 @@ class AutoStyleRuleSizeOfInfo final
 {
 public:
   AutoStyleRuleSizeOfInfo(size_t* aRuleObjects, size_t* aSelectors,
-                          size_t* aDeclarations);
+                          size_t* aDeclarations,
+                          size_t* aDeclarationMetadata,
+                          size_t* aCompressedBlocks,
+                          size_t* aNestedValues);
   ~AutoStyleRuleSizeOfInfo();
 
   static void Add(size_t aRuleObjects, size_t aSelectors,
-                  size_t aDeclarations);
+                  size_t aDeclarations, size_t aDeclarationMetadata,
+                  size_t aCompressedBlocks, size_t aNestedValues);
 
 private:
   AutoStyleRuleSizeOfInfo* mPrevious;
   size_t* mRuleObjects;
   size_t* mSelectors;
   size_t* mDeclarations;
+  size_t* mDeclarationMetadata;
+  size_t* mCompressedBlocks;
+  size_t* mNestedValues;
+
+  AutoStyleRuleSizeOfInfo(const AutoStyleRuleSizeOfInfo&) = delete;
+  AutoStyleRuleSizeOfInfo& operator=(const AutoStyleRuleSizeOfInfo&) = delete;
 };
 
 class StyleRule final : public BindingStyleRule

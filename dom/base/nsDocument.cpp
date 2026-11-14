@@ -11735,7 +11735,10 @@ nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
     mozilla::css::AutoStyleRuleSizeOfInfo styleRuleSizeOf(
       &aWindowSizes->mStyleSheetRuleObjectsSize,
       &aWindowSizes->mStyleSheetSelectorGraphSize,
-      &aWindowSizes->mStyleSheetDeclarationsSize);
+      &aWindowSizes->mStyleSheetDeclarationsSize,
+      &aWindowSizes->mStyleSheetDeclarationMetadataSize,
+      &aWindowSizes->mStyleSheetCompressedBlocksSize,
+      &aWindowSizes->mStyleSheetNestedValuesSize);
 
     aWindowSizes->mStyleSheetsSize +=
       SizeOfOwnedSheetArrayExcludingThis(mStyleSheets,

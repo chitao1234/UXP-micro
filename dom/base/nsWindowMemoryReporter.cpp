@@ -455,9 +455,20 @@ CollectWindowReports(nsGlobalWindow *aWindow,
       "Selector-list and selector-component allocations; overlapping detail of style-sheets.");
   REPORT_STYLE_SHEET_DETAIL("declarations", windowSizes.mStyleSheetDeclarationsSize,
       "StyleRule declaration allocations; overlapping detail of style-sheets.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/metadata",
+      windowSizes.mStyleSheetDeclarationMetadataSize,
+      "Declaration objects and property-order arrays; overlapping detail of declarations.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/compressed-blocks",
+      windowSizes.mStyleSheetCompressedBlocksSize,
+      "Compressed declaration block allocations, including inline property/value slots.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/nested-values",
+      windowSizes.mStyleSheetNestedValuesSize,
+      "Nested allocations owned by CSS property values; overlapping detail of declarations.");
   size_t windowStyleSheetDetails = windowSizes.mStyleSheetRuleObjectsSize +
                                   windowSizes.mStyleSheetSelectorGraphSize +
-                                  windowSizes.mStyleSheetDeclarationsSize;
+                                  windowSizes.mStyleSheetDeclarationMetadataSize +
+                                  windowSizes.mStyleSheetCompressedBlocksSize +
+                                  windowSizes.mStyleSheetNestedValuesSize;
   REPORT_STYLE_SHEET_DETAIL("unclassified",
       windowStyleSheetDetails <= windowSizes.mStyleSheetsSize
         ? windowSizes.mStyleSheetsSize - windowStyleSheetDetails : 0,
@@ -469,6 +480,12 @@ CollectWindowReports(nsGlobalWindow *aWindow,
     windowSizes.mStyleSheetSelectorGraphSize;
   aWindowTotalSizes->mStyleSheetDeclarationsSize +=
     windowSizes.mStyleSheetDeclarationsSize;
+  aWindowTotalSizes->mStyleSheetDeclarationMetadataSize +=
+    windowSizes.mStyleSheetDeclarationMetadataSize;
+  aWindowTotalSizes->mStyleSheetCompressedBlocksSize +=
+    windowSizes.mStyleSheetCompressedBlocksSize;
+  aWindowTotalSizes->mStyleSheetNestedValuesSize +=
+    windowSizes.mStyleSheetNestedValuesSize;
 
   REPORT_SIZE("/layout/pres-shell", windowSizes.mLayoutPresShellSize,
               "Memory used by layout's PresShell, along with any structures "
@@ -660,9 +677,20 @@ nsWindowMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
       "Overlapping selector-list and selector-component allocations from all windows.");
   REPORT_STYLE_SHEET_DETAIL("declarations", windowTotalSizes.mStyleSheetDeclarationsSize,
       "Overlapping StyleRule declaration allocations from all windows.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/metadata",
+      windowTotalSizes.mStyleSheetDeclarationMetadataSize,
+      "Overlapping declaration objects and property-order arrays from all windows.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/compressed-blocks",
+      windowTotalSizes.mStyleSheetCompressedBlocksSize,
+      "Overlapping compressed declaration block allocations from all windows.");
+  REPORT_STYLE_SHEET_DETAIL("declaration-parts/nested-values",
+      windowTotalSizes.mStyleSheetNestedValuesSize,
+      "Overlapping nested CSS value allocations from all windows.");
   size_t styleSheetDetails = windowTotalSizes.mStyleSheetRuleObjectsSize +
                              windowTotalSizes.mStyleSheetSelectorGraphSize +
-                             windowTotalSizes.mStyleSheetDeclarationsSize;
+                             windowTotalSizes.mStyleSheetDeclarationMetadataSize +
+                             windowTotalSizes.mStyleSheetCompressedBlocksSize +
+                             windowTotalSizes.mStyleSheetNestedValuesSize;
   REPORT_STYLE_SHEET_DETAIL("unclassified",
       styleSheetDetails <= windowTotalSizes.mStyleSheetsSize
         ? windowTotalSizes.mStyleSheetsSize - styleSheetDetails : 0,

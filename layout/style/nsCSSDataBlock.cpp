@@ -566,10 +566,21 @@ nsCSSCompressedDataBlock::CreateEmptyBlock()
 size_t
 nsCSSCompressedDataBlock::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
+  return SizeOfIncludingThis(aMallocSizeOf, nullptr);
+}
+
+size_t
+nsCSSCompressedDataBlock::SizeOfIncludingThis(
+  mozilla::MallocSizeOf aMallocSizeOf, size_t* aNestedValueBytes) const
+{
   size_t n = aMallocSizeOf(this);
+  size_t nestedValueBytes = 0;
   for (uint32_t i = 0; i < mNumProps; i++) {
-    n += ValueAtIndex(i)->SizeOfExcludingThis(aMallocSizeOf);
+    nestedValueBytes += ValueAtIndex(i)->SizeOfExcludingThis(aMallocSizeOf);
   }
+  if (aNestedValueBytes)
+    *aNestedValueBytes += nestedValueBytes;
+  n += nestedValueBytes;
   return n;
 }
 

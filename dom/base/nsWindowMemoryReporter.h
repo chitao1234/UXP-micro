@@ -44,6 +44,9 @@ public:
       mStyleSheetRuleObjectsSize(0),
       mStyleSheetSelectorGraphSize(0),
       mStyleSheetDeclarationsSize(0),
+      mStyleSheetDeclarationMetadataSize(0),
+      mStyleSheetCompressedBlocksSize(0),
+      mStyleSheetNestedValuesSize(0),
       mDOMEventTargetsCount(0),
       mDOMEventListenersCount(0),
       mArenaStats(),
@@ -76,6 +79,9 @@ public:
   size_t mStyleSheetRuleObjectsSize;
   size_t mStyleSheetSelectorGraphSize;
   size_t mStyleSheetDeclarationsSize;
+  size_t mStyleSheetDeclarationMetadataSize;
+  size_t mStyleSheetCompressedBlocksSize;
+  size_t mStyleSheetNestedValuesSize;
 
   uint32_t mDOMEventTargetsCount;
   uint32_t mDOMEventListenersCount;
