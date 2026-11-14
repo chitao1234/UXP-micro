@@ -96,7 +96,7 @@ public:
       "sharing table. Each data block is counted once; wrappers are counted "
       "with their owning declarations.");
     MOZ_COLLECT_REPORT(
-      "explicit/layout/style/authored-variable-declaration-refs", KIND_OTHER,
+      "css-authored-variables/references", KIND_OTHER,
       UNITS_COUNT, refs,
       "Number of references to live authored custom-property declaration "
       "data, including shared and uninterned sets.");
@@ -444,8 +444,12 @@ CollectWindowReports(nsGlobalWindow *aWindow,
               "Memory used by style sheets within a window.");
   aWindowTotalSizes->mStyleSheetsSize += windowSizes.mStyleSheetsSize;
 
+  // Alternate measurements must be outside explicit/: about:memory only
+  // accepts owning byte reports in that tree.
+  nsCString styleSheetDetailsPath(windowPath);
+  styleSheetDetailsPath.Replace(0, strlen("explicit"), "style-sheet-details");
 #define REPORT_STYLE_SHEET_DETAIL(_tail, _amount, _description) \
-  ReportAmount(windowPath, "/style-sheet-details/" _tail, _amount, \
+  ReportAmount(styleSheetDetailsPath, "/" _tail, _amount, \
                NS_LITERAL_CSTRING(_description), nsIMemoryReporter::KIND_OTHER, \
                nsIMemoryReporter::UNITS_BYTES, \
                aHandleReport, aData)
