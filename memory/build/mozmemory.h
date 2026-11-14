@@ -51,6 +51,10 @@ static inline size_t _malloc_good_size(size_t size) {
 
 MOZ_JEMALLOC_API void jemalloc_stats(jemalloc_stats_t *stats);
 
+/* Full diagnostic report only: scans run bitmaps under allocator locks.
+ * Routine heap-size queries should keep using jemalloc_stats. */
+MOZ_JEMALLOC_API void jemalloc_stats_with_bin_census(jemalloc_stats_t *stats);
+
 /*
  * On some operating systems (Mac), we use madvise(MADV_FREE) to hand pages
  * back to the operating system.  On Mac, the operating system doesn't take

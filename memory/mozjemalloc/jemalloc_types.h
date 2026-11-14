@@ -80,6 +80,12 @@ typedef struct {
         size_t  bookkeeping;    /* Committed bytes used internally by the
                                    allocator. */
 	size_t bin_unused; /* Bytes committed to a bin but currently unused. */
+
+	/* Overlapping census only; these fields do not change owning totals.
+	 * Only jemalloc_stats_with_bin_census populates them. */
+	size_t bin_unused_pagewise; /* Whole payload pages containing no live regions. */
+	size_t bin_unused_runs; /* Non-full runs inspected under their arena lock. */
+	size_t bin_unused_runs_with_free_pages;
 } jemalloc_stats_t;
 
 #ifdef __cplusplus

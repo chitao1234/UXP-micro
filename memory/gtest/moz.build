@@ -4,7 +4,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 UNIFIED_SOURCES += [
+    'TestBinFreePages.cpp',
     'TestJemalloc.cpp',
+]
+
+LOCAL_INCLUDES += [
+    '/memory/mozjemalloc',
 ]
 
 FINAL_LIBRARY = 'xul-gtest'

@@ -170,6 +170,7 @@
 
 /* Jemalloc specific function */
 #define jemalloc_stats_impl              mozmem_jemalloc_impl(jemalloc_stats)
+#define jemalloc_stats_with_bin_census_impl mozmem_jemalloc_impl(jemalloc_stats_with_bin_census)
 #define jemalloc_purge_freed_pages_impl  mozmem_jemalloc_impl(jemalloc_purge_freed_pages)
 #define jemalloc_free_dirty_pages_impl   mozmem_jemalloc_impl(jemalloc_free_dirty_pages)
 

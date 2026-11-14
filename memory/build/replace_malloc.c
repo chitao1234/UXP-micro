@@ -221,12 +221,31 @@ malloc_good_size_impl(size_t size)
 void
 jemalloc_stats_impl(jemalloc_stats_t *stats)
 {
+  /* Replacement allocators may not provide the optional run census. */
+  stats->bin_unused_pagewise = 0;
+  stats->bin_unused_runs = 0;
+  stats->bin_unused_runs_with_free_pages = 0;
   if (MOZ_UNLIKELY(!replace_malloc_initialized))
     init();
   if (MOZ_LIKELY(!replace_jemalloc_stats))
     je_jemalloc_stats(stats);
   else
     replace_jemalloc_stats(stats);
+}
+
+void
+jemalloc_stats_with_bin_census_impl(jemalloc_stats_t *stats)
+{
+  if (MOZ_UNLIKELY(!replace_malloc_initialized))
+    init();
+  if (replace_jemalloc_stats_with_bin_census) {
+    replace_jemalloc_stats_with_bin_census(stats);
+  } else if (replace_jemalloc_stats) {
+    /* The replacement may own a different heap; never scan ours for it. */
+    jemalloc_stats_impl(stats);
+  } else {
+    je_jemalloc_stats_with_bin_census(stats);
+  }
 }
 
 void

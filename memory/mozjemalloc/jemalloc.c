@@ -184,6 +184,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "jemalloc_bin_free_pages.h"
+
 #ifdef MOZ_MEMORY_WINDOWS
 
 #include <io.h>
@@ -6195,8 +6197,8 @@ malloc_usable_size_impl(MALLOC_USABLE_SIZE_CONST_PTR void *ptr)
 }
 
 #ifdef MALLOC_STATS
-MOZ_JEMALLOC_API void
-jemalloc_stats_impl(jemalloc_stats_t *stats)
+static void
+jemalloc_stats_internal(jemalloc_stats_t *stats, bool bin_census)
 {
 	size_t i, non_arena_mapped, chunk_header_size;
 
@@ -6248,6 +6250,9 @@ jemalloc_stats_impl(jemalloc_stats_t *stats)
 	stats->page_cache = 0;
         stats->bookkeeping = 0;
 	stats->bin_unused = 0;
+	stats->bin_unused_pagewise = 0;
+	stats->bin_unused_runs = 0;
+	stats->bin_unused_runs_with_free_pages = 0;
 
 	non_arena_mapped = 0;
 
@@ -6297,12 +6302,32 @@ jemalloc_stats_impl(jemalloc_stats_t *stats)
 			size_t bin_unused = 0;
 
 			rb_foreach_begin(arena_chunk_map_t, link, &bin->runs, mapelm) {
+				size_t free_pages;
 				run = (arena_run_t *)(mapelm->bits & ~pagesize_mask);
 				bin_unused += run->nfree * bin->reg_size;
+				if (bin_census) {
+					free_pages = jemalloc_run_free_page_bytes(run->regs_mask,
+					    bin->nregs, bin->reg_size, bin->reg0_offset,
+					    bin->run_size, pagesize);
+					stats->bin_unused_pagewise += free_pages;
+					stats->bin_unused_runs++;
+					if (free_pages)
+						stats->bin_unused_runs_with_free_pages++;
+				}
 			} rb_foreach_end(arena_chunk_map_t, link, &bin->runs, mapelm)
 
-			if (bin->runcur) {
+			if (bin->runcur && bin->runcur->nfree) {
+				size_t free_pages;
 				bin_unused += bin->runcur->nfree * bin->reg_size;
+				if (bin_census) {
+					free_pages = jemalloc_run_free_page_bytes(bin->runcur->regs_mask,
+					    bin->nregs, bin->reg_size, bin->reg0_offset,
+					    bin->run_size, pagesize);
+					stats->bin_unused_pagewise += free_pages;
+					stats->bin_unused_runs++;
+					if (free_pages)
+						stats->bin_unused_runs_with_free_pages++;
+				}
 			}
 
 			arena_unused += bin_unused;
@@ -6336,6 +6361,18 @@ jemalloc_stats_impl(jemalloc_stats_t *stats)
 
 	assert(stats->mapped >= stats->allocated + stats->waste +
 				stats->page_cache + stats->bookkeeping);
+}
+
+MOZ_JEMALLOC_API void
+jemalloc_stats_impl(jemalloc_stats_t *stats)
+{
+	jemalloc_stats_internal(stats, false);
+}
+
+MOZ_JEMALLOC_API void
+jemalloc_stats_with_bin_census_impl(jemalloc_stats_t *stats)
+{
+	jemalloc_stats_internal(stats, true);
 }
 #endif // MALLOC_STATS
 #ifdef MALLOC_DOUBLE_PURGE

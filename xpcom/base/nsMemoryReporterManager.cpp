@@ -1325,7 +1325,7 @@ public:
                             nsISupports* aData, bool aAnonymize) override
   {
     jemalloc_stats_t stats;
-    jemalloc_stats(&stats);
+    jemalloc_stats_with_bin_census(&stats);
 
     MOZ_COLLECT_REPORT(
       "heap-committed/allocated", KIND_OTHER, UNITS_BYTES, stats.allocated,
@@ -1346,6 +1346,26 @@ public:
       stats.bin_unused,
 "Unused bytes due to fragmentation in the bins used for 'small' (<= 2 KiB) "
 "allocations. These bytes will be used if additional allocations occur.");
+
+    MOZ_COLLECT_REPORT(
+      "heap-bin-fragmentation/whole-free-pages", KIND_OTHER, UNITS_BYTES,
+      stats.bin_unused_pagewise,
+"Whole committed payload pages within allocated small-object runs whose every "
+"intersecting allocation region is free. Pages containing run headers or "
+"bitmaps are excluded. This is an overlapping geometric upper bound within "
+"bin-unused, not reclaimed memory; reporting does not release pages.");
+
+    MOZ_COLLECT_REPORT(
+      "heap-bin-fragmentation/runs-inspected", KIND_OTHER, UNITS_COUNT,
+      stats.bin_unused_runs,
+"Small-object runs examined while holding their arena lock. Replacement "
+"allocators without this census report zero.");
+
+    MOZ_COLLECT_REPORT(
+      "heap-bin-fragmentation/runs-with-free-pages", KIND_OTHER, UNITS_COUNT,
+      stats.bin_unused_runs_with_free_pages,
+"Inspected small-object runs containing at least one whole free payload page. "
+"This does not count free slots scattered across pages with live objects.");
 
     if (stats.waste > 0) {
       MOZ_COLLECT_REPORT(

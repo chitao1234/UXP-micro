@@ -61,6 +61,8 @@ MALLOC_DECL(malloc_good_size, size_t, size_t)
 MALLOC_DECL_VOID(jemalloc_stats, jemalloc_stats_t *)
 MALLOC_DECL_VOID(jemalloc_purge_freed_pages, void)
 MALLOC_DECL_VOID(jemalloc_free_dirty_pages, void)
+/* Append optional diagnostics to preserve existing malloc_table_t offsets. */
+MALLOC_DECL_VOID(jemalloc_stats_with_bin_census, jemalloc_stats_t *)
 #  endif
 
 #  undef MALLOC_DECL_VOID
