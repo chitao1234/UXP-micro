@@ -1939,6 +1939,27 @@ ReportZoneStats(const JS::ZoneStats& zStats,
 #undef REPORT_LAZY_GRAPH
     }
 
+    if (!zStats.isTotals && zStats.relazificationInfo.compiledFunctions) {
+        nsCString path(pathPrefix);
+        path.Replace(0, strlen("explicit/"), "js-relazification/");
+        const auto& census = zStats.relazificationInfo;
+#define REPORT_ZONE_RELAZIFICATION(name, field, description) \
+        REPORT(path + NS_LITERAL_CSTRING(name), KIND_OTHER, UNITS_COUNT, \
+               census.field, description " Allocated-cell census; includes uncollected garbage.")
+        REPORT_ZONE_RELAZIFICATION("functions/compiled", compiledFunctions, "Compiled interpreted function objects.");
+        REPORT_ZONE_RELAZIFICATION("functions/eligible", eligibleFunctions, "Function objects passing current relazification guards.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/self-hosted", excludedSelfHostedFunctions, "Functions in the guarded self-hosting compartment.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/active-compartment", excludedActiveCompartmentFunctions, "Functions in currently entered compartments.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/debuggee", excludedDebuggeeFunctions, "Functions in debuggee compartments.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/coverage", excludedCoverageFunctions, "Functions in code-coverage compartments.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/jit", excludedJitFunctions, "Functions whose scripts currently have Baseline or Ion code.");
+        REPORT_ZONE_RELAZIFICATION("functions/excluded/other", excludedOtherFunctions, "Functions failing remaining script relazification constraints.");
+        REPORT_ZONE_RELAZIFICATION("scripts/candidate", candidateScripts, "Candidate scripts whose compiled function owners all pass current guards.");
+        REPORT_ZONE_RELAZIFICATION("scripts/candidate-gc-heap", candidateScriptCells, "Candidate JSScript cells; upper bound only.");
+        REPORT_ZONE_RELAZIFICATION("scripts/candidate-malloc-data", candidateScriptMallocBytes, "Candidate JSScript-owned data; excludes shared bytecode.");
+#undef REPORT_ZONE_RELAZIFICATION
+    }
+
     ZCREPORT_GC_BYTES(pathPrefix + NS_LITERAL_CSTRING("jit-codes-gc-heap"),
         zStats.jitCodesGCHeap,
         "References to executable code pools used by the JITs.");
@@ -2517,6 +2538,36 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
         scriptInfo.scriptReferences, "Script references to table records, excluding the table's own reference.");
     REPORT(scriptDataPath + NS_LITERAL_CSTRING("table-only-entries"), KIND_OTHER, UNITS_COUNT,
         scriptInfo.tableOnlyEntries, "Records with no script owner, pending normal sweep. Reporting does not collect them.");
+
+    const auto& relazify = rtStats.runtime.relazificationInfo;
+    nsCString relazificationPath("js-relazification/runtime/");
+#define RELAZIFICATION_COUNT(name, field, description) \
+    REPORT(relazificationPath + NS_LITERAL_CSTRING(name), KIND_OTHER, UNITS_COUNT, \
+        relazify.field, description " Allocated-cell census; it includes uncollected garbage.")
+#define RELAZIFICATION_BYTES(name, field, description) \
+    REPORT(relazificationPath + NS_LITERAL_CSTRING(name), KIND_OTHER, UNITS_BYTES, \
+        relazify.field, description " Upper-bound alternate view; excluded from explicit.")
+    RELAZIFICATION_COUNT("census-complete", complete, "Whether all census tables were built.");
+    RELAZIFICATION_COUNT("functions/compiled", compiledFunctions, "Compiled interpreted function objects.");
+    RELAZIFICATION_COUNT("functions/eligible", eligibleFunctions, "Function objects passing current relazification guards.");
+    RELAZIFICATION_COUNT("functions/excluded/self-hosted", excludedSelfHostedFunctions, "Functions in the guarded self-hosting compartment.");
+    RELAZIFICATION_COUNT("functions/excluded/active-compartment", excludedActiveCompartmentFunctions, "Functions in currently entered compartments.");
+    RELAZIFICATION_COUNT("functions/excluded/debuggee", excludedDebuggeeFunctions, "Functions in debuggee compartments.");
+    RELAZIFICATION_COUNT("functions/excluded/coverage", excludedCoverageFunctions, "Functions in code-coverage compartments.");
+    RELAZIFICATION_COUNT("functions/excluded/jit", excludedJitFunctions, "Functions whose scripts currently have Baseline or Ion code.");
+    RELAZIFICATION_COUNT("functions/excluded/other", excludedOtherFunctions, "Functions failing remaining JSScript relazification constraints.");
+    RELAZIFICATION_COUNT("scripts/candidate", candidateScripts, "Scripts whose compiled function owners all pass current guards.");
+    RELAZIFICATION_BYTES("scripts/candidate-gc-heap", candidateScriptCells, "Candidate JSScript cells.");
+    RELAZIFICATION_BYTES("scripts/candidate-malloc-data", candidateScriptMallocBytes, "Candidate JSScript-owned data, excluding shared bytecode.");
+    RELAZIFICATION_COUNT("script-data/candidate-records", candidateScriptDataRecords, "Shared script-data records whose every script owner is a candidate.");
+    RELAZIFICATION_BYTES("script-data/candidate-bytes", candidateScriptDataBytes, "Unique shared script-data allocations with only candidate script owners.");
+    RELAZIFICATION_COUNT("script-data/blocked-by-other-owners", candidateScriptDataBlockedByOtherOwners, "Candidate-shared records retained by at least one non-candidate script.");
+    RELAZIFICATION_COUNT("script-data/refcount-mismatches", candidateScriptDataRefcountMismatches, "Candidate records with unexplained references; their bytes are excluded.");
+    REPORT(relazificationPath + NS_LITERAL_CSTRING("candidate-total-bytes"), KIND_OTHER, UNITS_BYTES,
+        relazify.candidateScriptCells + relazify.candidateScriptMallocBytes + relazify.candidateScriptDataBytes,
+        "Allocated-cell relazification upper bound. Includes uncollected garbage, retained LazyScript/source data, and ignores first-use CPU; not an expected saving.");
+#undef RELAZIFICATION_COUNT
+#undef RELAZIFICATION_BYTES
 
     nsCString nonNotablePath =
         rtPath + nsPrintfCString("runtime/script-sources/source(scripts=%d, <non-notable files>)/",

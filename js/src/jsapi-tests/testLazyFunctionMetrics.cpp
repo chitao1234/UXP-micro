@@ -30,14 +30,35 @@ class LazyGraphRuntimeStats : public JS::RuntimeStats
         }
         return nullptr;
     }
+
+    const JS::RelazificationInfo* findRelazification(JS::Zone* zone) const {
+        for (const auto& stats : zoneStatsVector) {
+            if (stats.extra == zone)
+                return &stats.relazificationInfo;
+        }
+        return nullptr;
+    }
 };
 
 BEGIN_TEST(testLazyFunctionMetrics)
 {
+    EXEC("function relazificationCensusFunction(x) { return x + 1; }"
+         "relazificationCensusFunction(1);");
+
     LazyGraphRuntimeStats before;
     CHECK(JS::CollectRuntimeStats(cx, &before, nullptr, true));
     const auto* initial = before.find(global->zone());
+    const auto* initialRelazification = before.findRelazification(global->zone());
     CHECK(initial);
+    CHECK(initialRelazification);
+    CHECK(before.runtime.relazificationInfo.complete);
+    CHECK(before.runtime.relazificationInfo.compiledFunctions > 0);
+    CHECK(before.runtime.relazificationInfo.excludedActiveCompartmentFunctions > 0);
+    CHECK_EQUAL(before.runtime.relazificationInfo.candidateScriptDataRefcountMismatches,
+                size_t(0));
+    CHECK(initialRelazification->compiledFunctions > 0);
+    CHECK(initialRelazification->excludedActiveCompartmentFunctions > 0);
+    CHECK(initialRelazification->eligibleFunctions <= initialRelazification->compiledFunctions);
     const size_t initialNested = initial->nestedFunctionCount;
     const size_t initialLazy = initial->nestedLazyScriptCount;
 
@@ -75,7 +96,17 @@ BEGIN_TEST(testLazyFunctionMetrics)
     LazyGraphRuntimeStats repeated;
     CHECK(JS::CollectRuntimeStats(cx, &repeated, nullptr, true));
     const auto* again = repeated.find(global->zone());
+    const auto* againRelazification = repeated.findRelazification(global->zone());
     CHECK(again);
+    CHECK(againRelazification);
+    CHECK(repeated.runtime.relazificationInfo.complete);
+    CHECK_EQUAL(repeated.runtime.relazificationInfo.compiledFunctions,
+                before.runtime.relazificationInfo.compiledFunctions);
+    CHECK_EQUAL(repeated.runtime.relazificationInfo.eligibleFunctions,
+                before.runtime.relazificationInfo.eligibleFunctions);
+    CHECK_EQUAL(repeated.runtime.relazificationInfo.candidateScriptDataBytes,
+                before.runtime.relazificationInfo.candidateScriptDataBytes);
+    CHECK_EQUAL(againRelazification->compiledFunctions, initialRelazification->compiledFunctions);
     CHECK_EQUAL(again->functionCount, nested->functionCount);
     CHECK_EQUAL(again->nestedFunctionCount, nested->nestedFunctionCount);
     CHECK_EQUAL(again->nestedLazyScriptCount, nested->nestedLazyScriptCount);

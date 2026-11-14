@@ -536,6 +536,43 @@ struct ScriptDataInfo
     size_t sharedBytes = 0;
 };
 
+// Non-owning upper bound on script storage that existing relazification could
+// drop. This counts allocated cells, including uncollected garbage. It does
+// not inspect roots or predict whether any particular script will be used.
+struct RelazificationInfo
+{
+    size_t compiledFunctions = 0;
+    size_t eligibleFunctions = 0;
+    size_t excludedSelfHostedFunctions = 0;
+    size_t excludedActiveCompartmentFunctions = 0;
+    size_t excludedDebuggeeFunctions = 0;
+    size_t excludedCoverageFunctions = 0;
+    size_t excludedJitFunctions = 0;
+    size_t excludedOtherFunctions = 0;
+    size_t candidateScripts = 0;
+    size_t candidateScriptCells = 0;
+    size_t candidateScriptMallocBytes = 0;
+    size_t candidateScriptDataRecords = 0;
+    size_t candidateScriptDataBytes = 0;
+    size_t candidateScriptDataBlockedByOtherOwners = 0;
+    size_t candidateScriptDataRefcountMismatches = 0;
+    bool complete = false;
+
+    void add(const RelazificationInfo& other) {
+        compiledFunctions += other.compiledFunctions;
+        eligibleFunctions += other.eligibleFunctions;
+        excludedSelfHostedFunctions += other.excludedSelfHostedFunctions;
+        excludedActiveCompartmentFunctions += other.excludedActiveCompartmentFunctions;
+        excludedDebuggeeFunctions += other.excludedDebuggeeFunctions;
+        excludedCoverageFunctions += other.excludedCoverageFunctions;
+        excludedJitFunctions += other.excludedJitFunctions;
+        excludedOtherFunctions += other.excludedOtherFunctions;
+        candidateScripts += other.candidateScripts;
+        candidateScriptCells += other.candidateScriptCells;
+        candidateScriptMallocBytes += other.candidateScriptMallocBytes;
+    }
+};
+
 /** Measurements for the JSRuntime, rather than individual zones/compartments. */
 struct RuntimeSizes
 {
@@ -584,6 +621,7 @@ struct RuntimeSizes
     FOR_EACH_SIZE(DECL_SIZE)
     ScriptSourceInfo scriptSourceInfo;
     ScriptDataInfo scriptDataInfo;
+    RelazificationInfo relazificationInfo;
     CodeSizes code;
     GCSizes gc;
 
@@ -732,6 +770,7 @@ struct ZoneStats
         stringInfo(),
         shapeInfo(),
         lazyFunctions(),
+        relazificationInfo(),
         extra(),
         allStrings(nullptr),
         notableStrings(),
@@ -744,6 +783,7 @@ struct ZoneStats
         stringInfo(mozilla::Move(other.stringInfo)),
         shapeInfo(mozilla::Move(other.shapeInfo)),
         lazyFunctions(other.lazyFunctions),
+        relazificationInfo(other.relazificationInfo),
         extra(other.extra),
         allStrings(other.allStrings),
         notableStrings(mozilla::Move(other.notableStrings)),
@@ -769,6 +809,7 @@ struct ZoneStats
         stringInfo.add(other.stringInfo);
         shapeInfo.add(other.shapeInfo);
         lazyFunctions.add(other.lazyFunctions);
+        relazificationInfo.add(other.relazificationInfo);
     }
 
     size_t sizeOfLiveGCThings() const {
@@ -805,6 +846,7 @@ struct ZoneStats
     StringInfo stringInfo;
     ShapeInfo shapeInfo;
     LazyFunctionInfo lazyFunctions;
+    RelazificationInfo relazificationInfo;
     void* extra;    // This field can be used by embedders.
 
     typedef js::HashMap<JSString*, StringInfo,

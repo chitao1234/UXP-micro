@@ -14,6 +14,7 @@
 #include "jsobj.h"
 #include "jsscript.h"
 
+#include "builtin/SelfHostingDefines.h"
 #include "gc/Heap.h"
 #include "jit/BaselineJIT.h"
 #include "jit/Ion.h"
@@ -282,6 +283,34 @@ NotableScriptSourceInfo& NotableScriptSourceInfo::operator=(NotableScriptSourceI
 
 typedef HashSet<ScriptSource*, DefaultHasher<ScriptSource*>, SystemAllocPolicy> SourceSet;
 
+struct RelazificationFunctionOwners
+{
+    size_t functionCount = 0;
+    size_t eligibleFunctionCount = 0;
+};
+
+struct RelazificationScriptDataOwners
+{
+    size_t scriptCount = 0;
+    size_t candidateScriptCount = 0;
+};
+
+typedef HashMap<JSScript*, RelazificationFunctionOwners,
+                DefaultHasher<JSScript*>, SystemAllocPolicy> RelazificationFunctionMap;
+typedef HashMap<SharedScriptData*, RelazificationScriptDataOwners,
+                DefaultHasher<SharedScriptData*>, SystemAllocPolicy> RelazificationScriptDataMap;
+
+enum class RelazificationExclusion
+{
+    Eligible,
+    SelfHosted,
+    ActiveCompartment,
+    Debuggee,
+    Coverage,
+    Jit,
+    Other
+};
+
 struct StatsClosure
 {
     RuntimeStats* rtStats;
@@ -292,8 +321,11 @@ struct StatsClosure
     wasm::Metadata::SeenSet wasmSeenMetadata;
     wasm::ShareableBytes::SeenSet wasmSeenBytes;
     wasm::Table::SeenSet wasmSeenTables;
+    RelazificationFunctionMap relazificationFunctions;
+    RelazificationScriptDataMap relazificationScriptData;
     bool anonymize;
     bool collectGCArenaOccupancy;
+    bool relazificationCensusComplete = true;
 
     StatsClosure(RuntimeStats* rt, ObjectPrivateVisitor* v, bool anon,
                  bool collectGCArenaOccupancy = false)
@@ -309,7 +341,9 @@ struct StatsClosure
                wasmSeenCode.init() &&
                wasmSeenMetadata.init() &&
                wasmSeenBytes.init() &&
-               wasmSeenTables.init();
+               wasmSeenTables.init() &&
+               (!collectGCArenaOccupancy ||
+                (relazificationFunctions.init() && relazificationScriptData.init()));
     }
 };
 
@@ -483,6 +517,32 @@ IsUnmaterializedLazyDescendant(LazyScript* lazy)
     return !lazy->sourceObject() && !lazy->enclosingScope() && !lazy->hasScript();
 }
 
+static RelazificationExclusion
+GetRelazificationExclusion(JSRuntime* rt, JSFunction* fun, JSScript* script)
+{
+    JSCompartment* comp = fun->compartment();
+    if (comp->isSelfHosting)
+        return RelazificationExclusion::SelfHosted;
+    if (comp->hasBeenEntered() && !rt->allowRelazificationForTesting)
+        return RelazificationExclusion::ActiveCompartment;
+    if (comp->isDebuggee())
+        return RelazificationExclusion::Debuggee;
+    if (comp->collectCoverageForDebug())
+        return RelazificationExclusion::Coverage;
+    // maybeRelazify can recreate cloned self-hosted built-ins from this name.
+    if (fun->isSelfHostedBuiltin() &&
+        (!fun->isExtended() ||
+         !fun->getExtendedSlot(LAZY_FUNCTION_NAME_SLOT).isString()))
+    {
+        return RelazificationExclusion::Other;
+    }
+    if (script->hasBaselineScript() || script->hasAnyIonScript())
+        return RelazificationExclusion::Jit;
+    if (!script->isRelazifiable())
+        return RelazificationExclusion::Other;
+    return RelazificationExclusion::Eligible;
+}
+
 // The various kinds of hashing are expensive, and the results are unused when
 // doing coarse-grained measurements. Skipping them more than doubles the
 // profile speed for complex pages such as gmail.com.
@@ -523,6 +583,62 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
                     graph.nestedFunctionMallocHeap += info.objectsMallocHeapSlots;
                     if (lazy->functionNonDelazifying() != fun)
                         graph.nestedCloneCount++;
+                }
+            }
+
+            if (closure->collectGCArenaOccupancy && fun->hasScript() &&
+                !fun->hasUncompiledScript()) {
+                JSScript* script = fun->nonLazyScript();
+                RelazificationExclusion exclusion = GetRelazificationExclusion(rt, fun, script);
+                JS::RelazificationInfo& info = rtStats->runtime.relazificationInfo;
+                info.compiledFunctions++;
+                zStats->relazificationInfo.compiledFunctions++;
+                switch (exclusion) {
+                  case RelazificationExclusion::Eligible:
+                    info.eligibleFunctions++;
+                    zStats->relazificationInfo.eligibleFunctions++;
+                    break;
+                  case RelazificationExclusion::SelfHosted:
+                    info.excludedSelfHostedFunctions++;
+                    zStats->relazificationInfo.excludedSelfHostedFunctions++;
+                    break;
+                  case RelazificationExclusion::ActiveCompartment:
+                    info.excludedActiveCompartmentFunctions++;
+                    zStats->relazificationInfo.excludedActiveCompartmentFunctions++;
+                    break;
+                  case RelazificationExclusion::Debuggee:
+                    info.excludedDebuggeeFunctions++;
+                    zStats->relazificationInfo.excludedDebuggeeFunctions++;
+                    break;
+                  case RelazificationExclusion::Coverage:
+                    info.excludedCoverageFunctions++;
+                    zStats->relazificationInfo.excludedCoverageFunctions++;
+                    break;
+                  case RelazificationExclusion::Jit:
+                    info.excludedJitFunctions++;
+                    zStats->relazificationInfo.excludedJitFunctions++;
+                    break;
+                  case RelazificationExclusion::Other:
+                    info.excludedOtherFunctions++;
+                    zStats->relazificationInfo.excludedOtherFunctions++;
+                    break;
+                }
+
+                // Count every compiled function sharing this script. The
+                // script is a candidate only if all such function owners pass
+                // the same guards as JSFunction::maybeRelazify.
+                if (script->isRelazifiable()) {
+                    auto p = closure->relazificationFunctions.lookupForAdd(script);
+                    if (!p && !closure->relazificationFunctions.add(
+                                  p, script, RelazificationFunctionOwners()))
+                    {
+                        closure->relazificationCensusComplete = false;
+                    }
+                    if (p) {
+                        p->value().functionCount++;
+                        if (exclusion == RelazificationExclusion::Eligible)
+                            p->value().eligibleFunctionCount++;
+                    }
                 }
             }
         }
@@ -577,6 +693,38 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
                                    &cStats.baselineStubsFallback);
         cStats.ionData += jit::SizeOfIonData(script, rtStats->mallocSizeOf_);
         CollectScriptSourceStats<granularity>(closure, script->scriptSource());
+
+        if (closure->collectGCArenaOccupancy) {
+            bool candidate = false;
+            auto functions = closure->relazificationFunctions.lookup(script);
+            if (functions && functions->value().functionCount &&
+                functions->value().functionCount == functions->value().eligibleFunctionCount)
+            {
+                candidate = true;
+                JS::RelazificationInfo& info = rtStats->runtime.relazificationInfo;
+                info.candidateScripts++;
+                info.candidateScriptCells += thingSize;
+                info.candidateScriptMallocBytes += script->sizeOfData(rtStats->mallocSizeOf_);
+                zStats->relazificationInfo.candidateScripts++;
+                zStats->relazificationInfo.candidateScriptCells += thingSize;
+                zStats->relazificationInfo.candidateScriptMallocBytes +=
+                    script->sizeOfData(rtStats->mallocSizeOf_);
+            }
+
+            if (script->scriptData()) {
+                auto p = closure->relazificationScriptData.lookupForAdd(script->scriptData());
+                if (!p && !closure->relazificationScriptData.add(
+                              p, script->scriptData(), RelazificationScriptDataOwners()))
+                {
+                    closure->relazificationCensusComplete = false;
+                }
+                if (p) {
+                    p->value().scriptCount++;
+                    if (candidate)
+                        p->value().candidateScriptCount++;
+                }
+            }
+        }
         break;
       }
 
@@ -700,6 +848,40 @@ StatsCellCallback(JSRuntime* rt, void* data, void* thing, JS::TraceKind traceKin
 
     // Yes, this is a subtraction:  see StatsArenaCallback() for details.
     zStats->unusedGCThings.addToKind(traceKind, -thingSize);
+}
+
+static void
+FinishRelazificationCensus(StatsClosure* closure)
+{
+    JS::RelazificationInfo& info = closure->rtStats->runtime.relazificationInfo;
+    info.complete = closure->relazificationCensusComplete;
+    if (!info.complete)
+        return;
+
+    for (RelazificationScriptDataMap::Range r = closure->relazificationScriptData.all();
+         !r.empty(); r.popFront())
+    {
+        SharedScriptData* scriptData = r.front().key();
+        const RelazificationScriptDataOwners& owners = r.front().value();
+        if (!owners.candidateScriptCount)
+            continue;
+
+        if (owners.candidateScriptCount != owners.scriptCount) {
+            info.candidateScriptDataBlockedByOtherOwners++;
+            continue;
+        }
+
+        // The normal references are one per JSScript plus an optional
+        // script-data-table reference. Exclude unexplained references entirely.
+        uint32_t refs = scriptData->refCount();
+        if (refs != owners.scriptCount && refs != owners.scriptCount + 1) {
+            info.candidateScriptDataRefcountMismatches++;
+            continue;
+        }
+
+        info.candidateScriptDataRecords++;
+        info.candidateScriptDataBytes += closure->rtStats->mallocSizeOf_(scriptData);
+    }
 }
 
 bool
@@ -860,6 +1042,9 @@ CollectRuntimeStatsHelper(JSContext* cx, RuntimeStats* rtStats, ObjectPrivateVis
                                         StatsCompartmentCallback,
                                         StatsArenaCallback,
                                         statsCellCallback);
+
+    if (collectGCArenaOccupancy)
+        FinishRelazificationCensus(&closure);
 
     // Take the "explicit/js/runtime/" measurements.
     rt->addSizeOfIncludingThis(rtStats->mallocSizeOf_, &rtStats->runtime);
