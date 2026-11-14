@@ -343,6 +343,25 @@ namespace css {
 
 class Declaration;
 
+// Collects StyleRule suballocations during the existing stylesheet memory
+// walk. The additional values are diagnostic views and do not change totals.
+class AutoStyleRuleSizeOfInfo final
+{
+public:
+  AutoStyleRuleSizeOfInfo(size_t* aRuleObjects, size_t* aSelectors,
+                          size_t* aDeclarations);
+  ~AutoStyleRuleSizeOfInfo();
+
+  static void Add(size_t aRuleObjects, size_t aSelectors,
+                  size_t aDeclarations);
+
+private:
+  AutoStyleRuleSizeOfInfo* mPrevious;
+  size_t* mRuleObjects;
+  size_t* mSelectors;
+  size_t* mDeclarations;
+};
+
 class StyleRule final : public BindingStyleRule
                       , public nsICSSStyleRuleDOMWrapper
 {

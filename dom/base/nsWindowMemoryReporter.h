@@ -41,6 +41,9 @@ public:
       #define ZERO_SIZE(kind, mSize)  mSize(0),
       FOR_EACH_SIZE(ZERO_SIZE)
       #undef ZERO_SIZE
+      mStyleSheetRuleObjectsSize(0),
+      mStyleSheetSelectorGraphSize(0),
+      mStyleSheetDeclarationsSize(0),
       mDOMEventTargetsCount(0),
       mDOMEventListenersCount(0),
       mArenaStats(),
@@ -67,6 +70,12 @@ public:
   #define DECL_SIZE(kind, mSize) size_t mSize;
   FOR_EACH_SIZE(DECL_SIZE);
   #undef DECL_SIZE
+
+  // Overlapping details of mStyleSheetsSize; intentionally excluded from the
+  // primary byte totals.
+  size_t mStyleSheetRuleObjectsSize;
+  size_t mStyleSheetSelectorGraphSize;
+  size_t mStyleSheetDeclarationsSize;
 
   uint32_t mDOMEventTargetsCount;
   uint32_t mDOMEventListenersCount;

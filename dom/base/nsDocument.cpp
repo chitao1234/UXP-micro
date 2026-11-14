@@ -14,6 +14,7 @@
 #include "mozilla/AutoRestore.h"
 #include "mozilla/BinarySearch.h"
 #include "mozilla/CSSStyleSheet.h"
+#include "mozilla/css/StyleRule.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/EffectSet.h"
 #include "mozilla/IntegerRange.h"
@@ -11730,24 +11731,31 @@ nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
     }
   }
 
-  aWindowSizes->mStyleSheetsSize +=
-    SizeOfOwnedSheetArrayExcludingThis(mStyleSheets,
-                                       aWindowSizes->mMallocSizeOf);
-  // Note that we do not own the sheets pointed to by mOnDemandBuiltInUASheets
-  // (the nsLayoutStyleSheetCache singleton does).
-  aWindowSizes->mStyleSheetsSize +=
-    mOnDemandBuiltInUASheets.ShallowSizeOfExcludingThis(
-        aWindowSizes->mMallocSizeOf);
-  for (auto& sheetArray : mAdditionalSheets) {
+  {
+    mozilla::css::AutoStyleRuleSizeOfInfo styleRuleSizeOf(
+      &aWindowSizes->mStyleSheetRuleObjectsSize,
+      &aWindowSizes->mStyleSheetSelectorGraphSize,
+      &aWindowSizes->mStyleSheetDeclarationsSize);
+
     aWindowSizes->mStyleSheetsSize +=
-      SizeOfOwnedSheetArrayExcludingThis(sheetArray,
+      SizeOfOwnedSheetArrayExcludingThis(mStyleSheets,
                                          aWindowSizes->mMallocSizeOf);
+    // Note that we do not own the sheets pointed to by mOnDemandBuiltInUASheets
+    // (the nsLayoutStyleSheetCache singleton does).
+    aWindowSizes->mStyleSheetsSize +=
+      mOnDemandBuiltInUASheets.ShallowSizeOfExcludingThis(
+          aWindowSizes->mMallocSizeOf);
+    for (auto& sheetArray : mAdditionalSheets) {
+      aWindowSizes->mStyleSheetsSize +=
+        SizeOfOwnedSheetArrayExcludingThis(sheetArray,
+                                           aWindowSizes->mMallocSizeOf);
+    }
+    // Lumping in the loader with the style-sheets size is not ideal,
+    // but most of the things in there are in fact stylesheets, so it
+    // doesn't seem worthwhile to separate it out.
+    aWindowSizes->mStyleSheetsSize +=
+      CSSLoader()->SizeOfIncludingThis(aWindowSizes->mMallocSizeOf);
   }
-  // Lumping in the loader with the style-sheets size is not ideal,
-  // but most of the things in there are in fact stylesheets, so it
-  // doesn't seem worthwhile to separate it out.
-  aWindowSizes->mStyleSheetsSize +=
-    CSSLoader()->SizeOfIncludingThis(aWindowSizes->mMallocSizeOf);
 
   aWindowSizes->mDOMOtherSize +=
     mAttrStyleSheet ?

@@ -444,6 +444,32 @@ CollectWindowReports(nsGlobalWindow *aWindow,
               "Memory used by style sheets within a window.");
   aWindowTotalSizes->mStyleSheetsSize += windowSizes.mStyleSheetsSize;
 
+#define REPORT_STYLE_SHEET_DETAIL(_tail, _amount, _description) \
+  ReportAmount(windowPath, "/style-sheet-details/" _tail, _amount, \
+               NS_LITERAL_CSTRING(_description), nsIMemoryReporter::KIND_OTHER, \
+               nsIMemoryReporter::UNITS_BYTES, \
+               aHandleReport, aData)
+  REPORT_STYLE_SHEET_DETAIL("rule-objects", windowSizes.mStyleSheetRuleObjectsSize,
+      "StyleRule object allocations; overlapping detail of style-sheets.");
+  REPORT_STYLE_SHEET_DETAIL("selector-graphs", windowSizes.mStyleSheetSelectorGraphSize,
+      "Selector-list and selector-component allocations; overlapping detail of style-sheets.");
+  REPORT_STYLE_SHEET_DETAIL("declarations", windowSizes.mStyleSheetDeclarationsSize,
+      "StyleRule declaration allocations; overlapping detail of style-sheets.");
+  size_t windowStyleSheetDetails = windowSizes.mStyleSheetRuleObjectsSize +
+                                  windowSizes.mStyleSheetSelectorGraphSize +
+                                  windowSizes.mStyleSheetDeclarationsSize;
+  REPORT_STYLE_SHEET_DETAIL("unclassified",
+      windowStyleSheetDetails <= windowSizes.mStyleSheetsSize
+        ? windowSizes.mStyleSheetsSize - windowStyleSheetDetails : 0,
+      "Remaining style-sheets bytes, including group rules, stylesheet structures, and loader data.");
+#undef REPORT_STYLE_SHEET_DETAIL
+  aWindowTotalSizes->mStyleSheetRuleObjectsSize +=
+    windowSizes.mStyleSheetRuleObjectsSize;
+  aWindowTotalSizes->mStyleSheetSelectorGraphSize +=
+    windowSizes.mStyleSheetSelectorGraphSize;
+  aWindowTotalSizes->mStyleSheetDeclarationsSize +=
+    windowSizes.mStyleSheetDeclarationsSize;
+
   REPORT_SIZE("/layout/pres-shell", windowSizes.mLayoutPresShellSize,
               "Memory used by layout's PresShell, along with any structures "
               "allocated in its arena and not measured elsewhere, "
@@ -625,6 +651,23 @@ nsWindowMemoryReporter::CollectReports(nsIHandleReportCallback* aHandleReport,
 
   REPORT("window-objects/style-sheets", windowTotalSizes.mStyleSheetsSize,
          "This is the sum of all windows' 'style-sheets' numbers.");
+
+#define REPORT_STYLE_SHEET_DETAIL(_tail, _amount, _description) \
+  REPORT("window-objects/style-sheet-details/" _tail, _amount, _description)
+  REPORT_STYLE_SHEET_DETAIL("rule-objects", windowTotalSizes.mStyleSheetRuleObjectsSize,
+      "Overlapping StyleRule object allocations from all windows.");
+  REPORT_STYLE_SHEET_DETAIL("selector-graphs", windowTotalSizes.mStyleSheetSelectorGraphSize,
+      "Overlapping selector-list and selector-component allocations from all windows.");
+  REPORT_STYLE_SHEET_DETAIL("declarations", windowTotalSizes.mStyleSheetDeclarationsSize,
+      "Overlapping StyleRule declaration allocations from all windows.");
+  size_t styleSheetDetails = windowTotalSizes.mStyleSheetRuleObjectsSize +
+                             windowTotalSizes.mStyleSheetSelectorGraphSize +
+                             windowTotalSizes.mStyleSheetDeclarationsSize;
+  REPORT_STYLE_SHEET_DETAIL("unclassified",
+      styleSheetDetails <= windowTotalSizes.mStyleSheetsSize
+        ? windowTotalSizes.mStyleSheetsSize - styleSheetDetails : 0,
+      "Remaining style-sheets bytes, including group rules, stylesheet structures, and loader data.");
+#undef REPORT_STYLE_SHEET_DETAIL
 
   REPORT("window-objects/layout/pres-shell", windowTotalSizes.mLayoutPresShellSize,
          "This is the sum of all windows' 'layout/arenas' numbers.");

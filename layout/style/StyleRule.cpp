@@ -1507,15 +1507,52 @@ StyleRule::SetSelectorText(const nsAString& aSelectorText)
 /* virtual */ size_t
 StyleRule::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
-  size_t n = aMallocSizeOf(this);
-  n += mSelector ? mSelector->SizeOfIncludingThis(aMallocSizeOf) : 0;
-  n += mDeclaration ? mDeclaration->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  size_t ruleObjects = aMallocSizeOf(this);
+  size_t selectors = mSelector ? mSelector->SizeOfIncludingThis(aMallocSizeOf) : 0;
+  size_t declarations = mDeclaration ? mDeclaration->SizeOfIncludingThis(aMallocSizeOf) : 0;
+
+  AutoStyleRuleSizeOfInfo::Add(ruleObjects, selectors, declarations);
 
   // Measurement of the following members may be added later if DMD finds it is
   // worthwhile:
   // - mDOMRule;
 
-  return n;
+  return ruleObjects + selectors + declarations;
+}
+
+static thread_local AutoStyleRuleSizeOfInfo* sCurrentStyleRuleSizeOfInfo = nullptr;
+
+AutoStyleRuleSizeOfInfo::AutoStyleRuleSizeOfInfo(size_t* aRuleObjects,
+                                                 size_t* aSelectors,
+                                                 size_t* aDeclarations)
+  : mPrevious(sCurrentStyleRuleSizeOfInfo),
+    mRuleObjects(aRuleObjects),
+    mSelectors(aSelectors),
+    mDeclarations(aDeclarations)
+{
+  sCurrentStyleRuleSizeOfInfo = this;
+}
+
+AutoStyleRuleSizeOfInfo::~AutoStyleRuleSizeOfInfo()
+{
+  MOZ_ASSERT(sCurrentStyleRuleSizeOfInfo == this);
+  sCurrentStyleRuleSizeOfInfo = mPrevious;
+}
+
+void
+AutoStyleRuleSizeOfInfo::Add(size_t aRuleObjects, size_t aSelectors,
+                             size_t aDeclarations)
+{
+  if (!sCurrentStyleRuleSizeOfInfo)
+    return;
+
+  AutoStyleRuleSizeOfInfo* info = sCurrentStyleRuleSizeOfInfo;
+  if (info->mRuleObjects)
+    *info->mRuleObjects += aRuleObjects;
+  if (info->mSelectors)
+    *info->mSelectors += aSelectors;
+  if (info->mDeclarations)
+    *info->mDeclarations += aDeclarations;
 }
 
 } // namespace css
